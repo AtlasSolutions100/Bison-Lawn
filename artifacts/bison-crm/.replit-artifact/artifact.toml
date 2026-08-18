@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Bison Lawn Care CRM"
+description = "A custom CRM and job management system for Bison Lawn Care LLC, a seasonal lawn care/landscaping business. Admins manage leads/clients, estimates, services and packages with equation-based pricing, a waiting list and dispatch board, invoices, payments, and tickets. Contractors get a focused mobile-friendly job board with routing."
+version = "1.0.0"
+id = "artifacts/bison-crm"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18483
+
+[services.development]
+run = "pnpm --filter @workspace/bison-crm run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/bison-crm", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/bison-crm/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18483"
+BASE_PATH = "/"

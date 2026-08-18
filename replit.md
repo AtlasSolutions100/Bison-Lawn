@@ -1,44 +1,54 @@
-# [Project name]
+# Bison Lawn Care CRM
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Custom CRM + job management for Bison Lawn Care LLC — leads/clients, equation-based pricing, estimates, waiting list, dispatch board, invoices/payments, tickets, and a mobile contractor job board with route optimization.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/api-server run dev` — run the API server
+- `pnpm --filter @workspace/bison-crm run dev` — run the web app (Vite)
 - `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- `pnpm dlx tsx artifacts/api-server/src/seed.ts` — idempotent dev seed
+- Required env: `DATABASE_URL`; Clerk keys auto-provisioned (`CLERK_*`, `VITE_CLERK_PUBLISHABLE_KEY`)
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
+- API: Express 5 + Clerk auth (`@clerk/express`, proxy middleware)
+- Web: React + Vite + Tailwind v4 + shadcn, wouter, TanStack Query (generated hooks)
 - DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- Validation: Zod v4 (catalog pin), `drizzle-zod`
+- API codegen: Orval v8 (from `lib/api-spec/openapi.yaml`)
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- API contract (source of truth): `lib/api-spec/openapi.yaml` → generated hooks in `lib/api-client-react/src/generated/`, Zod in `lib/api-zod/src/generated/`
+- DB schema: `lib/db/src/schema/crm.ts`
+- API routes: `artifacts/api-server/src/routes/` (users, clients, services, estimates, jobs, billing, tickets, dashboard)
+- Auth: `artifacts/api-server/src/middlewares/requireAuth.ts` (Clerk session → JIT-provisioned local user; first user becomes admin)
+- Business logic helpers: `artifacts/api-server/src/lib/helpers.ts` (pricing engine, balance recalc, route optimizer)
+- Frontend pages: `artifacts/bison-crm/src/pages/`; theme in `src/index.css`
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Single web artifact serves both admin (sidebar shell) and contractor (mobile bottom-nav) views; role from `/api/me`.
+- Roles live in a local `users` table keyed by Clerk user id; first signup = admin, later signups = contractor (changeable in /team).
+- Pricing engine: services store `pricingEquations` JSONB (base price for first N sqft + increment per M sqft, breakpoints by `upToSqft`).
+- Jobs table doubles as waiting list (`dispatched=false`, window dates) and dispatch board (`dispatched=true`, scheduledDate).
+- Completing a job auto-creates an invoice (job amount + products); balances always recomputed from invoices − payments.
+- Contractor route: server-side nearest-neighbor + 2-opt over client lat/lng from the contractor's home base; Google Maps links for navigation (no API key).
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
-
-## User preferences
-
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Admin: dashboard, clients (notes, property data, lazy audit trail), services & packages with live price calculator, estimates (custom fields, print-to-PDF, send), waiting list with multi-dispatch, dispatch board with 14 columns + filters, invoices/payments (check/Venmo/Zelle/card/cash + reference #), tickets, team management.
+- Contractor: mobile job list with one-tap status updates and optimized route view.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Never edit generated files; change `openapi.yaml` then run codegen, and run `pnpm -w run typecheck:libs` before typechecking apps (project references).
+- Orval v8 emits zod v4 code (`zod.int()`); the workspace catalog must stay on zod ^4.
+- Server routes mount under `/api`; frontend must use generated hooks (base path handled by custom-fetch). Web auth is cookie-based — no bearer tokens in browser code.
 
 ## Pointers
 
