@@ -1,0 +1,180 @@
+Build a complete, production-ready custom CRM + job management system for a lawn care / landscaping business called Bison Lawn Care LLC. This is a real operating business with hundreds of clients, multiple admin users, and multiple contractors (subcontractors) who perform the physical work. The system must replace their current commercial CRM while being cleaner, faster, more flexible on pricing, and tailored exactly to how they actually work.
+
+### Core Purpose & Context
+The owner (and a few trusted admins) need one place to manage the entire customer lifecycle and the entire operational workflow of a seasonal service business:
+- Capture leads and convert them to paying clients
+- Create and send professional estimates
+- Define services and multi-service packages with sophisticated but simple pricing rules
+- Schedule work (both one-time / windowed jobs and recurring jobs)
+- Dispatch work to contractors
+- Track completion, generate invoices, record payments, and maintain a full audit history
+- Give contractors a clean, focused view of only the jobs assigned to them, with routing help
+
+The system has two distinct experiences:
+
+1. **Admin experience** (full CRM + operations)
+2. **Contractor / User experience** (job board only – no full client data)
+
+There will be multiple admin accounts and multiple contractor accounts. Admins can do everything. Contractors can only see and interact with jobs assigned to them.
+
+### 1. Users & Roles
+- Admins: full access to everything (CRM, services, packages, pricing, scheduling, dispatch, invoices, payments, reports, settings, user management).
+- Contractors (called “Users” or “Mobile” in the current system): can only see jobs assigned to them (today, past, future), the monetary value of those jobs, location, service details, notes, products, and a suggested efficient route. They need simple status updates (on the way / started / completed) and the ability to add notes or products used.
+- Support role hierarchy so an admin can later restrict what individual contractors can see/do if needed.
+
+### 2. CRM – Single Client / Lead Page
+Use one unified record type with a simple status field that can be changed at any time:
+- Lead
+- Client
+- Former Client
+
+The page itself never changes layout based on status. Status is just a filterable/badge field.
+
+Required fields on every record:
+- Client / Lead name
+- Service address (full address, geocodable)
+- Status (Lead / Client / Former Client)
+- Account balance
+- Email
+- Phone
+- Additional contact information
+- Notes (free-form, multi-entry preferred)
+- Custom property data (see Estimates section – turf sq ft, sprinkler zones, gate code, etc.)
+
+Key actions available on the page (always visible or clearly accessible):
+- Create Estimate
+- Send Email (compose and send directly from the system)
+- Show on Map (opens map centered on the service address with zoom; ideally Google Maps or equivalent)
+- Add Ticket (see Tickets section)
+- Convert / change status (simple dropdown or button that logs the change)
+- Add Package / Add Job (once they become a Client)
+- View / expand Audit Trail
+
+**Audit Trail** (critical):
+At the bottom of every client page there is an “Audit Trail” section. By default it is collapsed / hidden so the page stays fast. When expanded it shows a chronological log (newest at top) of every meaningful event:
+- Who created the lead
+- Status changes (Lead → Client → Former Client and back)
+- Estimates created / sent
+- Packages / jobs added or modified
+- Invoices generated
+- Payments recorded
+- Tickets created
+- Any other important actions
+Each entry must show: timestamp, which admin (or system) performed the action, and a clear description.
+
+Do not load the full audit trail until the user expands it.
+
+### 3. Services, Packages & Rate Matrix
+**Services**
+Admins can create individual services. Each service has:
+- Name
+- Quantity (usually 1)
+- Rate (or better: driven by the rate matrix)
+- Start date / End date (optional – used for waiting-list windows)
+- Billable hours
+- Team size
+- Min days (can be ignored if not used)
+- Renew date (very important)
+
+**Packages**
+A package is a collection of services (e.g. “5 Application Fertilizer Program”, “Sprinkler Package = Turn-on + Backflow + Blowout”). When a package is added to a client, the individual services inside it inherit the package’s settings and can still be lightly customized (especially quantity and dates).
+
+**Rate Matrix – Completely redesigned for simplicity**
+Do **not** recreate a giant static matrix with hundreds of rows. Instead implement a flexible equation-based pricing engine per service:
+
+- Equation 1: Base price for the first X square feet + additional price per Y square feet thereafter (with automatic round-up to the next bracket).
+- Ability to set a breakpoint (e.g. “up to 10,000 sq ft”) after which a second equation takes over.
+- Button to “Add another equation” so admins can create 2–3 breakpoints easily.
+- Live test calculator on the service edit page: type in a square footage and instantly see the calculated price.
+- All equations must be editable by the admin at any time without developer help.
+
+This pricing is used when services/packages are added to clients and when jobs are created. Estimates use a separate, simpler custom-field pricing system (see below).
+
+### 4. Estimates
+Completely separate from the main rate matrix.
+
+Admins define reusable custom fields for estimates. Each field has:
+- Label (e.g. Turf Square Foot, Sprinkler Zones, Gate Code, Garage Code, Dog, Driveway Square Feet, Roof & Gutter Line, Bed Square Feet, etc.)
+- Type: Calculable or Non-calculable
+- For Calculable: pricing rule (e.g. $20 per 100 sq ft)
+- For Non-calculable: simple text or number field (gate code, “yes/no dog”, etc.)
+
+When an admin clicks “Create Estimate” on a client/lead page:
+1. They fill in any of the custom fields they want (all optional).
+2. Calculable fields automatically compute line-item prices.
+3. The system generates a clean PDF estimate containing:
+   - Business info (Bison Lawn Care)
+   - Client name, address, contact info
+   - Line items with quantities and calculated prices
+   - Notes section for non-calculable fields
+   - Total
+4. The estimate can be emailed directly or downloaded.
+
+### 5. Scheduling – Waiting List + Dispatch Board
+This is the operational heart of the system.
+
+**Waiting List**
+Any service (or package service) that has a start–end date window appears in the Waiting List for every date that falls inside that window. Admins can filter the waiting list by date range. They can multi-select jobs and “Dispatch” them, at which point they assign a specific date and the jobs move to the Dispatch Board.
+
+Recurring jobs (weekly, bi-weekly, every 4 weeks, etc.) never go into the Waiting List. They appear directly on the Dispatch Board on their scheduled dates. Recurring jobs also support:
+- Frequency
+- First service date
+- End date for the current season
+- Renew date (so the system can remind the admin next year and auto-renew if desired)
+
+**Dispatch Board**
+Once a job has a concrete date it lives on the Dispatch Board. This is the daily operational view.
+
+Required columns / data (use these as the core set; a supporting document with exact header preferences will be attached):
+- Order (routing sequence – 1, 2, 3…)
+- Status (needs icons or clear labels: scheduled / on the way / in progress / completed)
+- Client (name + address)
+- Account Balance
+- Service
+- Date
+- Map (custom text field – water district codes, notes, etc.)
+- City
+- Assigned (contractor / user)
+- Last Service
+- Budgeted Hours
+- Amount
+- Notes (important notes highlighted)
+- Products (list of extra products/parts with prices that can be added)
+
+Admins can filter the board heavily (by contractor, date, service, city, etc.). The board is also the source of truth for calculating what each contractor is owed for the day.
+
+**Routing for Contractors**
+When a contractor views their jobs for a given day, the system should calculate a reasonably efficient route starting and ending at a configurable home/base location, minimizing total driving distance/time across the assigned stops (up to ~18 stops is realistic).
+
+### 6. Jobs, Completion, Invoicing & Payments
+- Completing a job on the Dispatch Board should feed into invoicing.
+- Admins need a clear Invoices list (linked to clients) and a Payments list.
+- Payments can be recorded manually (check, Venmo, Zelle, credit card, etc.) with reference numbers.
+- Account balance on the client record must stay accurate.
+- Simple ability to apply payments, handle overpayments, and later generate statements if needed.
+
+### 7. Tickets (Tasks)
+Separate from jobs. A ticket is an internal task (“call this client”, “update account”, “follow up on estimate”, etc.). Can be assigned to an admin or contractor and appears in a simple task list or on the relevant client page.
+
+### 8. Additional Notes from the Discovery Call
+- Client portal / self-service payment portal is **not** required in the first version. Prefer a simple “text this number for your invoice” style flow later if needed.
+- Text messaging capability (via a third-party service) is desirable but can be phase 2.
+- Property measurement / drawing tools on the map can be added later; for v1 just “show on map” is enough.
+- Reports (P&L style, payments received, contractor earnings, etc.) are secondary and can be built after the core workflow is solid.
+- The system should feel fast and clean. Prefer progressive disclosure (collapse audit trails, etc.) over showing everything at once.
+- Build with a strong feedback loop in mind: the first version does not have to be perfect, but it must be usable so the client can give rapid, concrete feedback.
+
+### Supporting Material
+A separate text document will be attached that contains preferred column headers and additional notes from the discovery call, especially for the Dispatch Board. Treat those headers as the authoritative list for the dispatch view.
+
+### Overall Design Goals
+- One unified, modern interface that an admin can live in all day.
+- Contractor view that is extremely focused and mobile-friendly.
+- Flexible pricing that the business owner can change himself without developer involvement.
+- Full auditability.
+- Clean data model that supports seasonal renewals, packages, waiting lists, and recurring work without complexity leaking into the UI.
+- Fast iteration path: the first usable prototype should cover the majority of the daily workflow so real feedback can begin immediately.
+
+Start by building a solid data model and the admin CRM + Services/Packages + Waiting List + Dispatch Board flow. Then layer on estimates, invoicing, contractor views, and routing. Keep the UI consistent, professional, and optimized for a high-volume seasonal service business.```
+
+You can copy the entire block above directly into Replit. Attach the column-header document (and the full call transcript if desired) as supporting files. The prompt is deliberately language-agnostic so Replit can choose the best stack while still having complete business context and every major requirement.

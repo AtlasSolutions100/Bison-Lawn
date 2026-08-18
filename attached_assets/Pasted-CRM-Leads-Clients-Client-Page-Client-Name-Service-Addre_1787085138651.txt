@@ -1,0 +1,27 @@
+CRM
+Leads / Clients / Client Page
+Client Name, Service Address, Type (Leads / Client / Former Client), Account Balance, email, phone number, additional contact information, notes, estimate creation function, send email function, 
+Show Lead on Map, Property Measurements, Add Ticket (Task, but not a job), View Audit Trail.
+Scheduling
+Waiting List
+This is where we schedule timeframes for when work is to be done (ex. March 1 to April 30), but it’s not scheduled officially yet. Then, from the waiting list, the user can dispatch the job and pick a date and it gets converted into real work to be done.
+We need to be able to click on a date on the waiting list and have all of the items that are in that potential date show up.
+Dispatch Job
+This is where jobs live and there are statuses in here that show if they are completed, need to be completed today, or “not yet visible to sub contractor” as the 3 statuses.
+The dispatch and waiting list boards are effectively like a CRM except for jobs, rather than customers. Headers for the columns in the waiting list / dispatch boards: Order (Routing, what comes first), Status, Client (Name & Address), Account Balance, Service, Date, Map (text notes is all it really is, custom written by the user), City, Assigned (Subs), Last Service, Budgeted Hours, Amount, Notes, Products (which is it’s own object and can be multiple things and the prices associated with them)
+Accounting
+Invoices
+Payments
+Helps figure out where payments came from so it can be tracked easily
+Marketing
+Automations
+Team
+Employees / Contractors / Users
+Used so that jobs can be assigned to specific people
+Reports
+Report Center
+
+Services, Packages (which are collections of services)
+Service values: Start Date, End Date, Missed (Just has a schedule button to put on the dispatch board), Quantity, Rate, Billable Hours, Team Size, Days
+Rate Matrix: Needs pricing with custom equations for services.
+Estimates: (Custom Fields): Turf Sqft, Sprinkler Zones, Gate Code, Garage Code, Dog, Driveway Sq. Ft., Roof & Gutter Line, Bed Sqft, Syncta ID, House SQFT, Hose Bibs, Rental, Hours, Backflow Devices.
