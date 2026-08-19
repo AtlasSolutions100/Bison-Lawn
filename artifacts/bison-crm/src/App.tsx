@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
-import { ClerkProvider, SignIn, SignUp, Show, useClerk } from '@clerk/react';
+import { ClerkProvider, SignIn, SignUp, Show, useAuth, useClerk } from '@clerk/react';
 import { publishableKeyFromHost } from '@clerk/react/internal';
 import { shadcn } from '@clerk/themes';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
@@ -123,10 +123,7 @@ function ClerkQueryClientCacheInvalidator() {
   useEffect(() => {
     const unsubscribe = addListener(({ user }) => {
       const userId = user?.id ?? null;
-      if (
-        prevUserIdRef.current !== undefined &&
-        prevUserIdRef.current !== userId
-      ) {
+      if (prevUserIdRef.current !== userId) {
         queryClient.clear();
       }
       prevUserIdRef.current = userId;
@@ -137,8 +134,61 @@ function ClerkQueryClientCacheInvalidator() {
   return null;
 }
 
+function useCurrentAppUser() {
+  const { isLoaded, isSignedIn } = useAuth();
+  const query = useGetCurrentUser({
+    query: {
+      enabled: isLoaded && isSignedIn,
+      queryKey: ['me'],
+      retry: false,
+    },
+  });
+
+  return {
+    ...query,
+    authIsLoaded: isLoaded,
+    isSignedIn,
+  };
+}
+
+function SessionError({
+  retry,
+  signOut,
+}: {
+  retry: () => void;
+  signOut: () => void;
+}) {
+  return (
+    <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4">
+      <div className="w-full max-w-md rounded-lg border bg-card p-8 text-center shadow-sm">
+        <h1 className="text-xl font-semibold text-foreground">We couldn't finish signing you in</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Your account is signed in, but the app could not load your profile.
+        </p>
+        <div className="mt-6 flex justify-center gap-3">
+          <button
+            type="button"
+            onClick={retry}
+            className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+          >
+            Try again
+          </button>
+          <button
+            type="button"
+            onClick={signOut}
+            className="rounded border px-4 py-2 text-sm font-medium text-foreground"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function HomeRedirect() {
-  const { data: user, isLoading } = useGetCurrentUser({ query: { enabled: true, queryKey: ['me'] } });
+  const { data: user, isLoading, isError, refetch, authIsLoaded, isSignedIn } = useCurrentAppUser();
+  const { signOut } = useClerk();
   const [, setLocation] = useLocation();
 
   useEffect(() => {
@@ -151,22 +201,28 @@ function HomeRedirect() {
     }
   }, [user, isLoading, setLocation]);
 
+  if (!authIsLoaded) {
+    return <div className="flex h-[100dvh] items-center justify-center text-muted-foreground">Loading...</div>;
+  }
+  if (!isSignedIn) return <Home />;
+  if (isError) {
+    return (
+      <SessionError
+        retry={() => void refetch()}
+        signOut={() => void signOut({ redirectUrl: basePath || '/' })}
+      />
+    );
+  }
   return (
-    <>
-      <Show when="signed-out">
-        <Home />
-      </Show>
-      <Show when="signed-in">
-        <div className="flex h-[100dvh] w-full items-center justify-center">
-          <div className="text-muted-foreground animate-pulse">Loading...</div>
-        </div>
-      </Show>
-    </>
+    <div className="flex h-[100dvh] w-full items-center justify-center">
+      <div className="text-muted-foreground animate-pulse">Loading...</div>
+    </div>
   );
 }
 
 function AdminRoute({ component: Component }: { component: any }) {
-  const { data: user, isLoading } = useGetCurrentUser({ query: { enabled: true, queryKey: ['me'] } });
+  const { data: user, isLoading, isError, refetch } = useCurrentAppUser();
+  const { signOut } = useClerk();
   const [, setLocation] = useLocation();
 
   useEffect(() => {
@@ -175,6 +231,14 @@ function AdminRoute({ component: Component }: { component: any }) {
     }
   }, [user, isLoading, setLocation]);
 
+  if (isError) {
+    return (
+      <SessionError
+        retry={() => void refetch()}
+        signOut={() => void signOut({ redirectUrl: basePath || '/' })}
+      />
+    );
+  }
   if (isLoading || !user) return <div className="flex h-screen items-center justify-center">Loading...</div>;
   if (user.role === 'contractor') return null;
 
@@ -186,7 +250,16 @@ function AdminRoute({ component: Component }: { component: any }) {
 }
 
 function ContractorRoute({ component: Component }: { component: any }) {
-  const { data: user, isLoading } = useGetCurrentUser({ query: { enabled: true, queryKey: ['me'] } });
+  const { data: user, isLoading, isError, refetch } = useCurrentAppUser();
+  const { signOut } = useClerk();
+  if (isError) {
+    return (
+      <SessionError
+        retry={() => void refetch()}
+        signOut={() => void signOut({ redirectUrl: basePath || '/' })}
+      />
+    );
+  }
   if (isLoading || !user) return <div className="flex h-[100dvh] items-center justify-center">Loading...</div>;
 
   return (

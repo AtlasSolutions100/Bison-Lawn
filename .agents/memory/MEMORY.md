@@ -1,1 +1,2 @@
 - [Orval zod v4](orval-zod-v4.md) — orval v8 zod client emits zod v4 API (`zod.int()`); workspace catalog must pin zod ^4, and ops with both path+query params collide on `<OpId>Params` exports.
+- [Clerk app-profile loading](clerk-app-profile-loading.md) — gate cookie-authenticated app-profile queries on Clerk's loaded and signed-in state to avoid cached 401s after OAuth.
