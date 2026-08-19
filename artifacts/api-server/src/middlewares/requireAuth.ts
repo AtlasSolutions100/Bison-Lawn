@@ -4,6 +4,11 @@ import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import type { User } from "@workspace/db";
 
+function isConfiguredOwner(email: string | null | undefined): boolean {
+  const ownerEmail = process.env.APP_OWNER_EMAIL?.trim().toLowerCase();
+  return Boolean(ownerEmail && email?.trim().toLowerCase() === ownerEmail);
+}
+
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
@@ -40,7 +45,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
         req.log.warn({ err }, "failed to fetch clerk user profile");
       }
       const existing = await db.select({ id: usersTable.id }).from(usersTable).limit(1);
-      const role = existing.length === 0 ? "admin" : "contractor";
+      const role = isConfiguredOwner(email) || existing.length === 0 ? "admin" : "contractor";
       [user] = await db
         .insert(usersTable)
         .values({ clerkId, name, email, role })
@@ -49,6 +54,17 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       if (!user) {
         [user] = await db.select().from(usersTable).where(eq(usersTable.clerkId, clerkId));
       }
+    }
+
+    // A configured owner email is the durable source of truth for owner access.
+    // This also repairs an existing owner account that was provisioned as a
+    // contractor because a test or another user reached production first.
+    if (user && user.role !== "admin" && isConfiguredOwner(user.email)) {
+      [user] = await db
+        .update(usersTable)
+        .set({ role: "admin" })
+        .where(eq(usersTable.id, user.id))
+        .returning();
     }
 
     req.appUser = user;
