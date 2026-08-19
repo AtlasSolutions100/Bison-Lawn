@@ -3,10 +3,48 @@ import { getAuth, clerkClient } from "@clerk/express";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import type { User } from "@workspace/db";
+import { resolveOwnerAccess } from "../lib/ownerAccess";
 
-function isConfiguredOwner(email: string | null | undefined): boolean {
-  const ownerEmail = process.env.APP_OWNER_EMAIL?.trim().toLowerCase();
-  return Boolean(ownerEmail && email?.trim().toLowerCase() === ownerEmail);
+type ClerkIdentity = {
+  name: string;
+  email: string | null;
+};
+
+const IDENTITY_CACHE_MS = 60_000;
+const identityCache = new Map<string, { identity: ClerkIdentity; expiresAt: number }>();
+const identityLoads = new Map<string, Promise<ClerkIdentity | null>>();
+
+async function loadCurrentClerkIdentity(clerkId: string): Promise<ClerkIdentity | null> {
+  const cached = identityCache.get(clerkId);
+  if (cached && cached.expiresAt > Date.now()) return cached.identity;
+
+  const existingLoad = identityLoads.get(clerkId);
+  if (existingLoad) return existingLoad;
+
+  const load = (async () => {
+    try {
+      const clerkUser = await clerkClient.users.getUser(clerkId);
+      const identity = {
+        name:
+          [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") ||
+          clerkUser.primaryEmailAddress?.emailAddress ||
+          "New User",
+        email: clerkUser.primaryEmailAddress?.emailAddress ?? null,
+      };
+      identityCache.set(clerkId, {
+        identity,
+        expiresAt: Date.now() + IDENTITY_CACHE_MS,
+      });
+      return identity;
+    } catch {
+      return null;
+    } finally {
+      identityLoads.delete(clerkId);
+    }
+  })();
+
+  identityLoads.set(clerkId, load);
+  return load;
 }
 
 declare global {
@@ -20,7 +58,8 @@ declare global {
 
 /**
  * Requires a Clerk session and just-in-time provisions a local app user.
- * The first user ever created becomes an admin; later users default to contractor.
+ * Only the current Clerk identity matching APP_OWNER_EMAIL can bootstrap owner
+ * access; everyone else starts as a contractor unless the owner assigned them.
  */
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
@@ -30,25 +69,29 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       return res.status(401).json({ error: "Unauthorized" });
     }
 
+    const identity = await loadCurrentClerkIdentity(clerkId);
+    if (!identity) {
+      req.log.warn({ clerkId }, "failed to fetch current Clerk user profile; access will fail closed");
+    }
+
     let [user] = await db.select().from(usersTable).where(eq(usersTable.clerkId, clerkId));
     if (!user) {
-      let name = "New User";
-      let email: string | null = null;
-      try {
-        const cu = await clerkClient.users.getUser(clerkId);
-        name =
-          [cu.firstName, cu.lastName].filter(Boolean).join(" ") ||
-          cu.primaryEmailAddress?.emailAddress ||
-          "New User";
-        email = cu.primaryEmailAddress?.emailAddress ?? null;
-      } catch (err) {
-        req.log.warn({ err }, "failed to fetch clerk user profile");
-      }
-      const existing = await db.select({ id: usersTable.id }).from(usersTable).limit(1);
-      const role = isConfiguredOwner(email) || existing.length === 0 ? "admin" : "contractor";
+      const access = resolveOwnerAccess({
+        configuredOwnerEmail: process.env.APP_OWNER_EMAIL,
+        currentPrimaryEmail: identity?.email ?? null,
+        profileAvailable: identity != null,
+        currentRole: "contractor",
+        currentRoleSource: "provisioned",
+      });
       [user] = await db
         .insert(usersTable)
-        .values({ clerkId, name, email, role })
+        .values({
+          clerkId,
+          name: identity?.name ?? "New User",
+          email: identity?.email ?? null,
+          role: access.role,
+          roleSource: access.roleSource,
+        })
         .onConflictDoNothing({ target: usersTable.clerkId })
         .returning();
       if (!user) {
@@ -56,15 +99,33 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       }
     }
 
-    // A configured owner email is the durable source of truth for owner access.
-    // This also repairs an existing owner account that was provisioned as a
-    // contractor because a test or another user reached production first.
-    if (user && user.role !== "admin" && isConfiguredOwner(user.email)) {
-      [user] = await db
-        .update(usersTable)
-        .set({ role: "admin" })
-        .where(eq(usersTable.id, user.id))
-        .returning();
+    if (user) {
+      const access = resolveOwnerAccess({
+        configuredOwnerEmail: process.env.APP_OWNER_EMAIL,
+        currentPrimaryEmail: identity?.email ?? null,
+        profileAvailable: identity != null,
+        currentRole: user.role,
+        currentRoleSource: user.roleSource,
+      });
+      const profileChanged =
+        identity != null && (user.email !== identity.email || user.name !== identity.name);
+      const accessChanged = user.role !== access.role || user.roleSource !== access.roleSource;
+
+      if (profileChanged || accessChanged) {
+        [user] = await db
+          .update(usersTable)
+          .set({
+            ...(identity ? { name: identity.name, email: identity.email } : {}),
+            role: access.role,
+            roleSource: access.roleSource,
+          })
+          .where(eq(usersTable.id, user.id))
+          .returning();
+      }
+    }
+
+    if (!user) {
+      return res.status(500).json({ error: "Unable to provision local user" });
     }
 
     req.appUser = user;

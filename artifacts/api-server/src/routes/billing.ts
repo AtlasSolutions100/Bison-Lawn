@@ -11,7 +11,7 @@ import { logAudit, recalcClientBalance, recalcInvoice } from "../lib/helpers";
 
 const router: IRouter = Router();
 
-router.use(requireAuth, requireAdmin);
+router.use(["/invoices", "/payments"], requireAuth, requireAdmin);
 
 async function hydrateInvoice(inv: typeof invoicesTable.$inferSelect) {
   const [client] = await db.select().from(clientsTable).where(eq(clientsTable.id, inv.clientId));

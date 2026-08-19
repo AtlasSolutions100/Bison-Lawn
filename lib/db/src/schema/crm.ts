@@ -18,6 +18,7 @@ export const usersTable = pgTable("users", {
   name: text("name").notNull(),
   email: text("email"),
   role: text("role").notNull().default("contractor"), // admin | contractor
+  roleSource: text("role_source").notNull().default("provisioned"), // provisioned | owner | owner_assigned
   phone: text("phone"),
   baseAddress: text("base_address"),
   baseLat: doublePrecision("base_lat"),

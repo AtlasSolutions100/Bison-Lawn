@@ -33,12 +33,25 @@ router.get("/users", requireAuth, async (req, res) => {
 
 router.patch("/users/:id", requireAuth, requireAdmin, async (req, res) => {
   const body = UpdateUserBody.parse(req.body);
+  const id = Number(req.params.id);
+  const [existing] = await db.select().from(usersTable).where(eq(usersTable.id, id));
+  if (!existing) return res.status(404).json({ error: "User not found" });
+  if (existing.roleSource === "owner" && body.role && body.role !== "admin") {
+    return res.status(400).json({ error: "The configured owner cannot be demoted" });
+  }
+  const roleSource =
+    body.role == null
+      ? existing.roleSource
+      : existing.roleSource === "owner"
+        ? "owner"
+        : body.role === "admin"
+          ? "owner_assigned"
+          : "provisioned";
   const [user] = await db
     .update(usersTable)
-    .set(body)
-    .where(eq(usersTable.id, Number(req.params.id)))
+    .set({ ...body, roleSource })
+    .where(eq(usersTable.id, id))
     .returning();
-  if (!user) return res.status(404).json({ error: "User not found" });
   return res.json(user);
 });
 

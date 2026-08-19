@@ -13,7 +13,7 @@ import { calculatePrice } from "../lib/helpers";
 
 const router: IRouter = Router();
 
-router.use(requireAuth, requireAdmin);
+router.use(["/services", "/packages"], requireAuth, requireAdmin);
 
 router.get("/services", async (_req, res) => {
   return res.json(await db.select().from(servicesTable).orderBy(servicesTable.name));

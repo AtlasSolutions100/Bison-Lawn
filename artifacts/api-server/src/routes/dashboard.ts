@@ -14,7 +14,7 @@ import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
 
-router.use(requireAuth, requireAdmin);
+router.use("/dashboard", requireAuth, requireAdmin);
 
 router.get("/dashboard/summary", async (_req, res) => {
   const today = new Date().toISOString().slice(0, 10);

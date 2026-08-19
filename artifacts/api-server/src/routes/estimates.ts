@@ -12,7 +12,7 @@ import { logAudit } from "../lib/helpers";
 
 const router: IRouter = Router();
 
-router.use(requireAuth, requireAdmin);
+router.use(["/estimate-fields", "/estimates"], requireAuth, requireAdmin);
 
 // ---- estimate fields ----
 

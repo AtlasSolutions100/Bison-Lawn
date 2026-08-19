@@ -22,7 +22,7 @@ import { logAudit, calculatePrice } from "../lib/helpers";
 
 const router: IRouter = Router();
 
-router.use(requireAuth, requireAdmin);
+router.use(["/clients", "/client-services"], requireAuth, requireAdmin);
 
 router.get("/clients", async (req, res) => {
   const { status, search } = req.query as { status?: string; search?: string };

@@ -1,6 +1,16 @@
 ---
-name: Orval zod v4
-description: Codegen pitfalls with orval v8 + zod in this monorepo
+name: Generated schema compatibility
+description: Durable compatibility rules for generated validation schemas and parameter names
 ---
-- Orval v8's zod client generates zod v4 API calls (`zod.int()`), which fail against zod v3. **Why:** the pnpm catalog originally pinned zod ^3.25; codegen typecheck broke. **How to apply:** keep the `zod` catalog entry at ^4 (drizzle-zod ^0.8 supports it).
-- An operation with BOTH path and query params makes the zod bundle export `<OpId>Params` (path) while the types bundle exports `<OpId>Params` (query) — ambiguous re-export in lib/api-zod. **How to apply:** avoid mixing path+query params on one operation (use a POST body or split), or rename.
+
+Keep the schema generator and validation library on compatible major versions.
+
+**Why:** Generated schemas may use APIs unavailable in an older validation-library major, causing failures only after regeneration.
+
+**How to apply:** Check generated output compatibility whenever either dependency's major version changes.
+
+Avoid giving one operation both path and query parameter groups that generate the same exported type name.
+
+**Why:** Separate generated barrels can emit colliding exports for the two parameter groups.
+
+**How to apply:** Use distinct operation/parameter names, split the operation, or move one input group into a request body.
