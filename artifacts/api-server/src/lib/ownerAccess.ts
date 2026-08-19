@@ -2,7 +2,7 @@ export type AppRole = "admin" | "contractor";
 export type RoleSource = "provisioned" | "owner" | "owner_assigned";
 
 type ResolveOwnerAccessInput = {
-  configuredOwnerEmail: string | undefined;
+  configuredOwnerEmails: readonly (string | undefined)[];
   currentPrimaryEmail: string | null;
   profileAvailable: boolean;
   currentRole: string;
@@ -27,14 +27,18 @@ function normalizeEmail(email: string | null | undefined): string | null {
  * explicitly assigned that role.
  */
 export function resolveOwnerAccess(input: ResolveOwnerAccessInput): OwnerAccessDecision {
-  const ownerEmail = normalizeEmail(input.configuredOwnerEmail);
+  const ownerEmails = new Set(
+    input.configuredOwnerEmails
+      .map((email) => normalizeEmail(email))
+      .filter((email): email is string => email !== null),
+  );
   const currentEmail = normalizeEmail(input.currentPrimaryEmail);
 
-  if (!ownerEmail || !input.profileAvailable) {
+  if (ownerEmails.size === 0 || !input.profileAvailable) {
     return { role: "contractor", roleSource: "provisioned" };
   }
 
-  if (currentEmail === ownerEmail) {
+  if (currentEmail !== null && ownerEmails.has(currentEmail)) {
     return { role: "admin", roleSource: "owner" };
   }
 

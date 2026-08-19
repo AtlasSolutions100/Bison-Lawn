@@ -10,7 +10,7 @@ Custom CRM + job management for Bison Lawn Care LLC — leads/clients, equation-
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - `pnpm dlx tsx artifacts/api-server/src/seed.ts` — idempotent dev seed
-- Required env: `DATABASE_URL`; Clerk keys auto-provisioned (`CLERK_*`, `VITE_CLERK_PUBLISHABLE_KEY`); `APP_OWNER_EMAIL` securely identifies the business owner account that must always have admin access
+- Required env: `DATABASE_URL`; Clerk keys auto-provisioned (`CLERK_*`, `VITE_CLERK_PUBLISHABLE_KEY`); `APP_OWNER_EMAIL` securely identifies the primary business owner. Set optional `APP_SECONDARY_OWNER_EMAIL` to grant a second permanent owner account.
 
 ## Stack
 
@@ -33,7 +33,7 @@ Custom CRM + job management for Bison Lawn Care LLC — leads/clients, equation-
 ## Architecture decisions
 
 - Single web artifact serves both admin (sidebar shell) and contractor (mobile bottom-nav) views; role from `/api/me`.
-- Roles live in a local `users` table keyed by Clerk user id; the account matching `APP_OWNER_EMAIL` is always promoted to admin, otherwise first signup = admin and later signups = contractor (changeable in /team).
+- Roles live in a local `users` table keyed by Clerk user id; accounts matching `APP_OWNER_EMAIL` or optional `APP_SECONDARY_OWNER_EMAIL` are always promoted to admin. All other new signups start as contractors; owners can grant additional admin roles in /team.
 - Pricing engine: services store `pricingEquations` JSONB (base price for first N sqft + increment per M sqft, breakpoints by `upToSqft`).
 - Jobs table doubles as waiting list (`dispatched=false`, window dates) and dispatch board (`dispatched=true`, scheduledDate).
 - Completing a job auto-creates an invoice (job amount + products); balances always recomputed from invoices − payments.

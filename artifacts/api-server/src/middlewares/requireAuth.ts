@@ -58,8 +58,8 @@ declare global {
 
 /**
  * Requires a Clerk session and just-in-time provisions a local app user.
- * Only the current Clerk identity matching APP_OWNER_EMAIL can bootstrap owner
- * access; everyone else starts as a contractor unless the owner assigned them.
+ * Only Clerk identities matching configured owner-email secrets can bootstrap
+ * owner access; everyone else starts as a contractor unless an owner assigned them.
  */
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
@@ -77,7 +77,10 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     let [user] = await db.select().from(usersTable).where(eq(usersTable.clerkId, clerkId));
     if (!user) {
       const access = resolveOwnerAccess({
-        configuredOwnerEmail: process.env.APP_OWNER_EMAIL,
+        configuredOwnerEmails: [
+          process.env.APP_OWNER_EMAIL,
+          process.env.APP_SECONDARY_OWNER_EMAIL,
+        ],
         currentPrimaryEmail: identity?.email ?? null,
         profileAvailable: identity != null,
         currentRole: "contractor",
@@ -101,7 +104,10 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
     if (user) {
       const access = resolveOwnerAccess({
-        configuredOwnerEmail: process.env.APP_OWNER_EMAIL,
+        configuredOwnerEmails: [
+          process.env.APP_OWNER_EMAIL,
+          process.env.APP_SECONDARY_OWNER_EMAIL,
+        ],
         currentPrimaryEmail: identity?.email ?? null,
         profileAvailable: identity != null,
         currentRole: user.role,
