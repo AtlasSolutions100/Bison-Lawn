@@ -26,7 +26,7 @@ Custom CRM + job management for Bison Lawn Care LLC — leads/clients, equation-
 - API contract (source of truth): `lib/api-spec/openapi.yaml` → generated hooks in `lib/api-client-react/src/generated/`, Zod in `lib/api-zod/src/generated/`
 - DB schema: `lib/db/src/schema/crm.ts`
 - API routes: `artifacts/api-server/src/routes/` (users, clients, services, estimates, jobs, billing, tickets, dashboard)
-- Auth: `artifacts/api-server/src/middlewares/requireAuth.ts` (Clerk session → JIT-provisioned local user; first user becomes admin)
+- Auth: `artifacts/api-server/src/middlewares/requireAuth.ts` (Clerk session → JIT-provisioned local user; configured owner emails receive durable owner access)
 - Business logic helpers: `artifacts/api-server/src/lib/helpers.ts` (pricing engine, balance recalc, route optimizer)
 - Frontend pages: `artifacts/bison-crm/src/pages/`; theme in `src/index.css`
 
@@ -47,6 +47,7 @@ Custom CRM + job management for Bison Lawn Care LLC — leads/clients, equation-
 ## Gotchas
 
 - Never edit generated files; change `openapi.yaml` then run codegen, and run `pnpm -w run typecheck:libs` before typechecking apps (project references).
+- Keep `ClerkProvider.proxyUrl` wired unconditionally to `VITE_CLERK_PROXY_URL`; the web artifact provides `/api/__clerk` only during production builds so development remains on Clerk's test endpoint.
 - Orval v8 emits zod v4 code (`zod.int()`); the workspace catalog must stay on zod ^4.
 - Server routes mount under `/api`; frontend must use generated hooks (base path handled by custom-fetch). Web auth is cookie-based — no bearer tokens in browser code.
 

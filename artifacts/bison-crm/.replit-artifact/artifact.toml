@@ -15,9 +15,14 @@ localPort = 18483
 run = "pnpm --filter @workspace/bison-crm run dev"
 
 [services.production]
-build = [ "pnpm", "--filter", "@workspace/bison-crm", "run", "build" ]
 serve = "static"
 publicDir = "artifacts/bison-crm/dist/public"
+
+[services.production.build]
+args = [ "pnpm", "--filter", "@workspace/bison-crm", "run", "build" ]
+
+[services.production.build.env]
+VITE_CLERK_PROXY_URL = "/api/__clerk"
 
 [[services.production.rewrites]]
 from = "/*"
