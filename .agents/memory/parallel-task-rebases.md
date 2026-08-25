@@ -1,7 +1,36 @@
 ---
 name: Rebasing parallel task branches
-description: Why a clean-looking rebase of two tasks that touched the same route file can still be broken, and how to recover.
+description: Why a clean-looking rebase of two tasks that touched the same route file can still be broken, how to recover, and how to stop scheduling the collision in the first place.
 ---
+
+# Preventing it when planning (main agent)
+
+The collision is created at planning time, not at merge time. Two tasks scoped
+onto the same file will each typecheck their own branch in isolation, both
+correctly, and still combine into a tree that does not compile — most cheaply
+via a shared import line that each branch extended with a different symbol.
+
+**Why:** no task agent ever sees the combined tree. The only place the
+combination is checked is the post-merge setup script, so if that script only
+installs dependencies and pushes the schema, a broken merge reaches the user as
+their next page load.
+
+**How to apply:**
+
+- Keep the post-merge script's last step a full typecheck of the whole
+  workspace, under `set -e`, with the configured timeout large enough to fit
+  install + schema push + typecheck. A 20-second timeout silently fits none of
+  them.
+- When scoping parallel tasks, treat "edits the same file" as a hard dependency
+  and chain them, rather than declaring them independent because their features
+  are unrelated. Feature independence is not file independence.
+- Symptom worth recognising immediately: a duplicate `import ... from 'x'` line
+  where each copy carries one branch's added symbol, often next to a truncated
+  bare `import {`. Repair by unioning the symbol lists, not by deleting a line.
+- After repairing, confirm no *silent* loss: if the working file differs from
+  the later parent commit only in imports, and that parent was based on the
+  earlier one, both features are provably intact. That diff is faster and more
+  convincing than re-reading the feature code.
 
 # Rebasing parallel task branches onto main
 

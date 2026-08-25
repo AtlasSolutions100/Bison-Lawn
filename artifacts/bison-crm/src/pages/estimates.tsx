@@ -4,7 +4,7 @@ import {
   useReconcileEstimateDelivery,
   useListEstimateFields, useCreateEstimateField, useUpdateEstimateField, useDeleteEstimateField,
   useListChargePresets, useCreateChargePreset, useUpdateChargePreset, useDeleteChargePreset,
-  useListClients, useListServices
+  useListClients, useListServices, useGetCurrentUser
 } from '@workspace/api-client-react';
 import type { ChargePreset, Estimate, EstimateField, EstimateFieldInput, EstimateLine, Service } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -12,12 +12,19 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
-import { Download, Send, Trash2, Plus, AlertCircle, Pencil, Bookmark } from 'lucide-react';
+import { Download, Send, Trash2, Plus, AlertCircle, Pencil, Bookmark, RotateCcw } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useUnsavedChangesWarning } from '@/hooks/use-unsaved-changes-warning';
 import { cn } from '@/lib/utils';
-import { Download, Send, Trash2, Plus, AlertCircle, Pencil, RotateCcw } from 'lucide-react';
 import {
+  clearEstimateDraft,
+  describeDraftAge,
+  estimateDraftStorageKey,
+  readEstimateDraft,
+  writeEstimateDraft,
+  type EstimateDraft,
+  type StoredSelection,
+} from '@/lib/estimate-draft-storage';
 
 const isEditableDraft = (estimate: Estimate) =>
   estimate.status === 'draft' &&
