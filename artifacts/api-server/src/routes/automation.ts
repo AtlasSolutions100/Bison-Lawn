@@ -601,6 +601,100 @@ async function deliverCustomerMessage(
   }
 }
 
+/**
+ * Retry emailing an approved customer message that never reached the customer.
+ *
+ * Only a delivery that ended in "failed" (or "no_email", once an address has
+ * been added to the client) can be retried: a message that already reached the
+ * customer must never be sent twice. The transaction re-claims delivery by
+ * moving that terminal state back to "sending" with a fresh claim stamp, so two
+ * concurrent resend clicks cannot both hand the same message to Gmail and an
+ * interrupted retry ages out like any other claim. Every attempt is audited,
+ * and a retry that fails again is recorded rather than thrown.
+ *
+ * An "abandoned" delivery is deliberately not retryable here: nobody knows
+ * whether that send reached the customer, and its original attempt may still
+ * be in flight and entitled to write its own outcome.
+ */
+router.post("/suggested-actions/:id/resend-message", async (req, res) => {
+  const id = Number(req.params.id);
+
+  const claimed = await db.transaction(async (tx) => {
+    const [locked] = await tx
+      .select()
+      .from(suggestedActionsTable)
+      .where(eq(suggestedActionsTable.id, id))
+      .for("update");
+    if (!locked) return { failure: { status: 404, message: "Suggestion not found" } };
+    if (locked.status !== "approved") {
+      return { failure: { status: 400, message: "Only an approved suggestion can have its message resent" } };
+    }
+    if (!locked.customerMessage?.trim()) {
+      return { failure: { status: 422, message: "This suggestion has no customer message to send" } };
+    }
+    if (locked.messageDeliveryState === "sent") {
+      return { failure: { status: 409, message: "This message already reached the customer; it cannot be resent" } };
+    }
+    if (locked.messageDeliveryState === "sending") {
+      return {
+        failure: { status: 409, message: "This message is already being sent; wait for that attempt to finish" },
+      };
+    }
+    if (locked.messageDeliveryState === "abandoned") {
+      return {
+        failure: {
+          status: 409,
+          message:
+            "Delivery was interrupted and it is unknown whether this email went out; contact the customer directly rather than risking a duplicate",
+        },
+      };
+    }
+    if (locked.messageDeliveryState !== "failed" && locked.messageDeliveryState !== "no_email") {
+      return { failure: { status: 400, message: "There is no failed delivery to retry for this suggestion" } };
+    }
+
+    const [client] = await tx.select().from(clientsTable).where(eq(clientsTable.id, locked.clientId));
+    const toEmail = client?.email?.trim() || null;
+    if (!toEmail) {
+      return {
+        failure: {
+          status: 422,
+          message: "This client still has no email address on file — add one to the client record first",
+        },
+      };
+    }
+
+    const [suggestion] = await tx
+      .update(suggestedActionsTable)
+      .set({
+        messageDeliveryState: "sending",
+        messageDeliveryClaimedAt: new Date(),
+        messageDeliveryError: null,
+      })
+      .where(eq(suggestedActionsTable.id, id))
+      .returning();
+    return { suggestion, toEmail, clientName: client?.name ?? null, previousState: locked.messageDeliveryState };
+  });
+
+  if ("failure" in claimed && claimed.failure) {
+    const { status, message } = claimed.failure;
+    return res.status(status).json({ error: message });
+  }
+
+  const suggestion = claimed.suggestion!;
+  await logAudit({
+    clientId: suggestion.clientId,
+    actorName: req.appUser?.name,
+    action: "suggestion_message_resend_attempted",
+    description:
+      `Retrying the approved ${suggestion.actionType} message for suggestion #${suggestion.id}` +
+      ` to ${claimed.toEmail} (previous delivery: ${claimed.previousState})`,
+  });
+
+  const delivered = await deliverCustomerMessage(suggestion, claimed.toEmail, claimed.clientName, req);
+  return res.json((await hydrateSuggestions([delivered]))[0]);
+});
+
 router.post("/suggested-actions/:id/reject", async (req, res) => {
   const id = Number(req.params.id);
   const [existing] = await db.select().from(suggestedActionsTable).where(eq(suggestedActionsTable.id, id));

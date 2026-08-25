@@ -1241,6 +1241,20 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SuggestedAction"
+  /suggested-actions/{id}/resend-message:
+    post:
+      operationId: resendSuggestedActionMessage
+      tags: [automation]
+      summary: Retry emailing the approved customer message after a failed or unsent delivery (admin)
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Resend attempted; the returned delivery state says whether it reached the customer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuggestedAction"
   /suggested-actions/{id}/reject:
     post:
       operationId: rejectSuggestedAction

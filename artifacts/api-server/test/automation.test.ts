@@ -542,6 +542,174 @@ test("approving a skip pulls the job back to the waiting list", async () => {
   assert.equal(after1.scheduledDate, null);
 });
 
+test("a message that never reached the customer can be resent; a delivered one cannot", async () => {
+  const makeApproved = async (overrides: Partial<typeof suggestedActionsTable.$inferInsert>) => {
+    const [row] = await db
+      .insert(suggestedActionsTable)
+      .values({
+        source: "weather",
+        clientId: emailClient.id,
+        actionType: "skip",
+        reason: "test resend",
+        targetDate: TOMORROW,
+        customerMessage: "Storms tomorrow — we have to skip your service.",
+        status: "approved",
+        reviewedById: admin.id,
+        reviewedAt: new Date(),
+        ...overrides,
+      })
+      .returning();
+    return row;
+  };
+
+  // Already delivered: a resend would notify the customer twice.
+  const delivered = await makeApproved({
+    messageDeliveryState: "sent",
+    messageSentToEmail: "customer@example.com",
+    messageSentAt: new Date(),
+    messageGmailId: "gmail-already-delivered",
+  });
+  const blocked = await api(`/suggested-actions/${delivered.id}/resend-message`, admin.id, { method: "POST" });
+  assert.equal(blocked.status, 409);
+  const [stillSent] = await db
+    .select()
+    .from(suggestedActionsTable)
+    .where(eq(suggestedActionsTable.id, delivered.id));
+  assert.equal(stillSent.messageDeliveryState, "sent");
+  assert.equal(stillSent.messageGmailId, "gmail-already-delivered");
+
+  // A send already in flight must not be claimed a second time.
+  const inFlight = await makeApproved({
+    messageDeliveryState: "sending",
+    messageDeliveryClaimedAt: new Date(),
+  });
+  const busy = await api(`/suggested-actions/${inFlight.id}/resend-message`, admin.id, { method: "POST" });
+  assert.equal(busy.status, 409);
+
+  // An interrupted delivery has an unknown outcome; retrying could duplicate it.
+  const interrupted = await makeApproved({
+    messageDeliveryState: "abandoned",
+    messageDeliveryError: "Delivery was interrupted before it completed",
+  });
+  const unknown = await api(`/suggested-actions/${interrupted.id}/resend-message`, admin.id, { method: "POST" });
+  assert.equal(unknown.status, 409);
+
+  // Still awaiting review: there is no approved message to send.
+  const unreviewed = await makeApproved({ status: "pending", reviewedById: null, reviewedAt: null });
+  const notApproved = await api(`/suggested-actions/${unreviewed.id}/resend-message`, admin.id, { method: "POST" });
+  assert.equal(notApproved.status, 400);
+
+  // Approved but the client still has no email address on file.
+  const withoutEmail = await makeApproved({ clientId: client.id, messageDeliveryState: "no_email" });
+  const missingEmail = await api(`/suggested-actions/${withoutEmail.id}/resend-message`, admin.id, { method: "POST" });
+  assert.equal(missingEmail.status, 422);
+  const [stillUnsent] = await db
+    .select()
+    .from(suggestedActionsTable)
+    .where(eq(suggestedActionsTable.id, withoutEmail.id));
+  assert.equal(stillUnsent.messageDeliveryState, "no_email");
+
+  // A failed delivery can be retried, and a successful retry is recorded as sent.
+  const failed = await makeApproved({
+    messageDeliveryState: "failed",
+    messageSentToEmail: "customer@example.com",
+    messageDeliveryError: "Gmail delivery failed (500): earlier outage",
+  });
+  let captured: string | null = null;
+  setCustomerMessageGmailProxyForTests(async (_connector, _path, init) => {
+    const raw = JSON.parse(init.body).raw as string;
+    captured = Buffer.from(raw.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString();
+    return new Response(JSON.stringify({ id: "gmail-resend-1" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  });
+  const retry = await api(`/suggested-actions/${failed.id}/resend-message`, admin.id, { method: "POST" });
+  setCustomerMessageGmailProxyForTests(null);
+
+  assert.equal(retry.status, 200);
+  assert.equal(retry.body.messageDeliveryState, "sent");
+  assert.equal(retry.body.messageSentToEmail, "customer@example.com");
+  assert.equal(retry.body.messageDeliveryError, null, "a successful retry clears the earlier error");
+  assert.ok(retry.body.messageSentAt, "a resent message must carry a delivery timestamp");
+  assert.ok(captured, "the retry must actually reach the mail provider");
+  assert.match(captured!, /To: customer@example\.com/);
+  const resentBody = Buffer.from(captured!.split("\r\n\r\n")[1], "base64").toString();
+  assert.match(resentBody, /Storms tomorrow/, "the resend must carry the same approved message");
+
+  // The same suggestion can no longer be resent now that it reached the customer.
+  const secondTry = await api(`/suggested-actions/${failed.id}/resend-message`, admin.id, { method: "POST" });
+  assert.equal(secondTry.status, 409);
+
+  // A retry that fails again is recorded as failed, never as delivered.
+  const stillBroken = await makeApproved({
+    messageDeliveryState: "failed",
+    messageSentToEmail: "customer@example.com",
+    messageDeliveryError: "Gmail delivery failed (500): earlier outage",
+  });
+  setCustomerMessageGmailProxyForTests(async () => new Response("mailbox unavailable", { status: 550 }));
+  const retryFailed = await api(`/suggested-actions/${stillBroken.id}/resend-message`, admin.id, { method: "POST" });
+  setCustomerMessageGmailProxyForTests(null);
+  assert.equal(retryFailed.status, 200);
+  assert.equal(retryFailed.body.messageDeliveryState, "failed");
+  assert.equal(retryFailed.body.messageSentAt, null, "a failed retry must never look delivered");
+  assert.match(retryFailed.body.messageDeliveryError, /Gmail delivery failed \(550\)/);
+
+  const audits = await db
+    .select()
+    .from(auditEventsTable)
+    .where(eq(auditEventsTable.clientId, emailClient.id));
+  const attempts = audits.filter((e) => e.action === "suggestion_message_resend_attempted");
+  assert.ok(
+    attempts.some((e) => e.description.includes(`#${failed.id}`)),
+    "every resend attempt must be audited",
+  );
+  assert.ok(
+    attempts.some((e) => e.description.includes(`#${stillBroken.id}`)),
+    "a retry that fails again must still be audited as attempted",
+  );
+  assert.ok(
+    audits.some((e) => e.action === "suggestion_message_sent" && e.description.includes(`#${failed.id}`)),
+    "the successful retry outcome must be audited",
+  );
+  assert.ok(
+    audits.some((e) => e.action === "suggestion_message_failed" && e.description.includes(`#${stillBroken.id}`)),
+    "the failed retry outcome must be audited",
+  );
+  // Nothing was handed to Gmail for the suggestions the guard rails rejected.
+  for (const rejected of [delivered, inFlight, interrupted, unreviewed]) {
+    assert.ok(
+      !audits.some(
+        (e) => e.action === "suggestion_message_sent" && e.description.includes(`#${rejected.id}`),
+      ),
+      `suggestion #${rejected.id} must not have been emailed`,
+    );
+  }
+});
+
+test("resending an approved message is admin-only", async () => {
+  const [s] = await db
+    .insert(suggestedActionsTable)
+    .values({
+      source: "weather",
+      clientId: emailClient.id,
+      actionType: "skip",
+      reason: "test resend auth",
+      targetDate: TOMORROW,
+      customerMessage: "Storms tomorrow — we have to skip your service.",
+      status: "approved",
+      reviewedById: admin.id,
+      reviewedAt: new Date(),
+      messageDeliveryState: "failed",
+      messageDeliveryError: "Gmail delivery failed (500)",
+    })
+    .returning();
+  const res = await api(`/suggested-actions/${s.id}/resend-message`, contractorA.id, { method: "POST" });
+  assert.equal(res.status, 403);
+  const [stored] = await db.select().from(suggestedActionsTable).where(eq(suggestedActionsTable.id, s.id));
+  assert.equal(stored.messageDeliveryState, "failed");
+});
+
 test("weather rule create/update/delete are audited", async () => {
   const created = await api("/weather-rules", admin.id, {
     method: "POST",

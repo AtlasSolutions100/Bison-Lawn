@@ -47,3 +47,16 @@ quietly.
 
 **How to apply:** Model unreachable recipients as a first-class delivery state and show it wherever the
 delivered states are shown.
+
+
+## Retrying a notification re-claims from a terminal failure state
+A manual retry is allowed only from a terminal "nothing was sent" state (failed, or unreachable-recipient
+once contact details exist). The retry transaction moves that state back to "sending" under a row lock
+before touching the provider, exactly like the original approval did.
+
+**Why:** A delivered message must never go out twice, and two people clicking retry must not both reach the
+provider. Reusing the same claim gate keeps one code path responsible for who may send.
+
+**How to apply:** Reject retries from delivered or in-flight states with distinct errors, claim inside the
+transaction, then reuse the same send-and-record helper the first attempt used. Audit the attempt itself in
+addition to its outcome, so the trail shows how many times the office tried.

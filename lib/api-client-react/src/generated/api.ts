@@ -5529,6 +5529,77 @@ export const useApproveSuggestedAction = <TError = ErrorType<unknown>,
       return useMutation(getApproveSuggestedActionMutationOptions(options));
     }
 
+export const getResendSuggestedActionMessageUrl = (id: number,) => {
+
+
+
+
+  return `/api/suggested-actions/${id}/resend-message`
+}
+
+/**
+ * @summary Retry emailing the approved customer message after a failed or unsent delivery (admin)
+ */
+export const resendSuggestedActionMessage = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<SuggestedAction> => {
+
+  return customFetch<SuggestedAction>(getResendSuggestedActionMessageUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getResendSuggestedActionMessageMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resendSuggestedActionMessage>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof resendSuggestedActionMessage>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['resendSuggestedActionMessage'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resendSuggestedActionMessage>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  resendSuggestedActionMessage(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResendSuggestedActionMessageMutationResult = NonNullable<Awaited<ReturnType<typeof resendSuggestedActionMessage>>>
+
+    export type ResendSuggestedActionMessageMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Retry emailing the approved customer message after a failed or unsent delivery (admin)
+ */
+export const useResendSuggestedActionMessage = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resendSuggestedActionMessage>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof resendSuggestedActionMessage>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getResendSuggestedActionMessageMutationOptions(options));
+    }
+
 export const getRejectSuggestedActionUrl = (id: number,) => {
 
 

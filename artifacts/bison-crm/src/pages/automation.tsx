@@ -4,6 +4,7 @@ import {
   useApproveSuggestedAction,
   useRejectSuggestedAction,
   useUpdateSuggestedAction,
+  useResendSuggestedActionMessage,
   useListWeatherRules,
   useCreateWeatherRule,
   useUpdateWeatherRule,
@@ -19,7 +20,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import {
   CloudRain, Wind, Thermometer, Snowflake, Plus, Trash2, CheckCircle2, XCircle,
-  Pencil, CalendarClock, SkipForward, Mail, MailCheck, MailWarning, PlayCircle,
+  Pencil, CalendarClock, SkipForward, Mail, MailCheck, MailWarning, PlayCircle, Send,
 } from 'lucide-react';
 
 const CONDITION_META: Record<string, { label: string; unit: string; icon: any }> = {
@@ -232,7 +233,35 @@ function SuggestionCard({ suggestion: s }: { suggestion: SuggestedAction }) {
 
 /** Shows whether the approved customer message actually reached the customer. */
 function DeliveryStatus({ suggestion: s }: { suggestion: SuggestedAction }) {
+  const resend = useResendSuggestedActionMessage();
+  const queryClient = useQueryClient();
+
   if (s.status === 'rejected' || s.messageDeliveryState === 'not_applicable') return null;
+
+  const handleResend = () => {
+    resend.mutate({ id: s.id }, {
+      onSuccess: (updated) => {
+        queryClient.invalidateQueries({ queryKey: ['/api/suggested-actions'] });
+        if (updated.messageDeliveryState === 'sent') {
+          alert(`The customer message was emailed to ${updated.messageSentToEmail}.`);
+        } else {
+          alert(`The email still could not be sent: ${updated.messageDeliveryError ?? 'unknown error'}`);
+        }
+      },
+      onError: (e: any) => alert(e?.message ?? 'Could not resend the message'),
+    });
+  };
+
+  // A message that already reached the customer must never be sent twice, so a
+  // retry is only offered once delivery ended with nothing sent.
+  const canResend =
+    (s.messageDeliveryState === 'failed' || s.messageDeliveryState === 'no_email') && Boolean(s.clientEmail);
+
+  const resendButton = canResend ? (
+    <Button size="sm" variant="outline" className="mt-2" onClick={handleResend} disabled={resend.isPending}>
+      <Send className="w-3.5 h-3.5 mr-1" /> {resend.isPending ? 'Resending...' : `Resend to ${s.clientEmail}`}
+    </Button>
+  ) : null;
 
   if (s.messageDeliveryState === 'sent') {
     return (
@@ -251,7 +280,12 @@ function DeliveryStatus({ suggestion: s }: { suggestion: SuggestedAction }) {
           <MailWarning className="w-3.5 h-3.5" /> Email failed{s.messageSentToEmail ? ` to ${s.messageSentToEmail}` : ''}
         </span>
         {s.messageDeliveryError && <p className="mt-1 break-words">{s.messageDeliveryError}</p>}
-        <p className="mt-1">Contact this customer directly — they were not notified.</p>
+        <p className="mt-1">
+          {canResend
+            ? 'They were not notified. Try the email again, or contact this customer directly.'
+            : 'Contact this customer directly — they were not notified.'}
+        </p>
+        {resendButton}
       </div>
     );
   }
@@ -262,7 +296,12 @@ function DeliveryStatus({ suggestion: s }: { suggestion: SuggestedAction }) {
         <span className="font-bold flex items-center gap-1">
           <MailWarning className="w-3.5 h-3.5" /> Not sent — no email address on file
         </span>
-        <p className="mt-1">Add an email to this client, or contact them directly.</p>
+        <p className="mt-1">
+          {canResend
+            ? 'This client now has an email address — send the approved message to them.'
+            : 'Add an email to this client, or contact them directly.'}
+        </p>
+        {resendButton}
       </div>
     );
   }

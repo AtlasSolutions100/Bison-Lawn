@@ -4,4 +4,5 @@
 - [Approval-gated notifications](approval-gated-notifications.md) — claim delivery inside the approving transaction; a failed email never rolls back an applied change, and "no contact info" is a visible state.
 - [Estimate delivery reliability](estimate-delivery-reliability.md) — email links require POST confirmation and log redaction; retries keep active and pending response tokens separate.
 - [esbuild bundling and pdfkit](esbuild-pdfkit.md) — packages that load assets via runtime subpath imports (pdfkit's #standard-fonts) must be externalized; tsx tests won't catch bundle-only failures.
+- [Parallel task rebases](parallel-task-rebases.md) — a marker-free auto-merge of a shared route file can still be broken; typecheck every round, reset to upstream and re-apply.
 - [Field payment accounting](field-payment-accounting.md) — surcharges must join the invoice total, and payment/completion handlers must serialize on the job row or payments detach.
