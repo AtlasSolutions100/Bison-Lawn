@@ -1,4 +1,12 @@
-import { db, auditEventsTable, clientsTable, invoicesTable, paymentsTable } from "@workspace/db";
+import {
+  db,
+  auditEventsTable,
+  clientsTable,
+  invoicesTable,
+  paymentsTable,
+  billingSettingsTable,
+} from "@workspace/db";
+import type { BillingSettings } from "@workspace/db";
 import type { PricingEquation } from "@workspace/db";
 import { and, eq, ne, sum } from "drizzle-orm";
 
@@ -73,6 +81,17 @@ export async function recalcInvoice(invoiceId: number) {
     .update(invoicesTable)
     .set({ amountPaid: Math.round(paid * 100) / 100, status })
     .where(eq(invoicesTable.id, invoiceId));
+}
+
+/** Singleton billing settings row; created with defaults on first read. */
+export async function getBillingSettings(): Promise<BillingSettings> {
+  const [existing] = await db.select().from(billingSettingsTable).limit(1);
+  if (existing) return existing;
+  const [created] = await db
+    .insert(billingSettingsTable)
+    .values({})
+    .returning();
+  return created;
 }
 
 export function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {

@@ -214,6 +214,9 @@ export interface Service {
   /** @nullable */
   renewDate?: string | null;
   pricingEquations?: PricingEquation[];
+  contractorOfferable?: boolean;
+  /** @nullable */
+  contractorPrice?: number | null;
 }
 
 export interface ServiceInput {
@@ -235,6 +238,9 @@ export interface ServiceInput {
   /** @nullable */
   renewDate?: string | null;
   pricingEquations?: PricingEquation[];
+  contractorOfferable?: boolean;
+  /** @nullable */
+  contractorPrice?: number | null;
 }
 
 export interface ServiceUpdate {
@@ -257,6 +263,9 @@ export interface ServiceUpdate {
   /** @nullable */
   renewDate?: string | null;
   pricingEquations?: PricingEquation[];
+  contractorOfferable?: boolean;
+  /** @nullable */
+  contractorPrice?: number | null;
 }
 
 export interface PriceQueryInput {
@@ -550,6 +559,8 @@ export interface JobProduct {
   name: string;
   price: number;
   quantity?: number;
+  /** @nullable */
+  serviceId?: number | null;
 }
 
 export interface JobProductInput {
@@ -790,7 +801,10 @@ export interface Payment {
   clientName?: string | null;
   /** @nullable */
   invoiceId?: number | null;
+  /** @nullable */
+  jobId?: number | null;
   amount: number;
+  cardFee?: number;
   method: PaymentMethod;
   /** @nullable */
   reference?: string | null;
@@ -819,6 +833,71 @@ export interface PaymentInput {
   method: PaymentInputMethod;
   reference?: string;
   notes?: string;
+}
+
+export interface OfferableService {
+  id: number;
+  name: string;
+  /** @nullable */
+  description?: string | null;
+  price: number;
+}
+
+export interface ExtraWorkInput {
+  serviceId: number;
+  /** @minimum 0.01 */
+  quantity?: number;
+}
+
+export interface BillingSettings {
+  cardFeeEnabled: boolean;
+  cardFeePercent: number;
+}
+
+export interface BillingSettingsUpdate {
+  cardFeeEnabled?: boolean;
+  /**
+     * @minimum 0
+     * @maximum 25
+     */
+  cardFeePercent?: number;
+}
+
+export type OnSitePaymentInputMethod = typeof OnSitePaymentInputMethod[keyof typeof OnSitePaymentInputMethod];
+
+
+export const OnSitePaymentInputMethod = {
+  cash: 'cash',
+  check: 'check',
+  credit_card: 'credit_card',
+} as const;
+
+export interface OnSitePaymentInput {
+  /** @minimum 0.01 */
+  amount: number;
+  method: OnSitePaymentInputMethod;
+  reference?: string;
+  notes?: string;
+}
+
+export interface OnSitePayment {
+  id: number;
+  clientId: number;
+  /** @nullable */
+  invoiceId?: number | null;
+  /** @nullable */
+  jobId?: number | null;
+  amount: number;
+  baseAmount: number;
+  cardFee: number;
+  /** @nullable */
+  cardFeePercent?: number | null;
+  method: string;
+  /** @nullable */
+  reference?: string | null;
+  /** @nullable */
+  notes?: string | null;
+  createdAt: string;
 }
 
 export type TicketStatus = typeof TicketStatus[keyof typeof TicketStatus];
@@ -1214,3 +1293,4 @@ export const ListSuggestedActionsStatus = {
 export type GetContractorEarningsParams = {
 date: string;
 };
+

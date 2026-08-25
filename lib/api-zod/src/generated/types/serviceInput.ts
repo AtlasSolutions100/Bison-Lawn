@@ -26,4 +26,7 @@ export interface ServiceInput {
   /** @nullable */
   renewDate?: string | null;
   pricingEquations?: PricingEquation[];
+  contractorOfferable?: boolean;
+  /** @nullable */
+  contractorPrice?: number | null;
 }

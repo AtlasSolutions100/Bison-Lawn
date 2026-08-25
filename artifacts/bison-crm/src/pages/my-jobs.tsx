@@ -1,11 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
-import { useListMyJobs, useUpdateJob, useCompleteJob, useCreateFieldNote, Job } from '@workspace/api-client-react';
+import { useListMyJobs, useUpdateJob, useCompleteJob, useCreateFieldNote, useListOfferableServices, useAddExtraWork, useRecordOnSitePayment, useGetBillingSettings, Job } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { format, addDays, subDays } from 'date-fns';
 import { Button } from '@/components/ui/button';
-import { MapPin, Navigation, Clock, CheckCircle2, ChevronLeft, ChevronRight, DollarSign, PackageOpen, Mic, MicOff, NotebookPen } from 'lucide-react';
+import { MapPin, Navigation, Clock, CheckCircle2, ChevronLeft, ChevronRight, DollarSign, PackageOpen, Mic, MicOff, NotebookPen, Plus, CreditCard } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export default function MyJobs() {
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -135,8 +138,13 @@ function JobCard({ job, index }: { job: Job, index: number }) {
           )}
         </div>
 
-        <div className={`px-3 pt-3 border-t bg-card ${isCompleted ? 'pb-3' : ''}`}>
+        <div className="px-3 pt-3 border-t bg-card">
           <FieldNoteButton job={job} />
+        </div>
+
+        <div className="p-3 bg-card grid grid-cols-2 gap-2">
+          {!isCompleted && <AddWorkDialog job={job} />}
+          <CollectPaymentDialog job={job} wide={isCompleted} />
         </div>
 
         {!isCompleted && (
@@ -168,6 +176,85 @@ function JobCard({ job, index }: { job: Job, index: number }) {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function AddWorkDialog({ job }: { job: Job }) {
+  const [open, setOpen] = useState(false);
+  const [serviceId, setServiceId] = useState<string>('');
+  const [quantity, setQuantity] = useState('1');
+  const [error, setError] = useState<string | null>(null);
+  const { data: services } = useListOfferableServices({ query: { enabled: open, queryKey: ['/api/my/offerable-services'] } });
+  const addWork = useAddExtraWork();
+  const queryClient = useQueryClient();
+
+  const selected = services?.find(s => String(s.id) === serviceId);
+  const qty = Number(quantity) || 0;
+
+  const submit = () => {
+    if (!selected || qty <= 0) return;
+    setError(null);
+    addWork.mutate({ id: job.id, data: { serviceId: selected.id, quantity: qty } }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries();
+        setOpen(false);
+        setServiceId('');
+        setQuantity('1');
+      },
+      onError: (e: any) => setError(e?.message || 'Could not add work'),
+    });
+  };
+
+  return (
+    <>
+      <Button variant="outline" onClick={() => setOpen(true)} className="h-11 border-2 font-semibold">
+        <Plus className="w-4 h-4 mr-1" /> Add Work
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Add One-Time Work</DialogTitle>
+          </DialogHeader>
+          {services && services.length === 0 ? (
+            <p className="text-sm text-muted-foreground">The office hasn't approved any extra services to offer on site yet.</p>
+          ) : (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Service</Label>
+                <Select value={serviceId} onValueChange={setServiceId}>
+                  <SelectTrigger><SelectValue placeholder="Choose a service" /></SelectTrigger>
+                  <SelectContent>
+                    {services?.map(s => (
+                      <SelectItem key={s.id} value={String(s.id)}>
+                        {s.name} — ${s.price.toFixed(2)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selected?.description && <p className="text-xs text-muted-foreground">{selected.description}</p>}
+              </div>
+              <div className="space-y-2">
+                <Label>Quantity</Label>
+                <Input type="number" min="0.01" step="0.5" value={quantity} onChange={e => setQuantity(e.target.value)} />
+              </div>
+              {selected && qty > 0 && (
+                <div className="text-sm font-semibold flex justify-between border-t pt-3">
+                  <span>Added to invoice</span>
+                  <span>${(selected.price * qty).toFixed(2)}</span>
+                </div>
+              )}
+              {error && <p className="text-sm text-destructive">{error}</p>}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button onClick={submit} disabled={!selected || qty <= 0 || addWork.isPending}>
+              {addWork.isPending ? 'Adding...' : 'Add to Job'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -299,6 +386,123 @@ function FieldNoteButton({ job }: { job: Job }) {
               </DialogFooter>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function CollectPaymentDialog({ job, wide }: { job: Job; wide?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState('');
+  const [method, setMethod] = useState<'cash' | 'check' | 'credit_card'>('cash');
+  const [reference, setReference] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [receipt, setReceipt] = useState<{ total: number; cardFee: number } | null>(null);
+  const { data: settings } = useGetBillingSettings({ query: { enabled: open, queryKey: ['/api/billing-settings'] } });
+  const recordPayment = useRecordOnSitePayment();
+  const queryClient = useQueryClient();
+
+  const amt = Number(amount) || 0;
+  const feeApplies = method === 'credit_card' && settings?.cardFeeEnabled && (settings?.cardFeePercent ?? 0) > 0;
+  const fee = feeApplies ? Math.round(amt * settings!.cardFeePercent) / 100 : 0;
+  const total = Math.round((amt + fee) * 100) / 100;
+
+  const submit = () => {
+    if (amt <= 0) return;
+    setError(null);
+    recordPayment.mutate({ id: job.id, data: { amount: amt, method, reference: reference || undefined } }, {
+      onSuccess: (p) => {
+        queryClient.invalidateQueries();
+        setReceipt({ total: p.amount, cardFee: p.cardFee });
+      },
+      onError: (e: any) => setError(e?.message || 'Could not record payment'),
+    });
+  };
+
+  const close = () => {
+    setOpen(false);
+    setReceipt(null);
+    setAmount('');
+    setReference('');
+    setMethod('cash');
+    setError(null);
+  };
+
+  return (
+    <>
+      <Button onClick={() => setOpen(true)} className={`h-11 font-semibold ${wide ? 'col-span-2' : ''}`}>
+        <CreditCard className="w-4 h-4 mr-1" /> Collect Payment
+      </Button>
+      <Dialog open={open} onOpenChange={(o) => { if (!o) close(); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{receipt ? 'Payment Recorded' : 'Collect Payment'}</DialogTitle>
+          </DialogHeader>
+          {receipt ? (
+            <div className="space-y-3 text-center py-2">
+              <CheckCircle2 className="w-10 h-10 text-primary mx-auto" />
+              <p className="text-2xl font-bold">${receipt.total.toFixed(2)}</p>
+              {receipt.cardFee > 0 && (
+                <p className="text-sm text-muted-foreground">Includes ${receipt.cardFee.toFixed(2)} card processing fee</p>
+              )}
+              <p className="text-sm text-muted-foreground">Recorded for {job.clientName}</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {job.clientBalance != null && (
+                <div className="text-sm flex justify-between bg-muted/50 rounded-md p-2">
+                  <span className="text-muted-foreground">Customer balance</span>
+                  <span className="font-semibold">${job.clientBalance.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="space-y-2">
+                <Label>Amount</Label>
+                <Input type="number" min="0.01" step="0.01" inputMode="decimal" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Method</Label>
+                <Select value={method} onValueChange={(v) => setMethod(v as typeof method)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cash">Cash</SelectItem>
+                    <SelectItem value="check">Check</SelectItem>
+                    <SelectItem value="credit_card">Credit Card</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {method !== 'cash' && (
+                <div className="space-y-2">
+                  <Label>Reference (check # / last 4)</Label>
+                  <Input value={reference} onChange={e => setReference(e.target.value)} />
+                </div>
+              )}
+              {method === 'credit_card' && (
+                feeApplies ? (
+                  <div className="text-sm bg-accent/10 border border-accent/20 rounded-md p-3 space-y-1">
+                    <div className="flex justify-between"><span>Payment</span><span>${amt.toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span>Card processing fee ({settings!.cardFeePercent}%)</span><span>${fee.toFixed(2)}</span></div>
+                    <div className="flex justify-between font-bold border-t pt-1"><span>Customer pays</span><span>${total.toFixed(2)}</span></div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">No card processing fee is configured.</p>
+                )
+              )}
+              {error && <p className="text-sm text-destructive">{error}</p>}
+            </div>
+          )}
+          <DialogFooter>
+            {receipt ? (
+              <Button onClick={close} className="w-full">Done</Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={close}>Cancel</Button>
+                <Button onClick={submit} disabled={amt <= 0 || recordPayment.isPending}>
+                  {recordPayment.isPending ? 'Recording...' : `Record $${total > 0 ? total.toFixed(2) : '0.00'}`}
+                </Button>
+              </>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

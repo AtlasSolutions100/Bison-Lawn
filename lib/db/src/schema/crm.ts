@@ -94,6 +94,9 @@ export const servicesTable = pgTable("services", {
   defaultEndDate: text("default_end_date"),
   renewDate: text("renew_date"),
   pricingEquations: jsonb("pricing_equations").$type<PricingEquation[]>().notNull().default([]),
+  // office-controlled: contractors may offer this as one-time extra work on site
+  contractorOfferable: boolean("contractor_offerable").notNull().default(false),
+  contractorPrice: doublePrecision("contractor_price"),
 });
 export type Service = typeof servicesTable.$inferSelect;
 
@@ -199,6 +202,8 @@ export const jobProductsTable = pgTable("job_products", {
   name: text("name").notNull(),
   price: doublePrecision("price").notNull().default(0),
   quantity: doublePrecision("quantity").notNull().default(1),
+  // set when the line came from a contractor adding offerable extra work on site
+  serviceId: integer("service_id").references(() => servicesTable.id, { onDelete: "set null" }),
 });
 export type JobProduct = typeof jobProductsTable.$inferSelect;
 
@@ -220,7 +225,11 @@ export const paymentsTable = pgTable("payments", {
   id: serial("id").primaryKey(),
   clientId: integer("client_id").notNull().references(() => clientsTable.id, { onDelete: "cascade" }),
   invoiceId: integer("invoice_id").references(() => invoicesTable.id, { onDelete: "set null" }),
+  // job the payment was collected for (on-site payments); lets completion attach it to the job's invoice
+  jobId: integer("job_id").references(() => jobsTable.id, { onDelete: "set null" }),
   amount: doublePrecision("amount").notNull(),
+  // portion of amount that is a card processing surcharge; added to the invoice total when attached
+  cardFee: doublePrecision("card_fee").notNull().default(0),
   method: text("method").notNull(), // check | venmo | zelle | credit_card | cash | other
   reference: text("reference"),
   notes: text("notes"),
@@ -228,7 +237,12 @@ export const paymentsTable = pgTable("payments", {
 });
 export type Payment = typeof paymentsTable.$inferSelect;
 
-// ---------- field notes ----------
+export const billingSettingsTable = pgTable("billing_settings", {
+  id: serial("id").primaryKey(),
+  cardFeeEnabled: boolean("card_fee_enabled").notNull().default(false),
+  cardFeePercent: doublePrecision("card_fee_percent").notNull().default(3),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
 export const fieldNotesTable = pgTable("field_notes", {
   id: serial("id").primaryKey(),
   jobId: integer("job_id").notNull().references(() => jobsTable.id, { onDelete: "cascade" }),
@@ -286,3 +300,5 @@ export const ticketsTable = pgTable("tickets", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 export type Ticket = typeof ticketsTable.$inferSelect;
+
+export type BillingSettings = typeof billingSettingsTable.$inferSelect;

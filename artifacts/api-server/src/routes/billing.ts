@@ -1,17 +1,41 @@
 import { Router, type IRouter } from "express";
-import { db, invoicesTable, paymentsTable, clientsTable, jobsTable, servicesTable } from "@workspace/db";
+import { db, invoicesTable, paymentsTable, clientsTable, jobsTable, servicesTable, billingSettingsTable } from "@workspace/db";
 import { and, desc, eq } from "drizzle-orm";
 import {
   CreateInvoiceBody,
   UpdateInvoiceBody,
   CreatePaymentBody,
 } from "@workspace/api-zod";
+import { UpdateBillingSettingsBody } from "@workspace/api-zod";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
-import { logAudit, recalcClientBalance, recalcInvoice } from "../lib/helpers";
+import { logAudit, recalcClientBalance, recalcInvoice, getBillingSettings } from "../lib/helpers";
 
 const router: IRouter = Router();
 
 router.use(["/invoices", "/payments"], requireAuth, requireAdmin);
+
+// ---- billing settings (card fee) ----
+// Contractors need read access to disclose the card fee on site; only admins may change it.
+router.get("/billing-settings", requireAuth, async (_req, res) => {
+  const s = await getBillingSettings();
+  return res.json({ cardFeeEnabled: s.cardFeeEnabled, cardFeePercent: s.cardFeePercent });
+});
+
+router.patch("/billing-settings", requireAuth, requireAdmin, async (req, res) => {
+  const body = UpdateBillingSettingsBody.parse(req.body);
+  const existing = await getBillingSettings();
+  const [updated] = await db
+    .update(billingSettingsTable)
+    .set({ ...body, updatedAt: new Date() })
+    .where(eq(billingSettingsTable.id, existing.id))
+    .returning();
+  await logAudit({
+    actorName: req.appUser?.name,
+    action: "billing_settings_updated",
+    description: `Card fee ${updated.cardFeeEnabled ? "enabled" : "disabled"} at ${updated.cardFeePercent}%`,
+  });
+  return res.json({ cardFeeEnabled: updated.cardFeeEnabled, cardFeePercent: updated.cardFeePercent });
+});
 
 async function hydrateInvoice(inv: typeof invoicesTable.$inferSelect) {
   const [client] = await db.select().from(clientsTable).where(eq(clientsTable.id, inv.clientId));

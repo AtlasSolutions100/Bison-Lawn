@@ -780,6 +780,89 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Job"
+  /my/offerable-services:
+    get:
+      operationId: listOfferableServices
+      tags: [jobs]
+      summary: One-time extra services the office allows contractors to offer on site
+      responses:
+        "200":
+          description: Offerable services with contractor-facing prices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OfferableService"
+  /my/jobs/{id}/extra-work:
+    post:
+      operationId: addExtraWork
+      tags: [jobs]
+      summary: Add approved one-time extra work to an assigned job from the field
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExtraWorkInput"
+      responses:
+        "201":
+          description: Extra work added as a job line item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobProduct"
+  /my/jobs/{id}/payments:
+    post:
+      operationId: recordOnSitePayment
+      tags: [payments]
+      summary: Record an on-site payment for an assigned job; card fee applied per office settings
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OnSitePaymentInput"
+      responses:
+        "201":
+          description: Recorded payment with fee breakdown
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnSitePayment"
+  /billing-settings:
+    get:
+      operationId: getBillingSettings
+      tags: [payments]
+      summary: Card processing fee configuration (visible to all authenticated users)
+      responses:
+        "200":
+          description: Billing settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingSettings"
+    patch:
+      operationId: updateBillingSettings
+      tags: [payments]
+      summary: Update card processing fee configuration (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillingSettingsUpdate"
+      responses:
+        "200":
+          description: Updated billing settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingSettings"
   /my/route:
     get:
       operationId: getMyRoute
@@ -1341,6 +1424,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PricingEquation"
+        contractorOfferable: { type: boolean }
+        contractorPrice: { type: ["number", "null"] }
     ServiceInput:
       type: object
       required: [name]
@@ -1359,6 +1444,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PricingEquation"
+        contractorOfferable: { type: boolean }
+        contractorPrice: { type: ["number", "null"] }
     ServiceUpdate:
       type: object
       properties:
@@ -1376,6 +1463,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PricingEquation"
+        contractorOfferable: { type: boolean }
+        contractorPrice: { type: ["number", "null"] }
     PriceQueryInput:
       type: object
       required: [sqft]
@@ -1552,6 +1641,7 @@ components:
         name: { type: string }
         price: { type: number }
         quantity: { type: number }
+        serviceId: { type: ["integer", "null"] }
     JobProductInput:
       type: object
       required: [name, price]
@@ -1694,7 +1784,9 @@ components:
         clientId: { type: integer }
         clientName: { type: ["string", "null"] }
         invoiceId: { type: ["integer", "null"] }
+        jobId: { type: ["integer", "null"] }
         amount: { type: number }
+        cardFee: { type: number }
         method: { type: string, enum: [check, venmo, zelle, credit_card, cash, other] }
         reference: { type: ["string", "null"] }
         notes: { type: ["string", "null"] }
@@ -1709,6 +1801,55 @@ components:
         method: { type: string, enum: [check, venmo, zelle, credit_card, cash, other] }
         reference: { type: string }
         notes: { type: string }
+    OfferableService:
+      type: object
+      required: [id, name, price]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        description: { type: ["string", "null"] }
+        price: { type: number }
+    ExtraWorkInput:
+      type: object
+      required: [serviceId]
+      properties:
+        serviceId: { type: integer }
+        quantity: { type: number, minimum: 0.01 }
+    BillingSettings:
+      type: object
+      required: [cardFeeEnabled, cardFeePercent]
+      properties:
+        cardFeeEnabled: { type: boolean }
+        cardFeePercent: { type: number }
+    BillingSettingsUpdate:
+      type: object
+      properties:
+        cardFeeEnabled: { type: boolean }
+        cardFeePercent: { type: number, minimum: 0, maximum: 25 }
+    OnSitePaymentInput:
+      type: object
+      required: [amount, method]
+      properties:
+        amount: { type: number, minimum: 0.01 }
+        method: { type: string, enum: [cash, check, credit_card] }
+        reference: { type: string }
+        notes: { type: string }
+    OnSitePayment:
+      type: object
+      required: [id, clientId, amount, method, baseAmount, cardFee, createdAt]
+      properties:
+        id: { type: integer }
+        clientId: { type: integer }
+        invoiceId: { type: ["integer", "null"] }
+        jobId: { type: ["integer", "null"] }
+        amount: { type: number }
+        baseAmount: { type: number }
+        cardFee: { type: number }
+        cardFeePercent: { type: ["number", "null"] }
+        method: { type: string }
+        reference: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+        createdAt: { type: string }
     Ticket:
       type: object
       required: [id, title, status, createdAt]

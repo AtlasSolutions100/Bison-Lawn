@@ -106,6 +106,9 @@ export const ListClientsResponseItem = zod.object({
 export const ListClientsResponse = zod.array(ListClientsResponseItem)
 
 
+
+
+
 export const CreateClientBody = zod.object({
   "name": zod.string().min(1),
   "status": zod.enum(['lead', 'client', 'former_client']).optional(),
@@ -167,6 +170,8 @@ export const UpdateClientParams = zod.object({
 })
 
 
+
+
 export const UpdateClientBody = zod.object({
   "name": zod.string().min(1).optional(),
   "status": zod.enum(['lead', 'client', 'former_client']).optional(),
@@ -224,6 +229,8 @@ export const ListClientNotesResponse = zod.array(ListClientNotesResponseItem)
 export const CreateClientNoteParams = zod.object({
   "id": zod.coerce.number().int()
 })
+
+
 
 
 export const CreateClientNoteBody = zod.object({
@@ -391,9 +398,14 @@ export const ListServicesResponseItem = zod.object({
   "baseSqft": zod.number().describe('Base price covers the first N sqft'),
   "incrementPrice": zod.number(),
   "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
-})).optional()
+})).optional(),
+  "contractorOfferable": zod.boolean().optional(),
+  "contractorPrice": zod.number().nullish()
 })
 export const ListServicesResponse = zod.array(ListServicesResponseItem)
+
+
+
 
 
 export const CreateServiceBody = zod.object({
@@ -413,7 +425,9 @@ export const CreateServiceBody = zod.object({
   "baseSqft": zod.number().describe('Base price covers the first N sqft'),
   "incrementPrice": zod.number(),
   "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
-})).optional()
+})).optional(),
+  "contractorOfferable": zod.boolean().optional(),
+  "contractorPrice": zod.number().nullish()
 })
 
 export const CreateServiceResponse = zod.object({
@@ -434,7 +448,9 @@ export const CreateServiceResponse = zod.object({
   "baseSqft": zod.number().describe('Base price covers the first N sqft'),
   "incrementPrice": zod.number(),
   "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
-})).optional()
+})).optional(),
+  "contractorOfferable": zod.boolean().optional(),
+  "contractorPrice": zod.number().nullish()
 })
 
 
@@ -460,13 +476,17 @@ export const GetServiceResponse = zod.object({
   "baseSqft": zod.number().describe('Base price covers the first N sqft'),
   "incrementPrice": zod.number(),
   "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
-})).optional()
+})).optional(),
+  "contractorOfferable": zod.boolean().optional(),
+  "contractorPrice": zod.number().nullish()
 })
 
 
 export const UpdateServiceParams = zod.object({
   "id": zod.coerce.number().int()
 })
+
+
 
 
 export const UpdateServiceBody = zod.object({
@@ -486,7 +506,9 @@ export const UpdateServiceBody = zod.object({
   "baseSqft": zod.number().describe('Base price covers the first N sqft'),
   "incrementPrice": zod.number(),
   "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
-})).optional()
+})).optional(),
+  "contractorOfferable": zod.boolean().optional(),
+  "contractorPrice": zod.number().nullish()
 })
 
 export const UpdateServiceResponse = zod.object({
@@ -507,7 +529,9 @@ export const UpdateServiceResponse = zod.object({
   "baseSqft": zod.number().describe('Base price covers the first N sqft'),
   "incrementPrice": zod.number(),
   "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
-})).optional()
+})).optional(),
+  "contractorOfferable": zod.boolean().optional(),
+  "contractorPrice": zod.number().nullish()
 })
 
 
@@ -559,10 +583,15 @@ export const ListPackagesResponseItem = zod.object({
   "baseSqft": zod.number().describe('Base price covers the first N sqft'),
   "incrementPrice": zod.number(),
   "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
-})).optional()
+})).optional(),
+  "contractorOfferable": zod.boolean().optional(),
+  "contractorPrice": zod.number().nullish()
 })).optional()
 })
 export const ListPackagesResponse = zod.array(ListPackagesResponseItem)
+
+
+
 
 
 export const CreatePackageBody = zod.object({
@@ -594,7 +623,9 @@ export const CreatePackageResponse = zod.object({
   "baseSqft": zod.number().describe('Base price covers the first N sqft'),
   "incrementPrice": zod.number(),
   "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
-})).optional()
+})).optional(),
+  "contractorOfferable": zod.boolean().optional(),
+  "contractorPrice": zod.number().nullish()
 })).optional()
 })
 
@@ -602,6 +633,8 @@ export const CreatePackageResponse = zod.object({
 export const UpdatePackageParams = zod.object({
   "id": zod.coerce.number().int()
 })
+
+
 
 
 export const UpdatePackageBody = zod.object({
@@ -633,7 +666,9 @@ export const UpdatePackageResponse = zod.object({
   "baseSqft": zod.number().describe('Base price covers the first N sqft'),
   "incrementPrice": zod.number(),
   "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
-})).optional()
+})).optional(),
+  "contractorOfferable": zod.boolean().optional(),
+  "contractorPrice": zod.number().nullish()
 })).optional()
 })
 
@@ -654,6 +689,9 @@ export const ListEstimateFieldsResponseItem = zod.object({
   "sortOrder": zod.int().nullish()
 })
 export const ListEstimateFieldsResponse = zod.array(ListEstimateFieldsResponseItem)
+
+
+
 
 
 export const CreateEstimateFieldBody = zod.object({
@@ -677,6 +715,8 @@ export const CreateEstimateFieldResponse = zod.object({
 export const UpdateEstimateFieldParams = zod.object({
   "id": zod.coerce.number().int()
 })
+
+
 
 
 export const UpdateEstimateFieldBody = zod.object({
@@ -932,7 +972,8 @@ export const ListWaitingListResponseItem = zod.object({
   "jobId": zod.int(),
   "name": zod.string(),
   "price": zod.number(),
-  "quantity": zod.number().optional()
+  "quantity": zod.number().optional(),
+  "serviceId": zod.int().nullish()
 })).optional(),
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish()
@@ -986,7 +1027,8 @@ export const ListJobsResponseItem = zod.object({
   "jobId": zod.int(),
   "name": zod.string(),
   "price": zod.number(),
-  "quantity": zod.number().optional()
+  "quantity": zod.number().optional(),
+  "serviceId": zod.int().nullish()
 })).optional(),
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish()
@@ -1044,7 +1086,8 @@ export const CreateJobResponse = zod.object({
   "jobId": zod.int(),
   "name": zod.string(),
   "price": zod.number(),
-  "quantity": zod.number().optional()
+  "quantity": zod.number().optional(),
+  "serviceId": zod.int().nullish()
 })).optional(),
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish()
@@ -1087,7 +1130,8 @@ export const GetJobResponse = zod.object({
   "jobId": zod.int(),
   "name": zod.string(),
   "price": zod.number(),
-  "quantity": zod.number().optional()
+  "quantity": zod.number().optional(),
+  "serviceId": zod.int().nullish()
 })).optional(),
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish()
@@ -1146,7 +1190,8 @@ export const UpdateJobResponse = zod.object({
   "jobId": zod.int(),
   "name": zod.string(),
   "price": zod.number(),
-  "quantity": zod.number().optional()
+  "quantity": zod.number().optional(),
+  "serviceId": zod.int().nullish()
 })).optional(),
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish()
@@ -1201,7 +1246,8 @@ export const DispatchJobsResponseItem = zod.object({
   "jobId": zod.int(),
   "name": zod.string(),
   "price": zod.number(),
-  "quantity": zod.number().optional()
+  "quantity": zod.number().optional(),
+  "serviceId": zod.int().nullish()
 })).optional(),
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish()
@@ -1248,7 +1294,8 @@ export const CompleteJobResponse = zod.object({
   "jobId": zod.int(),
   "name": zod.string(),
   "price": zod.number(),
-  "quantity": zod.number().optional()
+  "quantity": zod.number().optional(),
+  "serviceId": zod.int().nullish()
 })).optional(),
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish()
@@ -1263,6 +1310,8 @@ export const AddJobProductParams = zod.object({
 })
 
 
+
+
 export const AddJobProductBody = zod.object({
   "name": zod.string().min(1),
   "price": zod.number(),
@@ -1274,7 +1323,8 @@ export const AddJobProductResponse = zod.object({
   "jobId": zod.int(),
   "name": zod.string(),
   "price": zod.number(),
-  "quantity": zod.number().optional()
+  "quantity": zod.number().optional(),
+  "serviceId": zod.int().nullish()
 })
 
 
@@ -1326,12 +1376,113 @@ export const ListMyJobsResponseItem = zod.object({
   "jobId": zod.int(),
   "name": zod.string(),
   "price": zod.number(),
-  "quantity": zod.number().optional()
+  "quantity": zod.number().optional(),
+  "serviceId": zod.int().nullish()
 })).optional(),
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish()
 })
 export const ListMyJobsResponse = zod.array(ListMyJobsResponseItem)
+
+
+/**
+ * @summary One-time extra services the office allows contractors to offer on site
+ */
+export const ListOfferableServicesResponseItem = zod.object({
+  "id": zod.int(),
+  "name": zod.string(),
+  "description": zod.string().nullish(),
+  "price": zod.number()
+})
+export const ListOfferableServicesResponse = zod.array(ListOfferableServicesResponseItem)
+
+
+/**
+ * @summary Add approved one-time extra work to an assigned job from the field
+ */
+export const AddExtraWorkParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const addExtraWorkBodyQuantityMin = 0.01;
+
+
+
+export const AddExtraWorkBody = zod.object({
+  "serviceId": zod.int(),
+  "quantity": zod.number().min(addExtraWorkBodyQuantityMin).optional()
+})
+
+export const AddExtraWorkResponse = zod.object({
+  "id": zod.int(),
+  "jobId": zod.int(),
+  "name": zod.string(),
+  "price": zod.number(),
+  "quantity": zod.number().optional(),
+  "serviceId": zod.int().nullish()
+})
+
+
+/**
+ * @summary Record an on-site payment for an assigned job; card fee applied per office settings
+ */
+export const RecordOnSitePaymentParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const recordOnSitePaymentBodyAmountMin = 0.01;
+
+
+
+export const RecordOnSitePaymentBody = zod.object({
+  "amount": zod.number().min(recordOnSitePaymentBodyAmountMin),
+  "method": zod.enum(['cash', 'check', 'credit_card']),
+  "reference": zod.string().optional(),
+  "notes": zod.string().optional()
+})
+
+export const RecordOnSitePaymentResponse = zod.object({
+  "id": zod.int(),
+  "clientId": zod.int(),
+  "invoiceId": zod.int().nullish(),
+  "jobId": zod.int().nullish(),
+  "amount": zod.number(),
+  "baseAmount": zod.number(),
+  "cardFee": zod.number(),
+  "cardFeePercent": zod.number().nullish(),
+  "method": zod.string(),
+  "reference": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Card processing fee configuration (visible to all authenticated users)
+ */
+export const GetBillingSettingsResponse = zod.object({
+  "cardFeeEnabled": zod.boolean(),
+  "cardFeePercent": zod.number()
+})
+
+
+/**
+ * @summary Update card processing fee configuration (admin only)
+ */
+export const updateBillingSettingsBodyCardFeePercentMin = 0;
+export const updateBillingSettingsBodyCardFeePercentMax = 25;
+
+
+
+export const UpdateBillingSettingsBody = zod.object({
+  "cardFeeEnabled": zod.boolean().optional(),
+  "cardFeePercent": zod.number().min(updateBillingSettingsBodyCardFeePercentMin).max(updateBillingSettingsBodyCardFeePercentMax).optional()
+})
+
+export const UpdateBillingSettingsResponse = zod.object({
+  "cardFeeEnabled": zod.boolean(),
+  "cardFeePercent": zod.number()
+})
 
 
 /**
@@ -1452,7 +1603,9 @@ export const ListPaymentsResponseItem = zod.object({
   "clientId": zod.int(),
   "clientName": zod.string().nullish(),
   "invoiceId": zod.int().nullish(),
+  "jobId": zod.int().nullish(),
   "amount": zod.number(),
+  "cardFee": zod.number().optional(),
   "method": zod.enum(['check', 'venmo', 'zelle', 'credit_card', 'cash', 'other']),
   "reference": zod.string().nullish(),
   "notes": zod.string().nullish(),
@@ -1478,7 +1631,9 @@ export const CreatePaymentResponse = zod.object({
   "clientId": zod.int(),
   "clientName": zod.string().nullish(),
   "invoiceId": zod.int().nullish(),
+  "jobId": zod.int().nullish(),
   "amount": zod.number(),
+  "cardFee": zod.number().optional(),
   "method": zod.enum(['check', 'venmo', 'zelle', 'credit_card', 'cash', 'other']),
   "reference": zod.string().nullish(),
   "notes": zod.string().nullish(),
@@ -1514,6 +1669,9 @@ export const ListTicketsResponseItem = zod.object({
 export const ListTicketsResponse = zod.array(ListTicketsResponseItem)
 
 
+
+
+
 export const CreateTicketBody = zod.object({
   "clientId": zod.int().nullish(),
   "title": zod.string().min(1),
@@ -1539,6 +1697,8 @@ export const CreateTicketResponse = zod.object({
 export const UpdateTicketParams = zod.object({
   "id": zod.coerce.number().int()
 })
+
+
 
 
 export const UpdateTicketBody = zod.object({
@@ -1576,6 +1736,8 @@ export const DeleteTicketResponse = zod.void()
 export const CreateFieldNoteParams = zod.object({
   "id": zod.coerce.number().int()
 })
+
+
 
 
 export const CreateFieldNoteBody = zod.object({
@@ -1634,6 +1796,10 @@ export const ListWeatherRulesResponseItem = zod.object({
 export const ListWeatherRulesResponse = zod.array(ListWeatherRulesResponseItem)
 
 
+
+
+
+
 export const CreateWeatherRuleBody = zod.object({
   "name": zod.string().min(1),
   "conditionType": zod.enum(['rain', 'wind', 'heat', 'cold']),
@@ -1660,6 +1826,9 @@ export const CreateWeatherRuleResponse = zod.object({
 export const UpdateWeatherRuleParams = zod.object({
   "id": zod.coerce.number().int()
 })
+
+
+
 
 
 export const UpdateWeatherRuleBody = zod.object({
@@ -1886,4 +2055,5 @@ export const GetContractorEarningsResponseItem = zod.object({
   "completedCount": zod.int().optional()
 })
 export const GetContractorEarningsResponse = zod.array(GetContractorEarningsResponseItem)
+
 

@@ -12,4 +12,6 @@ export interface JobProduct {
   name: string;
   price: number;
   quantity?: number;
+  /** @nullable */
+  serviceId?: number | null;
 }

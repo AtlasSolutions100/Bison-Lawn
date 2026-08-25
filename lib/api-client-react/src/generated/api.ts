@@ -23,6 +23,8 @@ import type {
   AppUser,
   AppUserUpdate,
   AuditEvent,
+  BillingSettings,
+  BillingSettingsUpdate,
   Client,
   ClientInput,
   ClientNote,
@@ -40,6 +42,7 @@ import type {
   EstimateFieldUpdate,
   EstimateInput,
   EstimateSendInput,
+  ExtraWorkInput,
   FieldNote,
   FieldNoteInput,
   GetContractorEarningsParams,
@@ -63,6 +66,9 @@ import type {
   ListSuggestedActionsParams,
   ListTicketsParams,
   ListWaitingListParams,
+  OfferableService,
+  OnSitePayment,
+  OnSitePaymentInput,
   Payment,
   PaymentInput,
   PriceQueryInput,
@@ -3513,6 +3519,375 @@ export function useListMyJobs<TData = Awaited<ReturnType<typeof listMyJobs>>, TE
 
 
 
+
+export const getListOfferableServicesUrl = () => {
+
+
+
+
+  return `/api/my/offerable-services`
+}
+
+/**
+ * @summary One-time extra services the office allows contractors to offer on site
+ */
+export const listOfferableServices = async ( options?: Parameters<typeof customFetch>[1]): Promise<OfferableService[]> => {
+
+  return customFetch<OfferableService[]>(getListOfferableServicesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListOfferableServicesQueryKey = () => {
+    return [
+    `/api/my/offerable-services`
+    ] as const;
+    }
+
+
+export const getListOfferableServicesQueryOptions = <TData = Awaited<ReturnType<typeof listOfferableServices>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listOfferableServices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListOfferableServicesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listOfferableServices>>> = ({ signal }) => listOfferableServices({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listOfferableServices>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListOfferableServicesQueryResult = NonNullable<Awaited<ReturnType<typeof listOfferableServices>>>
+export type ListOfferableServicesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary One-time extra services the office allows contractors to offer on site
+ */
+
+export function useListOfferableServices<TData = Awaited<ReturnType<typeof listOfferableServices>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listOfferableServices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListOfferableServicesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAddExtraWorkUrl = (id: number,) => {
+
+
+
+
+  return `/api/my/jobs/${id}/extra-work`
+}
+
+/**
+ * @summary Add approved one-time extra work to an assigned job from the field
+ */
+export const addExtraWork = async (id: number,
+    extraWorkInput: ExtraWorkInput, options?: Parameters<typeof customFetch>[1]): Promise<JobProduct> => {
+
+  return customFetch<JobProduct>(getAddExtraWorkUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(extraWorkInput)
+  }
+);}
+
+
+
+
+
+export const getAddExtraWorkMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addExtraWork>>, TError,{id: number;data: BodyType<ExtraWorkInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof addExtraWork>>, TError,{id: number;data: BodyType<ExtraWorkInput>}, TContext> => {
+
+const mutationKey = ['addExtraWork'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof addExtraWork>>, {id: number;data: BodyType<ExtraWorkInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  addExtraWork(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AddExtraWorkMutationResult = NonNullable<Awaited<ReturnType<typeof addExtraWork>>>
+    export type AddExtraWorkMutationBody = BodyType<ExtraWorkInput>
+    export type AddExtraWorkMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Add approved one-time extra work to an assigned job from the field
+ */
+export const useAddExtraWork = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addExtraWork>>, TError,{id: number;data: BodyType<ExtraWorkInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof addExtraWork>>,
+        TError,
+        {id: number;data: BodyType<ExtraWorkInput>},
+        TContext
+      > => {
+      return useMutation(getAddExtraWorkMutationOptions(options));
+    }
+
+export const getRecordOnSitePaymentUrl = (id: number,) => {
+
+
+
+
+  return `/api/my/jobs/${id}/payments`
+}
+
+/**
+ * @summary Record an on-site payment for an assigned job; card fee applied per office settings
+ */
+export const recordOnSitePayment = async (id: number,
+    onSitePaymentInput: OnSitePaymentInput, options?: Parameters<typeof customFetch>[1]): Promise<OnSitePayment> => {
+
+  return customFetch<OnSitePayment>(getRecordOnSitePaymentUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(onSitePaymentInput)
+  }
+);}
+
+
+
+
+
+export const getRecordOnSitePaymentMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recordOnSitePayment>>, TError,{id: number;data: BodyType<OnSitePaymentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof recordOnSitePayment>>, TError,{id: number;data: BodyType<OnSitePaymentInput>}, TContext> => {
+
+const mutationKey = ['recordOnSitePayment'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof recordOnSitePayment>>, {id: number;data: BodyType<OnSitePaymentInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  recordOnSitePayment(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RecordOnSitePaymentMutationResult = NonNullable<Awaited<ReturnType<typeof recordOnSitePayment>>>
+    export type RecordOnSitePaymentMutationBody = BodyType<OnSitePaymentInput>
+    export type RecordOnSitePaymentMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Record an on-site payment for an assigned job; card fee applied per office settings
+ */
+export const useRecordOnSitePayment = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recordOnSitePayment>>, TError,{id: number;data: BodyType<OnSitePaymentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof recordOnSitePayment>>,
+        TError,
+        {id: number;data: BodyType<OnSitePaymentInput>},
+        TContext
+      > => {
+      return useMutation(getRecordOnSitePaymentMutationOptions(options));
+    }
+
+export const getGetBillingSettingsUrl = () => {
+
+
+
+
+  return `/api/billing-settings`
+}
+
+/**
+ * @summary Card processing fee configuration (visible to all authenticated users)
+ */
+export const getBillingSettings = async ( options?: Parameters<typeof customFetch>[1]): Promise<BillingSettings> => {
+
+  return customFetch<BillingSettings>(getGetBillingSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetBillingSettingsQueryKey = () => {
+    return [
+    `/api/billing-settings`
+    ] as const;
+    }
+
+
+export const getGetBillingSettingsQueryOptions = <TData = Awaited<ReturnType<typeof getBillingSettings>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBillingSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetBillingSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getBillingSettings>>> = ({ signal }) => getBillingSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getBillingSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetBillingSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof getBillingSettings>>>
+export type GetBillingSettingsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Card processing fee configuration (visible to all authenticated users)
+ */
+
+export function useGetBillingSettings<TData = Awaited<ReturnType<typeof getBillingSettings>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBillingSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetBillingSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateBillingSettingsUrl = () => {
+
+
+
+
+  return `/api/billing-settings`
+}
+
+/**
+ * @summary Update card processing fee configuration (admin only)
+ */
+export const updateBillingSettings = async (billingSettingsUpdate: BillingSettingsUpdate, options?: Parameters<typeof customFetch>[1]): Promise<BillingSettings> => {
+
+  return customFetch<BillingSettings>(getUpdateBillingSettingsUrl(),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(billingSettingsUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateBillingSettingsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateBillingSettings>>, TError,{data: BodyType<BillingSettingsUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateBillingSettings>>, TError,{data: BodyType<BillingSettingsUpdate>}, TContext> => {
+
+const mutationKey = ['updateBillingSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateBillingSettings>>, {data: BodyType<BillingSettingsUpdate>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateBillingSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateBillingSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof updateBillingSettings>>>
+    export type UpdateBillingSettingsMutationBody = BodyType<BillingSettingsUpdate>
+    export type UpdateBillingSettingsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Update card processing fee configuration (admin only)
+ */
+export const useUpdateBillingSettings = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateBillingSettings>>, TError,{data: BodyType<BillingSettingsUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateBillingSettings>>,
+        TError,
+        {data: BodyType<BillingSettingsUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateBillingSettingsMutationOptions(options));
+    }
 
 export const getGetMyRouteUrl = (params: GetMyRouteParams,) => {
   const normalizedParams = new URLSearchParams();

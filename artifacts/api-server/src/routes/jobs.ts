@@ -7,16 +7,26 @@ import {
   servicesTable,
   usersTable,
   invoicesTable,
+  paymentsTable,
 } from "@workspace/db";
-import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
 import {
   CreateJobBody,
   UpdateJobBody,
   DispatchJobsBody,
   AddJobProductBody,
+  AddExtraWorkBody,
+  RecordOnSitePaymentBody,
 } from "@workspace/api-zod";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
-import { logAudit, recalcClientBalance, optimizeRoute, haversineKm } from "../lib/helpers";
+import {
+  logAudit,
+  recalcClientBalance,
+  recalcInvoice,
+  optimizeRoute,
+  haversineKm,
+  getBillingSettings,
+} from "../lib/helpers";
 
 const router: IRouter = Router();
 
@@ -254,6 +264,131 @@ function canAccessJob(req: { appUser?: { id: number; role: string } }, job: JobR
   );
 }
 
+router.get("/my/offerable-services", async (_req, res) => {
+  const rows = await db
+    .select()
+    .from(servicesTable)
+    .where(eq(servicesTable.contractorOfferable, true))
+    .orderBy(asc(servicesTable.name));
+  return res.json(
+    rows.map((s) => ({
+      id: s.id,
+      name: s.name,
+      description: s.description,
+      price: s.contractorPrice ?? s.rate,
+    })),
+  );
+});
+
+router.post("/my/jobs/:id/extra-work", async (req, res) => {
+  const body = AddExtraWorkBody.parse(req.body);
+  const jobId = Number(req.params.id);
+  const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, jobId));
+  if (!job) return res.status(404).json({ error: "Job not found" });
+  if (!canAccessJob(req, job)) return res.status(403).json({ error: "Forbidden" });
+
+  const [svc] = await db.select().from(servicesTable).where(eq(servicesTable.id, body.serviceId));
+  // Contractors may only add services the office has approved for field offers
+  if (!svc || !svc.contractorOfferable) {
+    return res.status(400).json({ error: "This service is not available to offer on site" });
+  }
+  const quantity = body.quantity ?? 1;
+  const price = svc.contractorPrice ?? svc.rate;
+
+  // Lock the job so a concurrent completion can't invoice while we add work
+  const product = await db.transaction(async (tx) => {
+    const [locked] = await tx.select().from(jobsTable).where(eq(jobsTable.id, jobId)).for("update");
+    if (!locked || locked.status === "completed") return null;
+    const [p] = await tx
+      .insert(jobProductsTable)
+      .values({ jobId, serviceId: svc.id, name: svc.name, price, quantity })
+      .returning();
+    return p;
+  });
+  if (!product) {
+    return res.status(400).json({ error: "Job is completed and invoiced; work can no longer be added" });
+  }
+  await logAudit({
+    clientId: job.clientId,
+    actorName: req.appUser?.name,
+    action: "extra_work_added",
+    description: `Added on-site extra work "${svc.name}" (${quantity} × $${price}) to job #${jobId}`,
+  });
+  return res.status(201).json(product);
+});
+
+router.post("/my/jobs/:id/payments", async (req, res) => {
+  const body = RecordOnSitePaymentBody.parse(req.body);
+  const jobId = Number(req.params.id);
+  const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, jobId));
+  if (!job) return res.status(404).json({ error: "Job not found" });
+  // Contractors can only take payment for jobs assigned to them
+  if (!canAccessJob(req, job)) return res.status(403).json({ error: "Forbidden" });
+
+  const settings = await getBillingSettings();
+  const applyFee = body.method === "credit_card" && settings.cardFeeEnabled && settings.cardFeePercent > 0;
+  const baseAmount = Math.round(body.amount * 100) / 100;
+  const cardFee = applyFee ? Math.round(baseAmount * settings.cardFeePercent) / 100 : 0;
+  const total = Math.round((baseAmount + cardFee) * 100) / 100;
+
+  const feeNote = applyFee
+    ? `Includes $${cardFee.toFixed(2)} card processing fee (${settings.cardFeePercent}%).`
+    : null;
+  const notes = [body.notes, feeNote].filter(Boolean).join(" ") || null;
+
+  // Lock the job row so payment recording serializes with completion: we either
+  // see the completion invoice (and attach to it) or insert before completion
+  // commits, in which case completion's own pass attaches this payment.
+  const payment = await db.transaction(async (tx) => {
+    const [locked] = await tx.select().from(jobsTable).where(eq(jobsTable.id, jobId)).for("update");
+    if (!locked) return null;
+    // Attach to the job's invoice when it exists, belongs to the client, and isn't void
+    let invoice: typeof invoicesTable.$inferSelect | null = null;
+    if (locked.invoiceId != null) {
+      const [inv] = await tx.select().from(invoicesTable).where(eq(invoicesTable.id, locked.invoiceId));
+      if (inv && inv.clientId === locked.clientId && inv.status !== "void") invoice = inv;
+    }
+    // The card surcharge is a real charge: add it to the invoice total so
+    // amountPaid and the customer balance reconcile to the disclosed amount.
+    if (invoice && cardFee > 0) {
+      await tx
+        .update(invoicesTable)
+        .set({ total: Math.round((invoice.total + cardFee) * 100) / 100 })
+        .where(eq(invoicesTable.id, invoice.id));
+    }
+    const [p] = await tx
+      .insert(paymentsTable)
+      .values({
+        clientId: locked.clientId,
+        invoiceId: invoice?.id ?? null,
+        jobId,
+        amount: total,
+        cardFee,
+        method: body.method,
+        reference: body.reference ?? null,
+        notes,
+      })
+      .returning();
+    return p;
+  });
+  if (!payment) return res.status(404).json({ error: "Job not found" });
+  if (payment.invoiceId) await recalcInvoice(payment.invoiceId);
+  await recalcClientBalance(payment.clientId);
+  await logAudit({
+    clientId: job.clientId,
+    actorName: req.appUser?.name,
+    action: "payment_recorded",
+    description: `On-site payment of $${total} via ${body.method} for job #${jobId}${feeNote ? ` — ${feeNote}` : ""}`,
+  });
+  return res.status(201).json({
+    ...payment,
+    createdAt: payment.createdAt.toISOString(),
+    baseAmount,
+    cardFee,
+    cardFeePercent: applyFee ? settings.cardFeePercent : null,
+  });
+});
+
 router.get("/jobs/:id", async (req, res) => {
   const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, Number(req.params.id)));
   if (!job) return res.status(404).json({ error: "Job not found" });
@@ -327,7 +462,13 @@ router.post("/jobs/:id/complete", async (req, res) => {
 
     const products = await tx.select().from(jobProductsTable).where(eq(jobProductsTable.jobId, id));
     const productTotal = products.reduce((s, p) => s + p.price * p.quantity, 0);
-    const total = Math.round((locked.amount + productTotal) * 100) / 100;
+    // fold card surcharges from payments collected before completion into the invoice total
+    const pendingPayments = await tx
+      .select()
+      .from(paymentsTable)
+      .where(and(eq(paymentsTable.jobId, id), isNull(paymentsTable.invoiceId)));
+    const pendingFees = pendingPayments.reduce((s, p) => s + p.cardFee, 0);
+    const total = Math.round((locked.amount + productTotal + pendingFees) * 100) / 100;
 
     let serviceName: string | null = null;
     if (locked.serviceId) {
@@ -345,6 +486,12 @@ router.post("/jobs/:id/complete", async (req, res) => {
       })
       .returning();
 
+    // Attach any on-site payments collected before completion to the new invoice
+    await tx
+      .update(paymentsTable)
+      .set({ invoiceId: invoice.id })
+      .where(and(eq(paymentsTable.jobId, id), isNull(paymentsTable.invoiceId)));
+
     const today = new Date().toISOString().slice(0, 10);
     const [job] = await tx
       .update(jobsTable)
@@ -358,6 +505,8 @@ router.post("/jobs/:id/complete", async (req, res) => {
 
   if (!result) return res.status(404).json({ error: "Job not found" });
   if (result.invoice) {
+    // Reflect any pre-completion payments now attached to the invoice
+    await recalcInvoice(result.invoice.id);
     await recalcClientBalance(result.job.clientId);
     await logAudit({
       clientId: result.job.clientId,

@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { 
   useListServices, useCreateService, useUpdateService, useDeleteService, useCalculateServicePrice,
-  useListPackages, useCreatePackage, useUpdatePackage, useDeletePackage, useGetService
+  useListPackages, useCreatePackage, useUpdatePackage, useDeletePackage, useGetService,
+  useGetBillingSettings, useUpdateBillingSettings
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -28,6 +29,8 @@ const serviceSchema = z.object({
   name: z.string().min(1, "Required"),
   description: z.string().optional(),
   pricingEquations: z.array(equationSchema),
+  contractorOfferable: z.boolean().default(false),
+  contractorPrice: z.union([z.coerce.number(), z.literal('')]).optional(),
 });
 
 const packageSchema = z.object({
@@ -49,6 +52,7 @@ export default function Services() {
           <TabsList>
             <TabsTrigger value="services">Services</TabsTrigger>
             <TabsTrigger value="packages">Packages</TabsTrigger>
+            <TabsTrigger value="field-payments">Field Payments</TabsTrigger>
           </TabsList>
           
           <TabsContent value="services" className="m-0"><ServiceDialog /></TabsContent>
@@ -61,8 +65,81 @@ export default function Services() {
         <TabsContent value="packages" className="flex-1 m-0">
           <PackagesList />
         </TabsContent>
+        <TabsContent value="field-payments" className="flex-1 m-0">
+          <FieldPaymentSettings />
+        </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+function FieldPaymentSettings() {
+  const { data: settings, isLoading } = useGetBillingSettings();
+  const updateSettings = useUpdateBillingSettings();
+  const queryClient = useQueryClient();
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [percent, setPercent] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  if (isLoading || !settings) return <div className="text-muted-foreground animate-pulse p-4">Loading settings...</div>;
+
+  const curEnabled = enabled ?? settings.cardFeeEnabled;
+  const curPercent = percent ?? String(settings.cardFeePercent);
+
+  const save = () => {
+    setSaved(false);
+    updateSettings.mutate(
+      { data: { cardFeeEnabled: curEnabled, cardFeePercent: Number(curPercent) || 0 } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries();
+          setSaved(true);
+        },
+      },
+    );
+  };
+
+  return (
+    <Card className="max-w-lg">
+      <CardHeader>
+        <CardTitle>On-Site Card Payments</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          When enabled, a card processing fee is automatically added to on-site credit card payments.
+          Contractors see the fee breakdown before recording, and it is disclosed to the customer.
+        </p>
+        <label className="flex items-center gap-3">
+          <input
+            type="checkbox"
+            className="w-4 h-4 accent-primary"
+            checked={curEnabled}
+            onChange={(e) => setEnabled(e.target.checked)}
+          />
+          <span className="font-semibold text-sm">Add card processing fee to credit card payments</span>
+        </label>
+        {curEnabled && (
+          <div className="space-y-1">
+            <label className="text-sm font-medium">Fee percentage (%)</label>
+            <Input
+              type="number"
+              min="0"
+              max="25"
+              step="0.1"
+              className="max-w-[120px]"
+              value={curPercent}
+              onChange={(e) => setPercent(e.target.value)}
+            />
+          </div>
+        )}
+        <div className="flex items-center gap-3">
+          <Button onClick={save} disabled={updateSettings.isPending}>
+            {updateSettings.isPending ? 'Saving...' : 'Save Settings'}
+          </Button>
+          {saved && <span className="text-sm text-primary font-medium">Saved</span>}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -84,6 +161,7 @@ function ServicesList() {
             <TableHead>Service Name</TableHead>
             <TableHead>Description</TableHead>
             <TableHead>Pricing Model</TableHead>
+            <TableHead>Field Offer</TableHead>
             <TableHead className="w-24"></TableHead>
           </TableRow>
         </TableHeader>
@@ -103,6 +181,15 @@ function ServicesList() {
                   ))}
                 </div>
               </TableCell>
+              <TableCell>
+                {s.contractorOfferable ? (
+                  <span className="text-sm font-semibold text-primary">
+                    ${(s.contractorPrice ?? s.rate).toFixed(2)}
+                  </span>
+                ) : (
+                  <span className="text-sm text-muted-foreground">—</span>
+                )}
+              </TableCell>
               <TableCell className="text-right space-x-2">
                 <ServiceDialog serviceToEdit={s} />
                 <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive" onClick={() => {
@@ -116,7 +203,7 @@ function ServicesList() {
             </TableRow>
           ))}
           {!services?.length && (
-            <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">No services found.</TableCell></TableRow>
+            <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No services found.</TableCell></TableRow>
           )}
         </TableBody>
       </Table>
@@ -185,12 +272,18 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: any }) {
       name: serviceToEdit?.name || '',
       description: serviceToEdit?.description || '',
       pricingEquations: serviceToEdit?.pricingEquations || [{ baseSqft: 0, basePrice: 0, incrementSqft: 0, incrementPrice: 0, upToSqft: 0 }],
+      contractorOfferable: serviceToEdit?.contractorOfferable ?? false,
+      contractorPrice: serviceToEdit?.contractorPrice ?? '',
     }
   });
 
   const { fields, append, remove } = useFieldArray({ control: form.control, name: "pricingEquations" });
 
-  const onSubmit = (data: z.infer<typeof serviceSchema>) => {
+  const onSubmit = (raw: z.infer<typeof serviceSchema>) => {
+    const data = {
+      ...raw,
+      contractorPrice: raw.contractorPrice === '' || raw.contractorPrice == null ? null : Number(raw.contractorPrice),
+    };
     if (serviceToEdit) {
       updateService.mutate({ id: serviceToEdit.id, data }, {
         onSuccess: () => {
@@ -241,6 +334,29 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: any }) {
                 <FormField control={form.control} name="description" render={({ field }) => (
                   <FormItem><FormLabel>Description</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage/></FormItem>
                 )} />
+
+                <div className="p-4 bg-muted/30 border rounded-lg space-y-3">
+                  <FormField control={form.control} name="contractorOfferable" render={({ field }) => (
+                    <FormItem className="flex items-center gap-3 space-y-0">
+                      <FormControl>
+                        <input type="checkbox" className="w-4 h-4 accent-primary" checked={field.value} onChange={e => field.onChange(e.target.checked)} />
+                      </FormControl>
+                      <div>
+                        <FormLabel className="font-semibold">Contractors can offer on site</FormLabel>
+                        <p className="text-xs text-muted-foreground">Allow field crews to add this as one-time extra work from their phone.</p>
+                      </div>
+                    </FormItem>
+                  )} />
+                  {form.watch('contractorOfferable') && (
+                    <FormField control={form.control} name="contractorPrice" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>On-site price ($)</FormLabel>
+                        <FormControl><Input type="number" step="0.01" placeholder="Defaults to service rate" {...field} /></FormControl>
+                        <FormMessage/>
+                      </FormItem>
+                    )} />
+                  )}
+                </div>
 
                 <div className="pt-4 border-t">
                   <div className="flex items-center justify-between mb-4">

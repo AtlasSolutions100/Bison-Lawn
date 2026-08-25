@@ -14,7 +14,10 @@ export interface Payment {
   clientName?: string | null;
   /** @nullable */
   invoiceId?: number | null;
+  /** @nullable */
+  jobId?: number | null;
   amount: number;
+  cardFee?: number;
   method: PaymentMethod;
   /** @nullable */
   reference?: string | null;
