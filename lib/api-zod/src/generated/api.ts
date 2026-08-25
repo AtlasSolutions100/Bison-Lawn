@@ -1594,6 +1594,286 @@ export const DeleteTicketResponse = zod.void()
 
 
 /**
+ * @summary Record a field note on a job; creates a reviewable office ticket
+ */
+export const CreateFieldNoteParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+
+
+
+export const CreateFieldNoteBody = zod.object({
+  "transcript": zod.string().min(1),
+  "source": zod.enum(['voice', 'typed']).optional()
+})
+
+export const CreateFieldNoteResponse = zod.object({
+  "id": zod.int(),
+  "jobId": zod.int(),
+  "clientId": zod.int(),
+  "clientName": zod.string().nullish(),
+  "authorId": zod.int().nullish(),
+  "authorName": zod.string().nullish(),
+  "transcript": zod.string(),
+  "source": zod.enum(['voice', 'typed']),
+  "ticketId": zod.int().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary List field notes (admin)
+ */
+export const ListFieldNotesQueryParams = zod.object({
+  "jobId": zod.coerce.number().int().optional(),
+  "clientId": zod.coerce.number().int().optional()
+})
+
+export const ListFieldNotesResponseItem = zod.object({
+  "id": zod.int(),
+  "jobId": zod.int(),
+  "clientId": zod.int(),
+  "clientName": zod.string().nullish(),
+  "authorId": zod.int().nullish(),
+  "authorName": zod.string().nullish(),
+  "transcript": zod.string(),
+  "source": zod.enum(['voice', 'typed']),
+  "ticketId": zod.int().nullish(),
+  "createdAt": zod.string()
+})
+export const ListFieldNotesResponse = zod.array(ListFieldNotesResponseItem)
+
+
+export const ListWeatherRulesResponseItem = zod.object({
+  "id": zod.int(),
+  "name": zod.string(),
+  "conditionType": zod.enum(['rain', 'wind', 'heat', 'cold']),
+  "threshold": zod.number(),
+  "actionType": zod.enum(['skip', 'reschedule']),
+  "rescheduleDays": zod.int(),
+  "messageTemplate": zod.string().nullish(),
+  "enabled": zod.boolean(),
+  "createdAt": zod.string()
+})
+export const ListWeatherRulesResponse = zod.array(ListWeatherRulesResponseItem)
+
+
+
+
+
+
+export const CreateWeatherRuleBody = zod.object({
+  "name": zod.string().min(1),
+  "conditionType": zod.enum(['rain', 'wind', 'heat', 'cold']),
+  "threshold": zod.number(),
+  "actionType": zod.enum(['skip', 'reschedule']),
+  "rescheduleDays": zod.int().min(1).optional(),
+  "messageTemplate": zod.string().optional(),
+  "enabled": zod.boolean().optional()
+})
+
+export const CreateWeatherRuleResponse = zod.object({
+  "id": zod.int(),
+  "name": zod.string(),
+  "conditionType": zod.enum(['rain', 'wind', 'heat', 'cold']),
+  "threshold": zod.number(),
+  "actionType": zod.enum(['skip', 'reschedule']),
+  "rescheduleDays": zod.int(),
+  "messageTemplate": zod.string().nullish(),
+  "enabled": zod.boolean(),
+  "createdAt": zod.string()
+})
+
+
+export const UpdateWeatherRuleParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+
+
+
+
+export const UpdateWeatherRuleBody = zod.object({
+  "name": zod.string().min(1).optional(),
+  "conditionType": zod.enum(['rain', 'wind', 'heat', 'cold']).optional(),
+  "threshold": zod.number().optional(),
+  "actionType": zod.enum(['skip', 'reschedule']).optional(),
+  "rescheduleDays": zod.int().min(1).optional(),
+  "messageTemplate": zod.string().nullish(),
+  "enabled": zod.boolean().optional()
+})
+
+export const UpdateWeatherRuleResponse = zod.object({
+  "id": zod.int(),
+  "name": zod.string(),
+  "conditionType": zod.enum(['rain', 'wind', 'heat', 'cold']),
+  "threshold": zod.number(),
+  "actionType": zod.enum(['skip', 'reschedule']),
+  "rescheduleDays": zod.int(),
+  "messageTemplate": zod.string().nullish(),
+  "enabled": zod.boolean(),
+  "createdAt": zod.string()
+})
+
+
+export const DeleteWeatherRuleParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const DeleteWeatherRuleResponse = zod.void()
+
+
+/**
+ * @summary Evaluate enabled weather rules against scheduled jobs for a date and prepare suggested actions
+ */
+export const RunWeatherCheckBody = zod.object({
+  "date": zod.string()
+})
+
+export const RunWeatherCheckResponse = zod.object({
+  "date": zod.string(),
+  "jobsChecked": zod.int(),
+  "suggestionsCreated": zod.int(),
+  "forecastSummary": zod.string().nullish(),
+  "suggestions": zod.array(zod.object({
+  "id": zod.int(),
+  "source": zod.enum(['weather', 'field_note']),
+  "ruleId": zod.int().nullish(),
+  "ruleName": zod.string().nullish(),
+  "jobId": zod.int().nullish(),
+  "clientId": zod.int(),
+  "clientName": zod.string().nullish(),
+  "actionType": zod.enum(['skip', 'reschedule']),
+  "reason": zod.string(),
+  "targetDate": zod.string().nullish(),
+  "newDate": zod.string().nullish(),
+  "customerMessage": zod.string().nullish(),
+  "status": zod.enum(['pending', 'approved', 'rejected']),
+  "reviewedById": zod.int().nullish(),
+  "reviewedByName": zod.string().nullish(),
+  "reviewedAt": zod.string().nullish(),
+  "createdAt": zod.string()
+}))
+})
+
+
+export const ListSuggestedActionsQueryParams = zod.object({
+  "status": zod.enum(['pending', 'approved', 'rejected']).optional()
+})
+
+export const ListSuggestedActionsResponseItem = zod.object({
+  "id": zod.int(),
+  "source": zod.enum(['weather', 'field_note']),
+  "ruleId": zod.int().nullish(),
+  "ruleName": zod.string().nullish(),
+  "jobId": zod.int().nullish(),
+  "clientId": zod.int(),
+  "clientName": zod.string().nullish(),
+  "actionType": zod.enum(['skip', 'reschedule']),
+  "reason": zod.string(),
+  "targetDate": zod.string().nullish(),
+  "newDate": zod.string().nullish(),
+  "customerMessage": zod.string().nullish(),
+  "status": zod.enum(['pending', 'approved', 'rejected']),
+  "reviewedById": zod.int().nullish(),
+  "reviewedByName": zod.string().nullish(),
+  "reviewedAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListSuggestedActionsResponse = zod.array(ListSuggestedActionsResponseItem)
+
+
+/**
+ * @summary Edit a pending suggestion (message, new date) before approval
+ */
+export const UpdateSuggestedActionParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const UpdateSuggestedActionBody = zod.object({
+  "newDate": zod.string().nullish(),
+  "customerMessage": zod.string().nullish()
+})
+
+export const UpdateSuggestedActionResponse = zod.object({
+  "id": zod.int(),
+  "source": zod.enum(['weather', 'field_note']),
+  "ruleId": zod.int().nullish(),
+  "ruleName": zod.string().nullish(),
+  "jobId": zod.int().nullish(),
+  "clientId": zod.int(),
+  "clientName": zod.string().nullish(),
+  "actionType": zod.enum(['skip', 'reschedule']),
+  "reason": zod.string(),
+  "targetDate": zod.string().nullish(),
+  "newDate": zod.string().nullish(),
+  "customerMessage": zod.string().nullish(),
+  "status": zod.enum(['pending', 'approved', 'rejected']),
+  "reviewedById": zod.int().nullish(),
+  "reviewedByName": zod.string().nullish(),
+  "reviewedAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Approve and apply a suggested action (admin)
+ */
+export const ApproveSuggestedActionParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ApproveSuggestedActionResponse = zod.object({
+  "id": zod.int(),
+  "source": zod.enum(['weather', 'field_note']),
+  "ruleId": zod.int().nullish(),
+  "ruleName": zod.string().nullish(),
+  "jobId": zod.int().nullish(),
+  "clientId": zod.int(),
+  "clientName": zod.string().nullish(),
+  "actionType": zod.enum(['skip', 'reschedule']),
+  "reason": zod.string(),
+  "targetDate": zod.string().nullish(),
+  "newDate": zod.string().nullish(),
+  "customerMessage": zod.string().nullish(),
+  "status": zod.enum(['pending', 'approved', 'rejected']),
+  "reviewedById": zod.int().nullish(),
+  "reviewedByName": zod.string().nullish(),
+  "reviewedAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Reject a suggested action (admin)
+ */
+export const RejectSuggestedActionParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const RejectSuggestedActionResponse = zod.object({
+  "id": zod.int(),
+  "source": zod.enum(['weather', 'field_note']),
+  "ruleId": zod.int().nullish(),
+  "ruleName": zod.string().nullish(),
+  "jobId": zod.int().nullish(),
+  "clientId": zod.int(),
+  "clientName": zod.string().nullish(),
+  "actionType": zod.enum(['skip', 'reschedule']),
+  "reason": zod.string(),
+  "targetDate": zod.string().nullish(),
+  "newDate": zod.string().nullish(),
+  "customerMessage": zod.string().nullish(),
+  "status": zod.enum(['pending', 'approved', 'rejected']),
+  "reviewedById": zod.int().nullish(),
+  "reviewedByName": zod.string().nullish(),
+  "reviewedAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
  * @summary Admin dashboard totals
  */
 export const GetDashboardSummaryResponse = zod.object({

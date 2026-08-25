@@ -11,7 +11,8 @@
     "test:owner-access": "tsx --test test/ownerAccess.test.ts",
     "test:integration": "NODE_ENV=test tsx --test test/integration.test.ts",
     "test:estimate-delivery": "tsx --test test/estimateDelivery.test.ts",
-    "test": "pnpm run test:owner-access && pnpm run test:estimate-delivery && pnpm run test:integration"
+    "test:automation": "NODE_ENV=test tsx --test test/automation.test.ts",
+    "test": "pnpm run test:owner-access && pnpm run test:estimate-delivery && pnpm run test:integration && pnpm run test:automation"
   },
   "dependencies": {
     "@clerk/express": "^2.1.57",

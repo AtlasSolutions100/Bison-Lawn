@@ -1,0 +1,434 @@
+import { Router, type IRouter } from "express";
+import {
+  db,
+  weatherRulesTable,
+  suggestedActionsTable,
+  jobsTable,
+  clientsTable,
+  usersTable,
+} from "@workspace/db";
+import { and, desc, eq, inArray } from "drizzle-orm";
+import {
+  CreateWeatherRuleBody,
+  UpdateWeatherRuleBody,
+  RunWeatherCheckBody,
+  UpdateSuggestedActionBody,
+} from "@workspace/api-zod";
+import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
+import { logAudit } from "../lib/helpers";
+
+const router: IRouter = Router();
+
+// Every automation endpoint is admin-only: rules, checks, and the review queue.
+router.use(requireAuth, requireAdmin);
+
+// ---------- weather rules ----------
+
+router.get("/weather-rules", async (_req, res) => {
+  const rows = await db.select().from(weatherRulesTable).orderBy(desc(weatherRulesTable.createdAt));
+  return res.json(rows);
+});
+
+router.post("/weather-rules", async (req, res) => {
+  const body = CreateWeatherRuleBody.parse(req.body);
+  const [rule] = await db.insert(weatherRulesTable).values(body).returning();
+  await logAudit({
+    actorName: req.appUser?.name,
+    action: "weather_rule_created",
+    description: `Created weather rule "${rule.name}" (${rule.conditionType} ≥ ${rule.threshold}, action: ${rule.actionType})`,
+  });
+  return res.status(201).json(rule);
+});
+
+router.patch("/weather-rules/:id", async (req, res) => {
+  const body = UpdateWeatherRuleBody.parse(req.body);
+  const [existing] = await db
+    .select()
+    .from(weatherRulesTable)
+    .where(eq(weatherRulesTable.id, Number(req.params.id)));
+  if (!existing) return res.status(404).json({ error: "Rule not found" });
+  const [rule] = await db
+    .update(weatherRulesTable)
+    .set(body)
+    .where(eq(weatherRulesTable.id, existing.id))
+    .returning();
+  const changes = (Object.keys(body) as (keyof typeof body)[])
+    .filter((k) => body[k] !== undefined && (existing as any)[k] !== body[k])
+    .map((k) => `${k}: ${JSON.stringify((existing as any)[k])} → ${JSON.stringify(body[k])}`);
+  await logAudit({
+    actorName: req.appUser?.name,
+    action: "weather_rule_updated",
+    description: `Updated weather rule "${existing.name}" (#${existing.id})${changes.length ? `: ${changes.join(", ")}` : ""}`,
+  });
+  return res.json(rule);
+});
+
+router.delete("/weather-rules/:id", async (req, res) => {
+  const [existing] = await db
+    .select()
+    .from(weatherRulesTable)
+    .where(eq(weatherRulesTable.id, Number(req.params.id)));
+  if (existing) {
+    await db.delete(weatherRulesTable).where(eq(weatherRulesTable.id, existing.id));
+    await logAudit({
+      actorName: req.appUser?.name,
+      action: "weather_rule_deleted",
+      description: `Deleted weather rule "${existing.name}" (#${existing.id}, ${existing.conditionType} threshold ${existing.threshold}, action: ${existing.actionType})`,
+    });
+  }
+  return res.status(204).end();
+});
+
+// ---------- weather check ----------
+
+type DailyForecast = {
+  precipitationMm: number;
+  windKph: number;
+  maxTempC: number;
+  minTempC: number;
+};
+
+/** Fetch the daily forecast for a location/date from Open-Meteo (no API key needed). */
+async function fetchForecast(lat: number, lng: number, date: string): Promise<DailyForecast | null> {
+  const url =
+    `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}` +
+    `&daily=precipitation_sum,wind_speed_10m_max,temperature_2m_max,temperature_2m_min` +
+    `&start_date=${date}&end_date=${date}&timezone=auto`;
+  const resp = await fetch(url);
+  if (!resp.ok) return null;
+  const data = (await resp.json()) as {
+    daily?: {
+      precipitation_sum?: (number | null)[];
+      wind_speed_10m_max?: (number | null)[];
+      temperature_2m_max?: (number | null)[];
+      temperature_2m_min?: (number | null)[];
+    };
+  };
+  const d = data.daily;
+  if (!d) return null;
+  return {
+    precipitationMm: d.precipitation_sum?.[0] ?? 0,
+    windKph: d.wind_speed_10m_max?.[0] ?? 0,
+    maxTempC: d.temperature_2m_max?.[0] ?? 0,
+    minTempC: d.temperature_2m_min?.[0] ?? 0,
+  };
+}
+
+function ruleTriggered(rule: typeof weatherRulesTable.$inferSelect, f: DailyForecast): { hit: boolean; observed: string } {
+  switch (rule.conditionType) {
+    case "rain":
+      return { hit: f.precipitationMm >= rule.threshold, observed: `${f.precipitationMm} mm rain` };
+    case "wind":
+      return { hit: f.windKph >= rule.threshold, observed: `${f.windKph} km/h wind` };
+    case "heat":
+      return { hit: f.maxTempC >= rule.threshold, observed: `${f.maxTempC}°C high` };
+    case "cold":
+      return { hit: f.minTempC <= rule.threshold, observed: `${f.minTempC}°C low` };
+    default:
+      return { hit: false, observed: "" };
+  }
+}
+
+function addDaysISO(date: string, days: number): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function buildMessage(template: string | null, vars: Record<string, string>): string {
+  const base =
+    template ??
+    "Hi {clientName}, due to weather conditions ({reason}) we need to {action} your service on {date}.{newDatePart} Sorry for the inconvenience — Bison Lawn Care.";
+  return base
+    .replace(/\{clientName\}/g, vars.clientName)
+    .replace(/\{reason\}/g, vars.reason)
+    .replace(/\{action\}/g, vars.action)
+    .replace(/\{date\}/g, vars.date)
+    .replace(/\{newDate\}/g, vars.newDate)
+    .replace(/\{newDatePart\}/g, vars.newDatePart);
+}
+
+/**
+ * Evaluate all enabled weather rules against jobs scheduled for a date.
+ * Nothing is changed automatically — triggered rules only create pending
+ * suggested actions that an admin must review and approve.
+ */
+router.post("/weather-check", async (req, res) => {
+  const body = RunWeatherCheckBody.parse(req.body);
+  const date = body.date;
+
+  const rules = await db.select().from(weatherRulesTable).where(eq(weatherRulesTable.enabled, true));
+  const jobs = await db
+    .select()
+    .from(jobsTable)
+    .where(and(eq(jobsTable.dispatched, true), eq(jobsTable.scheduledDate, date)));
+  const activeJobs = jobs.filter((j) => j.status !== "completed");
+
+  if (rules.length === 0 || activeJobs.length === 0) {
+    return res.json({ date, jobsChecked: activeJobs.length, suggestionsCreated: 0, forecastSummary: null, suggestions: [] });
+  }
+
+  const clientIds = [...new Set(activeJobs.map((j) => j.clientId))];
+  const clients = await db.select().from(clientsTable).where(inArray(clientsTable.id, clientIds));
+  const cMap = new Map(clients.map((c) => [c.id, c]));
+
+  // Existing pending suggestions so a re-run doesn't duplicate them.
+  const existing = await db
+    .select()
+    .from(suggestedActionsTable)
+    .where(and(eq(suggestedActionsTable.source, "weather"), eq(suggestedActionsTable.status, "pending")));
+  const existingKeys = new Set(existing.map((s) => `${s.jobId}:${s.ruleId}`));
+
+  // Cache forecasts by rounded coordinates so nearby clients share a lookup.
+  const forecastCache = new Map<string, DailyForecast | null>();
+  async function forecastFor(lat: number, lng: number): Promise<DailyForecast | null> {
+    const key = `${lat.toFixed(1)},${lng.toFixed(1)}`;
+    if (!forecastCache.has(key)) {
+      try {
+        forecastCache.set(key, await fetchForecast(lat, lng, date));
+      } catch {
+        forecastCache.set(key, null);
+      }
+    }
+    return forecastCache.get(key)!;
+  }
+
+  const created: (typeof suggestedActionsTable.$inferSelect)[] = [];
+  let sampleForecast: DailyForecast | null = null;
+  let forecastMissing = 0;
+
+  for (const job of activeJobs) {
+    const client = cMap.get(job.clientId);
+    if (!client || client.lat == null || client.lng == null) {
+      forecastMissing++;
+      continue;
+    }
+    const forecast = await forecastFor(client.lat, client.lng);
+    if (!forecast) {
+      forecastMissing++;
+      continue;
+    }
+    sampleForecast = sampleForecast ?? forecast;
+
+    for (const rule of rules) {
+      const { hit, observed } = ruleTriggered(rule, forecast);
+      if (!hit) continue;
+      if (existingKeys.has(`${job.id}:${rule.id}`)) continue;
+
+      const newDate = rule.actionType === "reschedule" ? addDaysISO(date, rule.rescheduleDays) : null;
+      const reason = `${rule.name}: ${observed} forecast on ${date}`;
+      const customerMessage = buildMessage(rule.messageTemplate, {
+        clientName: client.name,
+        reason: observed,
+        action: rule.actionType === "reschedule" ? "reschedule" : "skip",
+        date,
+        newDate: newDate ?? "",
+        newDatePart: newDate ? ` We plan to come instead on ${newDate}.` : "",
+      });
+
+      const [suggestion] = await db
+        .insert(suggestedActionsTable)
+        .values({
+          source: "weather",
+          ruleId: rule.id,
+          jobId: job.id,
+          clientId: job.clientId,
+          actionType: rule.actionType,
+          reason,
+          targetDate: date,
+          newDate,
+          customerMessage,
+        })
+        .returning();
+      created.push(suggestion);
+      existingKeys.add(`${job.id}:${rule.id}`);
+
+      await logAudit({
+        clientId: job.clientId,
+        actorName: "Weather automation",
+        action: "suggestion_created",
+        description: `Suggested ${rule.actionType} for job #${job.id} (${reason}) — awaiting admin review`,
+      });
+    }
+  }
+
+  const forecastSummary = sampleForecast
+    ? `Forecast for ${date}: ${sampleForecast.precipitationMm} mm rain, ${sampleForecast.windKph} km/h max wind, high ${sampleForecast.maxTempC}°C / low ${sampleForecast.minTempC}°C` +
+      (forecastMissing ? ` (${forecastMissing} job(s) skipped — missing location or forecast)` : "")
+    : forecastMissing === activeJobs.length
+      ? "No forecast available — jobs are missing client map locations or the weather service was unreachable"
+      : null;
+
+  return res.json({
+    date,
+    jobsChecked: activeJobs.length,
+    suggestionsCreated: created.length,
+    forecastSummary,
+    suggestions: await hydrateSuggestions(created),
+  });
+});
+
+// ---------- suggested actions (review queue) ----------
+
+type SuggestionRow = typeof suggestedActionsTable.$inferSelect;
+
+async function hydrateSuggestions(rows: SuggestionRow[]) {
+  if (rows.length === 0) return [];
+  const clientIds = [...new Set(rows.map((r) => r.clientId))];
+  const ruleIds = [...new Set(rows.map((r) => r.ruleId).filter((x): x is number => x != null))];
+  const userIds = [...new Set(rows.map((r) => r.reviewedById).filter((x): x is number => x != null))];
+  const [clients, rules, users] = await Promise.all([
+    db.select().from(clientsTable).where(inArray(clientsTable.id, clientIds)),
+    ruleIds.length ? db.select().from(weatherRulesTable).where(inArray(weatherRulesTable.id, ruleIds)) : Promise.resolve([]),
+    userIds.length ? db.select().from(usersTable).where(inArray(usersTable.id, userIds)) : Promise.resolve([]),
+  ]);
+  const cMap = new Map(clients.map((c) => [c.id, c.name]));
+  const rMap = new Map(rules.map((r) => [r.id, r.name]));
+  const uMap = new Map(users.map((u) => [u.id, u.name]));
+  return rows.map((r) => ({
+    ...r,
+    clientName: cMap.get(r.clientId) ?? null,
+    ruleName: r.ruleId ? (rMap.get(r.ruleId) ?? null) : null,
+    reviewedByName: r.reviewedById ? (uMap.get(r.reviewedById) ?? null) : null,
+    reviewedAt: r.reviewedAt ? r.reviewedAt.toISOString() : null,
+  }));
+}
+
+router.get("/suggested-actions", async (req, res) => {
+  const q = req.query as Record<string, string | undefined>;
+  const conds = [];
+  if (q.status) conds.push(eq(suggestedActionsTable.status, q.status));
+  const rows = await db
+    .select()
+    .from(suggestedActionsTable)
+    .where(conds.length ? and(...conds) : undefined)
+    .orderBy(desc(suggestedActionsTable.createdAt));
+  return res.json(await hydrateSuggestions(rows));
+});
+
+router.patch("/suggested-actions/:id", async (req, res) => {
+  const body = UpdateSuggestedActionBody.parse(req.body);
+  const [existing] = await db
+    .select()
+    .from(suggestedActionsTable)
+    .where(eq(suggestedActionsTable.id, Number(req.params.id)));
+  if (!existing) return res.status(404).json({ error: "Suggestion not found" });
+  if (existing.status !== "pending") {
+    return res.status(400).json({ error: "Only pending suggestions can be edited" });
+  }
+  const [updated] = await db
+    .update(suggestedActionsTable)
+    .set(body)
+    .where(eq(suggestedActionsTable.id, existing.id))
+    .returning();
+  const changes: string[] = [];
+  if (body.newDate !== undefined && body.newDate !== existing.newDate) {
+    changes.push(`new date: ${JSON.stringify(existing.newDate)} → ${JSON.stringify(body.newDate)}`);
+  }
+  if (body.customerMessage !== undefined && body.customerMessage !== existing.customerMessage) {
+    changes.push(
+      `customer message: ${JSON.stringify(existing.customerMessage)} → ${JSON.stringify(body.customerMessage)}`,
+    );
+  }
+  if (changes.length) {
+    await logAudit({
+      clientId: existing.clientId,
+      actorName: req.appUser?.name,
+      action: "suggestion_edited",
+      description: `Edited pending suggestion #${existing.id}${existing.jobId ? ` (job #${existing.jobId})` : ""}: ${changes.join("; ")}`,
+    });
+  }
+  return res.json((await hydrateSuggestions([updated]))[0]);
+});
+
+/**
+ * Approving applies the schedule change atomically: reschedule moves the job
+ * to the new date; skip returns it to the waiting list. The approved customer
+ * message and the change are both written to the audit trail.
+ */
+router.post("/suggested-actions/:id/approve", async (req, res) => {
+  const id = Number(req.params.id);
+
+  const applied = await db.transaction(async (tx) => {
+    const [locked] = await tx
+      .select()
+      .from(suggestedActionsTable)
+      .where(eq(suggestedActionsTable.id, id))
+      .for("update");
+    if (!locked) return { error: 404 as const };
+    if (locked.status !== "pending") return { error: 400 as const, suggestion: locked };
+
+    if (locked.jobId != null) {
+      const [job] = await tx.select().from(jobsTable).where(eq(jobsTable.id, locked.jobId)).for("update");
+      if (!job) return { error: 410 as const };
+      if (job.status === "completed") return { error: 409 as const };
+      if (locked.actionType === "reschedule") {
+        if (!locked.newDate) return { error: 422 as const };
+        await tx
+          .update(jobsTable)
+          .set({ scheduledDate: locked.newDate, status: "scheduled" })
+          .where(eq(jobsTable.id, job.id));
+      } else {
+        // skip: pull the job off the schedule and back onto the waiting list
+        await tx
+          .update(jobsTable)
+          .set({ dispatched: false, scheduledDate: null, routeOrder: null, status: "scheduled" })
+          .where(eq(jobsTable.id, job.id));
+      }
+    }
+
+    const [suggestion] = await tx
+      .update(suggestedActionsTable)
+      .set({ status: "approved", reviewedById: req.appUser!.id, reviewedAt: new Date() })
+      .where(eq(suggestedActionsTable.id, id))
+      .returning();
+    return { suggestion };
+  });
+
+  if ("error" in applied && applied.error !== undefined) {
+    const messages: Record<number, string> = {
+      404: "Suggestion not found",
+      400: "Suggestion has already been reviewed",
+      410: "The job for this suggestion no longer exists",
+      409: "The job has already been completed; nothing to change",
+      422: "A reschedule suggestion needs a new date before approval",
+    };
+    return res.status(applied.error).json({ error: messages[applied.error] });
+  }
+
+  const s = applied.suggestion!;
+  await logAudit({
+    clientId: s.clientId,
+    actorName: req.appUser?.name,
+    action: "suggestion_approved",
+    description:
+      `Approved ${s.actionType}${s.jobId ? ` of job #${s.jobId}` : ""}` +
+      `${s.actionType === "reschedule" && s.newDate ? ` to ${s.newDate}` : ""} (${s.reason})` +
+      `${s.customerMessage ? `. Customer message approved for delivery (not sent automatically): "${s.customerMessage}"` : ""}`,
+  });
+
+  return res.json((await hydrateSuggestions([s]))[0]);
+});
+
+router.post("/suggested-actions/:id/reject", async (req, res) => {
+  const id = Number(req.params.id);
+  const [existing] = await db.select().from(suggestedActionsTable).where(eq(suggestedActionsTable.id, id));
+  if (!existing) return res.status(404).json({ error: "Suggestion not found" });
+  if (existing.status !== "pending") {
+    return res.status(400).json({ error: "Suggestion has already been reviewed" });
+  }
+  const [suggestion] = await db
+    .update(suggestedActionsTable)
+    .set({ status: "rejected", reviewedById: req.appUser!.id, reviewedAt: new Date() })
+    .where(eq(suggestedActionsTable.id, id))
+    .returning();
+  await logAudit({
+    clientId: suggestion.clientId,
+    actorName: req.appUser?.name,
+    action: "suggestion_rejected",
+    description: `Rejected suggested ${suggestion.actionType}${suggestion.jobId ? ` of job #${suggestion.jobId}` : ""} (${suggestion.reason})`,
+  });
+  return res.json((await hydrateSuggestions([suggestion]))[0]);
+});
+
+export default router;

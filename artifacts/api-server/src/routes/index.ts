@@ -7,6 +7,8 @@ import estimatesRouter from "./estimates";
 import jobsRouter from "./jobs";
 import billingRouter from "./billing";
 import ticketsRouter from "./tickets";
+import fieldNotesRouter from "./field-notes";
+import automationRouter from "./automation";
 import dashboardRouter from "./dashboard";
 
 const router: IRouter = Router();
@@ -19,6 +21,8 @@ router.use(estimatesRouter);
 router.use(jobsRouter);
 router.use(billingRouter);
 router.use(ticketsRouter);
+router.use(fieldNotesRouter);
+router.use(automationRouter);
 router.use(dashboardRouter);
 
 export default router;

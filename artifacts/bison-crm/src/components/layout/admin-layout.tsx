@@ -9,6 +9,7 @@ import {
   Truck, 
   Receipt, 
   Ticket,
+  CloudSun,
   UserCog,
   LogOut,
   Menu
@@ -25,6 +26,7 @@ const ADMIN_NAV = [
   { name: 'Invoices', href: '/invoices', icon: Receipt },
   { name: 'Services', href: '/services', icon: Settings },
   { name: 'Tickets', href: '/tickets', icon: Ticket },
+  { name: 'Automation', href: '/automation', icon: CloudSun },
   { name: 'Team', href: '/team', icon: UserCog },
 ];
 

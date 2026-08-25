@@ -868,6 +868,212 @@ export interface TicketUpdate {
   dueDate?: string | null;
 }
 
+export type FieldNoteSource = typeof FieldNoteSource[keyof typeof FieldNoteSource];
+
+
+export const FieldNoteSource = {
+  voice: 'voice',
+  typed: 'typed',
+} as const;
+
+export interface FieldNote {
+  id: number;
+  jobId: number;
+  clientId: number;
+  /** @nullable */
+  clientName?: string | null;
+  /** @nullable */
+  authorId?: number | null;
+  /** @nullable */
+  authorName?: string | null;
+  transcript: string;
+  source: FieldNoteSource;
+  /** @nullable */
+  ticketId?: number | null;
+  createdAt: string;
+}
+
+export type FieldNoteInputSource = typeof FieldNoteInputSource[keyof typeof FieldNoteInputSource];
+
+
+export const FieldNoteInputSource = {
+  voice: 'voice',
+  typed: 'typed',
+} as const;
+
+export interface FieldNoteInput {
+  /** @minLength 1 */
+  transcript: string;
+  source?: FieldNoteInputSource;
+}
+
+export type WeatherRuleConditionType = typeof WeatherRuleConditionType[keyof typeof WeatherRuleConditionType];
+
+
+export const WeatherRuleConditionType = {
+  rain: 'rain',
+  wind: 'wind',
+  heat: 'heat',
+  cold: 'cold',
+} as const;
+
+export type WeatherRuleActionType = typeof WeatherRuleActionType[keyof typeof WeatherRuleActionType];
+
+
+export const WeatherRuleActionType = {
+  skip: 'skip',
+  reschedule: 'reschedule',
+} as const;
+
+export interface WeatherRule {
+  id: number;
+  name: string;
+  conditionType: WeatherRuleConditionType;
+  threshold: number;
+  actionType: WeatherRuleActionType;
+  rescheduleDays: number;
+  /** @nullable */
+  messageTemplate?: string | null;
+  enabled: boolean;
+  createdAt: string;
+}
+
+export type WeatherRuleInputConditionType = typeof WeatherRuleInputConditionType[keyof typeof WeatherRuleInputConditionType];
+
+
+export const WeatherRuleInputConditionType = {
+  rain: 'rain',
+  wind: 'wind',
+  heat: 'heat',
+  cold: 'cold',
+} as const;
+
+export type WeatherRuleInputActionType = typeof WeatherRuleInputActionType[keyof typeof WeatherRuleInputActionType];
+
+
+export const WeatherRuleInputActionType = {
+  skip: 'skip',
+  reschedule: 'reschedule',
+} as const;
+
+export interface WeatherRuleInput {
+  /** @minLength 1 */
+  name: string;
+  conditionType: WeatherRuleInputConditionType;
+  threshold: number;
+  actionType: WeatherRuleInputActionType;
+  /** @minimum 1 */
+  rescheduleDays?: number;
+  messageTemplate?: string;
+  enabled?: boolean;
+}
+
+export type WeatherRuleUpdateConditionType = typeof WeatherRuleUpdateConditionType[keyof typeof WeatherRuleUpdateConditionType];
+
+
+export const WeatherRuleUpdateConditionType = {
+  rain: 'rain',
+  wind: 'wind',
+  heat: 'heat',
+  cold: 'cold',
+} as const;
+
+export type WeatherRuleUpdateActionType = typeof WeatherRuleUpdateActionType[keyof typeof WeatherRuleUpdateActionType];
+
+
+export const WeatherRuleUpdateActionType = {
+  skip: 'skip',
+  reschedule: 'reschedule',
+} as const;
+
+export interface WeatherRuleUpdate {
+  /** @minLength 1 */
+  name?: string;
+  conditionType?: WeatherRuleUpdateConditionType;
+  threshold?: number;
+  actionType?: WeatherRuleUpdateActionType;
+  /** @minimum 1 */
+  rescheduleDays?: number;
+  /** @nullable */
+  messageTemplate?: string | null;
+  enabled?: boolean;
+}
+
+export interface WeatherCheckInput {
+  date: string;
+}
+
+export type SuggestedActionSource = typeof SuggestedActionSource[keyof typeof SuggestedActionSource];
+
+
+export const SuggestedActionSource = {
+  weather: 'weather',
+  field_note: 'field_note',
+} as const;
+
+export type SuggestedActionActionType = typeof SuggestedActionActionType[keyof typeof SuggestedActionActionType];
+
+
+export const SuggestedActionActionType = {
+  skip: 'skip',
+  reschedule: 'reschedule',
+} as const;
+
+export type SuggestedActionStatus = typeof SuggestedActionStatus[keyof typeof SuggestedActionStatus];
+
+
+export const SuggestedActionStatus = {
+  pending: 'pending',
+  approved: 'approved',
+  rejected: 'rejected',
+} as const;
+
+export interface SuggestedAction {
+  id: number;
+  source: SuggestedActionSource;
+  /** @nullable */
+  ruleId?: number | null;
+  /** @nullable */
+  ruleName?: string | null;
+  /** @nullable */
+  jobId?: number | null;
+  clientId: number;
+  /** @nullable */
+  clientName?: string | null;
+  actionType: SuggestedActionActionType;
+  reason: string;
+  /** @nullable */
+  targetDate?: string | null;
+  /** @nullable */
+  newDate?: string | null;
+  /** @nullable */
+  customerMessage?: string | null;
+  status: SuggestedActionStatus;
+  /** @nullable */
+  reviewedById?: number | null;
+  /** @nullable */
+  reviewedByName?: string | null;
+  /** @nullable */
+  reviewedAt?: string | null;
+  createdAt: string;
+}
+
+export interface WeatherCheckResult {
+  date: string;
+  jobsChecked: number;
+  suggestionsCreated: number;
+  /** @nullable */
+  forecastSummary?: string | null;
+  suggestions: SuggestedAction[];
+}
+
+export interface SuggestedActionUpdate {
+  /** @nullable */
+  newDate?: string | null;
+  /** @nullable */
+  customerMessage?: string | null;
+}
+
 export interface DashboardSummary {
   leadCount: number;
   clientCount: number;
@@ -973,6 +1179,24 @@ export type ListTicketsStatus = typeof ListTicketsStatus[keyof typeof ListTicket
 export const ListTicketsStatus = {
   open: 'open',
   done: 'done',
+} as const;
+
+export type ListFieldNotesParams = {
+jobId?: number;
+clientId?: number;
+};
+
+export type ListSuggestedActionsParams = {
+status?: ListSuggestedActionsStatus;
+};
+
+export type ListSuggestedActionsStatus = typeof ListSuggestedActionsStatus[keyof typeof ListSuggestedActionsStatus];
+
+
+export const ListSuggestedActionsStatus = {
+  pending: 'pending',
+  approved: 'approved',
+  rejected: 'rejected',
 } as const;
 
 export type GetContractorEarningsParams = {

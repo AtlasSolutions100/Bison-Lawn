@@ -21,6 +21,7 @@ import WaitingList from '@/pages/waiting-list';
 import Dispatch from '@/pages/dispatch';
 import Invoices from '@/pages/invoices';
 import Tickets from '@/pages/tickets';
+import Automation from '@/pages/automation';
 import Team from '@/pages/team';
 import MyJobs from '@/pages/my-jobs';
 import MyRoute from '@/pages/my-route';
@@ -309,6 +310,7 @@ function ClerkProviderWithRoutes() {
               <Route path="/dispatch"><Show when="signed-in"><AdminRoute component={Dispatch} /></Show></Route>
               <Route path="/invoices"><Show when="signed-in"><AdminRoute component={Invoices} /></Show></Route>
               <Route path="/tickets"><Show when="signed-in"><AdminRoute component={Tickets} /></Show></Route>
+              <Route path="/automation"><Show when="signed-in"><AdminRoute component={Automation} /></Show></Route>
               <Route path="/team"><Show when="signed-in"><AdminRoute component={Team} /></Show></Route>
 
               {/* Contractor Routes */}

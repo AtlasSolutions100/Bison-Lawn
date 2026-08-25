@@ -20,6 +20,8 @@ tags:
   - name: tickets
   - name: team
   - name: dashboard
+  - name: fieldNotes
+  - name: automation
 paths:
   /healthz:
     get:
@@ -971,6 +973,186 @@ paths:
       responses:
         "204":
           description: Deleted
+  /my/jobs/{id}/field-notes:
+    post:
+      operationId: createFieldNote
+      tags: [fieldNotes]
+      summary: Record a field note on a job; creates a reviewable office ticket
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FieldNoteInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FieldNote"
+  /field-notes:
+    get:
+      operationId: listFieldNotes
+      tags: [fieldNotes]
+      summary: List field notes (admin)
+      parameters:
+        - name: jobId
+          in: query
+          schema: { type: integer }
+        - name: clientId
+          in: query
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Field notes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FieldNote"
+  /weather-rules:
+    get:
+      operationId: listWeatherRules
+      tags: [automation]
+      responses:
+        "200":
+          description: Weather rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WeatherRule"
+    post:
+      operationId: createWeatherRule
+      tags: [automation]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WeatherRuleInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeatherRule"
+  /weather-rules/{id}:
+    patch:
+      operationId: updateWeatherRule
+      tags: [automation]
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WeatherRuleUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeatherRule"
+    delete:
+      operationId: deleteWeatherRule
+      tags: [automation]
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "204":
+          description: Deleted
+  /weather-check:
+    post:
+      operationId: runWeatherCheck
+      tags: [automation]
+      summary: Evaluate enabled weather rules against scheduled jobs for a date and prepare suggested actions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WeatherCheckInput"
+      responses:
+        "200":
+          description: Check result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeatherCheckResult"
+  /suggested-actions:
+    get:
+      operationId: listSuggestedActions
+      tags: [automation]
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, approved, rejected] }
+      responses:
+        "200":
+          description: Suggested actions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SuggestedAction"
+  /suggested-actions/{id}:
+    patch:
+      operationId: updateSuggestedAction
+      tags: [automation]
+      summary: Edit a pending suggestion (message, new date) before approval
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SuggestedActionUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuggestedAction"
+  /suggested-actions/{id}/approve:
+    post:
+      operationId: approveSuggestedAction
+      tags: [automation]
+      summary: Approve and apply a suggested action (admin)
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuggestedAction"
+  /suggested-actions/{id}/reject:
+    post:
+      operationId: rejectSuggestedAction
+      tags: [automation]
+      summary: Reject a suggested action (admin)
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuggestedAction"
   /dashboard/summary:
     get:
       operationId: getDashboardSummary
@@ -1557,6 +1739,103 @@ components:
         status: { type: string, enum: [open, done] }
         assignedToId: { type: ["integer", "null"] }
         dueDate: { type: ["string", "null"] }
+    FieldNote:
+      type: object
+      required: [id, jobId, clientId, transcript, source, createdAt]
+      properties:
+        id: { type: integer }
+        jobId: { type: integer }
+        clientId: { type: integer }
+        clientName: { type: ["string", "null"] }
+        authorId: { type: ["integer", "null"] }
+        authorName: { type: ["string", "null"] }
+        transcript: { type: string }
+        source: { type: string, enum: [voice, typed] }
+        ticketId: { type: ["integer", "null"] }
+        createdAt: { type: string }
+    FieldNoteInput:
+      type: object
+      required: [transcript]
+      properties:
+        transcript: { type: string, minLength: 1 }
+        source: { type: string, enum: [voice, typed] }
+    WeatherRule:
+      type: object
+      required: [id, name, conditionType, threshold, actionType, rescheduleDays, enabled, createdAt]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        conditionType: { type: string, enum: [rain, wind, heat, cold] }
+        threshold: { type: number }
+        actionType: { type: string, enum: [skip, reschedule] }
+        rescheduleDays: { type: integer }
+        messageTemplate: { type: ["string", "null"] }
+        enabled: { type: boolean }
+        createdAt: { type: string }
+    WeatherRuleInput:
+      type: object
+      required: [name, conditionType, threshold, actionType]
+      properties:
+        name: { type: string, minLength: 1 }
+        conditionType: { type: string, enum: [rain, wind, heat, cold] }
+        threshold: { type: number }
+        actionType: { type: string, enum: [skip, reschedule] }
+        rescheduleDays: { type: integer, minimum: 1 }
+        messageTemplate: { type: string }
+        enabled: { type: boolean }
+    WeatherRuleUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        conditionType: { type: string, enum: [rain, wind, heat, cold] }
+        threshold: { type: number }
+        actionType: { type: string, enum: [skip, reschedule] }
+        rescheduleDays: { type: integer, minimum: 1 }
+        messageTemplate: { type: ["string", "null"] }
+        enabled: { type: boolean }
+    WeatherCheckInput:
+      type: object
+      required: [date]
+      properties:
+        date: { type: string }
+    WeatherCheckResult:
+      type: object
+      required: [date, jobsChecked, suggestionsCreated, suggestions]
+      properties:
+        date: { type: string }
+        jobsChecked: { type: integer }
+        suggestionsCreated: { type: integer }
+        forecastSummary: { type: ["string", "null"] }
+        suggestions:
+          type: array
+          items:
+            $ref: "#/components/schemas/SuggestedAction"
+    SuggestedAction:
+      type: object
+      required: [id, source, clientId, actionType, reason, status, createdAt]
+      properties:
+        id: { type: integer }
+        source: { type: string, enum: [weather, field_note] }
+        ruleId: { type: ["integer", "null"] }
+        ruleName: { type: ["string", "null"] }
+        jobId: { type: ["integer", "null"] }
+        clientId: { type: integer }
+        clientName: { type: ["string", "null"] }
+        actionType: { type: string, enum: [skip, reschedule] }
+        reason: { type: string }
+        targetDate: { type: ["string", "null"] }
+        newDate: { type: ["string", "null"] }
+        customerMessage: { type: ["string", "null"] }
+        status: { type: string, enum: [pending, approved, rejected] }
+        reviewedById: { type: ["integer", "null"] }
+        reviewedByName: { type: ["string", "null"] }
+        reviewedAt: { type: ["string", "null"] }
+        createdAt: { type: string }
+    SuggestedActionUpdate:
+      type: object
+      properties:
+        newDate: { type: ["string", "null"] }
+        customerMessage: { type: ["string", "null"] }
     DashboardSummary:
       type: object
       required: [leadCount, clientCount, jobsToday, jobsCompletedToday, openInvoiceTotal, waitingListCount, openTickets, revenueThisMonth]

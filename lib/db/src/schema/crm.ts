@@ -227,6 +227,52 @@ export const paymentsTable = pgTable("payments", {
 });
 export type Payment = typeof paymentsTable.$inferSelect;
 
+// ---------- field notes ----------
+export const fieldNotesTable = pgTable("field_notes", {
+  id: serial("id").primaryKey(),
+  jobId: integer("job_id").notNull().references(() => jobsTable.id, { onDelete: "cascade" }),
+  clientId: integer("client_id").notNull().references(() => clientsTable.id, { onDelete: "cascade" }),
+  authorId: integer("author_id").references(() => usersTable.id),
+  transcript: text("transcript").notNull(),
+  source: text("source").notNull().default("typed"), // voice | typed
+  ticketId: integer("ticket_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type FieldNote = typeof fieldNotesTable.$inferSelect;
+
+// ---------- weather rules ----------
+export const weatherRulesTable = pgTable("weather_rules", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  conditionType: text("condition_type").notNull(), // rain | wind | heat | cold
+  threshold: doublePrecision("threshold").notNull(),
+  actionType: text("action_type").notNull().default("reschedule"), // skip | reschedule
+  rescheduleDays: integer("reschedule_days").notNull().default(1),
+  messageTemplate: text("message_template"),
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type WeatherRule = typeof weatherRulesTable.$inferSelect;
+
+// ---------- suggested actions (human-reviewed automation queue) ----------
+export const suggestedActionsTable = pgTable("suggested_actions", {
+  id: serial("id").primaryKey(),
+  source: text("source").notNull(), // weather | field_note
+  ruleId: integer("rule_id").references(() => weatherRulesTable.id, { onDelete: "set null" }),
+  jobId: integer("job_id").references(() => jobsTable.id, { onDelete: "cascade" }),
+  clientId: integer("client_id").notNull().references(() => clientsTable.id, { onDelete: "cascade" }),
+  actionType: text("action_type").notNull(), // skip | reschedule
+  reason: text("reason").notNull(),
+  targetDate: text("target_date"),
+  newDate: text("new_date"),
+  customerMessage: text("customer_message"),
+  status: text("status").notNull().default("pending"), // pending | approved | rejected
+  reviewedById: integer("reviewed_by_id").references(() => usersTable.id),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type SuggestedAction = typeof suggestedActionsTable.$inferSelect;
+
 // ---------- tickets ----------
 export const ticketsTable = pgTable("tickets", {
   id: serial("id").primaryKey(),
