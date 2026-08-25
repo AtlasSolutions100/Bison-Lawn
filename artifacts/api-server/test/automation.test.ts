@@ -561,6 +561,143 @@ test("an interrupted message is flagged without a queue visit and counted on the
   assert.equal(afterRepeat.body.interruptedMessageCount, baseline + 1);
 });
 
+test("a slow send that finishes after its claim was aged out records its real outcome", async () => {
+  const job = await makeJob({ clientId: emailClient.id });
+  const [s] = await db
+    .insert(suggestedActionsTable)
+    .values({
+      source: "weather",
+      jobId: job.id,
+      clientId: emailClient.id,
+      actionType: "skip",
+      reason: "test late finishing send",
+      targetDate: TOMORROW,
+      customerMessage: "Storms tomorrow — we have to skip your service.",
+    })
+    .returning();
+
+  let claimWhileSending: Date | null = null;
+  setCustomerMessageGmailProxyForTests(async () => {
+    // Gmail is still working when the office lists the queue and the claim is
+    // aged out: exactly like expireAbandonedMessageClaims, the row is flagged
+    // "abandoned" while keeping the claim stamp this send is holding.
+    const [claimed] = await db
+      .select()
+      .from(suggestedActionsTable)
+      .where(eq(suggestedActionsTable.id, s.id));
+    claimWhileSending = claimed.messageDeliveryClaimedAt;
+    await db
+      .update(suggestedActionsTable)
+      .set({
+        messageDeliveryState: "abandoned",
+        messageDeliveryError: "Delivery was interrupted before it completed",
+      })
+      .where(eq(suggestedActionsTable.id, s.id));
+    return new Response(JSON.stringify({ id: "gmail-late-send" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  });
+
+  const before = Date.now();
+  const approve = await api(`/suggested-actions/${s.id}/approve`, admin.id, { method: "POST" });
+  setCustomerMessageGmailProxyForTests(null);
+
+  assert.equal(approve.status, 200);
+  assert.ok(claimWhileSending, "approval must stamp a delivery claim before handing off to Gmail");
+
+  // The email really did go out, so the row must stop saying it never completed.
+  assert.equal(approve.body.messageDeliveryState, "sent");
+  assert.equal(approve.body.messageSentToEmail, "customer@example.com");
+  assert.equal(approve.body.messageDeliveryError, null);
+  assert.ok(approve.body.messageSentAt, "a late send must still record when it delivered");
+  assert.ok(new Date(approve.body.messageSentAt).getTime() >= before - 1000);
+
+  const [stored] = await db
+    .select()
+    .from(suggestedActionsTable)
+    .where(eq(suggestedActionsTable.id, s.id));
+  assert.equal(stored.messageDeliveryState, "sent");
+  assert.equal(stored.messageSentToEmail, "customer@example.com");
+  assert.equal(stored.messageDeliveryError, null);
+  assert.ok(stored.messageSentAt);
+  assert.equal(stored.messageGmailId, "gmail-late-send");
+
+  const audits = await db
+    .select()
+    .from(auditEventsTable)
+    .where(eq(auditEventsTable.clientId, emailClient.id));
+  assert.ok(
+    audits.some(
+      (e) => e.action === "suggestion_message_sent" && e.description.includes(`#${s.id}`),
+    ),
+    "a late but successful send must still be audited as sent",
+  );
+});
+
+test("a send whose row was re-claimed cannot overwrite the newer claim", async () => {
+  const job = await makeJob({ clientId: emailClient.id });
+  const [s] = await db
+    .insert(suggestedActionsTable)
+    .values({
+      source: "weather",
+      jobId: job.id,
+      clientId: emailClient.id,
+      actionType: "skip",
+      reason: "test stale claim overwrite",
+      targetDate: TOMORROW,
+      customerMessage: "Storms tomorrow — we have to skip your service.",
+    })
+    .returning();
+
+  // A second, newer delivery attempt takes over the row while the first send
+  // is still in flight — its claim stamp differs from the one in flight.
+  const reclaimedAt = new Date(Date.now() + 1000);
+  setCustomerMessageGmailProxyForTests(async () => {
+    await db
+      .update(suggestedActionsTable)
+      .set({
+        messageDeliveryState: "sending",
+        messageDeliveryClaimedAt: reclaimedAt,
+        messageDeliveryError: null,
+      })
+      .where(eq(suggestedActionsTable.id, s.id));
+    return new Response(JSON.stringify({ id: "gmail-stale-claim" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  });
+
+  const approve = await api(`/suggested-actions/${s.id}/approve`, admin.id, { method: "POST" });
+  setCustomerMessageGmailProxyForTests(null);
+
+  assert.equal(approve.status, 200);
+  // The older request must report what the row actually says now, not claim
+  // ownership of a delivery the newer attempt is still responsible for.
+  assert.equal(approve.body.messageDeliveryState, "sending");
+  assert.equal(approve.body.messageSentAt, null);
+
+  const [stored] = await db
+    .select()
+    .from(suggestedActionsTable)
+    .where(eq(suggestedActionsTable.id, s.id));
+  assert.equal(stored.messageDeliveryState, "sending", "the newer claim still owns the row");
+  assert.equal(
+    stored.messageDeliveryClaimedAt?.getTime(),
+    reclaimedAt.getTime(),
+    "the older send must not touch the newer claim stamp",
+  );
+  assert.equal(stored.messageSentAt, null);
+  assert.equal(stored.messageSentToEmail, null);
+  assert.equal(stored.messageGmailId, null);
+
+  // Leave the row resolved so later queue listings do not age this claim out.
+  await db
+    .update(suggestedActionsTable)
+    .set({ messageDeliveryState: "not_applicable", messageDeliveryClaimedAt: null })
+    .where(eq(suggestedActionsTable.id, s.id));
+});
+
 test("a suggestion without a customer message needs no delivery", async () => {
   const job = await makeJob();
   const [s] = await db
