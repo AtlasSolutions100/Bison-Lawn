@@ -127,6 +127,19 @@ export const estimateFieldsTable = pgTable("estimate_fields", {
 });
 export type EstimateField = typeof estimateFieldsTable.$inferSelect;
 
+// ---------- charge presets ----------
+// Office-wide templates for the one-off charges typed into an estimate's custom
+// lines (haul-away, dump fee, seasonal discount). Inserting one copies its label
+// and price onto the estimate, so renaming or deleting a preset later never
+// touches an estimate that was already built or sent.
+export const chargePresetsTable = pgTable("charge_presets", {
+  id: serial("id").primaryKey(),
+  label: text("label").notNull(),
+  defaultPrice: doublePrecision("default_price").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type ChargePreset = typeof chargePresetsTable.$inferSelect;
+
 // ---------- estimates ----------
 export type EstimateLine = {
   fieldId?: number | null;

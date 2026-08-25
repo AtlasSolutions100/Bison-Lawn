@@ -470,6 +470,63 @@ paths:
       responses:
         "204":
           description: Deleted
+  /charge-presets:
+    get:
+      operationId: listChargePresets
+      tags: [estimates]
+      summary: Reusable one-off charge templates shared by the whole office
+      responses:
+        "200":
+          description: Charge presets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChargePreset"
+    post:
+      operationId: createChargePreset
+      tags: [estimates]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChargePresetInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChargePreset"
+  /charge-presets/{id}:
+    patch:
+      operationId: updateChargePreset
+      tags: [estimates]
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChargePresetUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChargePreset"
+    delete:
+      operationId: deleteChargePreset
+      tags: [estimates]
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "204":
+          description: Deleted
   /estimates:
     get:
       operationId: listEstimates
@@ -1623,6 +1680,27 @@ components:
         pricePerUnit: { type: ["number", "null"] }
         unitSize: { type: ["number", "null"] }
         sortOrder: { type: ["integer", "null"] }
+    ChargePreset:
+      type: object
+      description: >-
+        A reusable template for a one-off custom charge. Inserting it into an estimate copies the
+        label and price; the estimate keeps its own copy, so later edits here never change it.
+      required: [id, label, defaultPrice]
+      properties:
+        id: { type: integer }
+        label: { type: string }
+        defaultPrice: { type: number, description: "Copied onto the estimate as the line price; negative for a discount" }
+    ChargePresetInput:
+      type: object
+      required: [label, defaultPrice]
+      properties:
+        label: { type: string, minLength: 1 }
+        defaultPrice: { type: number }
+    ChargePresetUpdate:
+      type: object
+      properties:
+        label: { type: string, minLength: 1 }
+        defaultPrice: { type: number }
     EstimateLine:
       type: object
       description: >-

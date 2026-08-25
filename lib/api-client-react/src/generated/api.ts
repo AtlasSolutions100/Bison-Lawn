@@ -25,6 +25,9 @@ import type {
   AuditEvent,
   BillingSettings,
   BillingSettingsUpdate,
+  ChargePreset,
+  ChargePresetInput,
+  ChargePresetUpdate,
   Client,
   ClientInput,
   ClientNote,
@@ -2211,6 +2214,279 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getDeleteEstimateFieldMutationOptions(options));
+    }
+
+export const getListChargePresetsUrl = () => {
+
+
+
+
+  return `/api/charge-presets`
+}
+
+/**
+ * @summary Reusable one-off charge templates shared by the whole office
+ */
+export const listChargePresets = async ( options?: Parameters<typeof customFetch>[1]): Promise<ChargePreset[]> => {
+
+  return customFetch<ChargePreset[]>(getListChargePresetsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListChargePresetsQueryKey = () => {
+    return [
+    `/api/charge-presets`
+    ] as const;
+    }
+
+
+export const getListChargePresetsQueryOptions = <TData = Awaited<ReturnType<typeof listChargePresets>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listChargePresets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListChargePresetsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listChargePresets>>> = ({ signal }) => listChargePresets({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listChargePresets>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListChargePresetsQueryResult = NonNullable<Awaited<ReturnType<typeof listChargePresets>>>
+export type ListChargePresetsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Reusable one-off charge templates shared by the whole office
+ */
+
+export function useListChargePresets<TData = Awaited<ReturnType<typeof listChargePresets>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listChargePresets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListChargePresetsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateChargePresetUrl = () => {
+
+
+
+
+  return `/api/charge-presets`
+}
+
+export const createChargePreset = async (chargePresetInput: ChargePresetInput, options?: Parameters<typeof customFetch>[1]): Promise<ChargePreset> => {
+
+  return customFetch<ChargePreset>(getCreateChargePresetUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(chargePresetInput)
+  }
+);}
+
+
+
+
+
+export const getCreateChargePresetMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createChargePreset>>, TError,{data: BodyType<ChargePresetInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createChargePreset>>, TError,{data: BodyType<ChargePresetInput>}, TContext> => {
+
+const mutationKey = ['createChargePreset'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createChargePreset>>, {data: BodyType<ChargePresetInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createChargePreset(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateChargePresetMutationResult = NonNullable<Awaited<ReturnType<typeof createChargePreset>>>
+    export type CreateChargePresetMutationBody = BodyType<ChargePresetInput>
+    export type CreateChargePresetMutationError = ErrorType<unknown>
+
+    export const useCreateChargePreset = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createChargePreset>>, TError,{data: BodyType<ChargePresetInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createChargePreset>>,
+        TError,
+        {data: BodyType<ChargePresetInput>},
+        TContext
+      > => {
+      return useMutation(getCreateChargePresetMutationOptions(options));
+    }
+
+export const getUpdateChargePresetUrl = (id: number,) => {
+
+
+
+
+  return `/api/charge-presets/${id}`
+}
+
+export const updateChargePreset = async (id: number,
+    chargePresetUpdate: ChargePresetUpdate, options?: Parameters<typeof customFetch>[1]): Promise<ChargePreset> => {
+
+  return customFetch<ChargePreset>(getUpdateChargePresetUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(chargePresetUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateChargePresetMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateChargePreset>>, TError,{id: number;data: BodyType<ChargePresetUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateChargePreset>>, TError,{id: number;data: BodyType<ChargePresetUpdate>}, TContext> => {
+
+const mutationKey = ['updateChargePreset'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateChargePreset>>, {id: number;data: BodyType<ChargePresetUpdate>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateChargePreset(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateChargePresetMutationResult = NonNullable<Awaited<ReturnType<typeof updateChargePreset>>>
+    export type UpdateChargePresetMutationBody = BodyType<ChargePresetUpdate>
+    export type UpdateChargePresetMutationError = ErrorType<unknown>
+
+    export const useUpdateChargePreset = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateChargePreset>>, TError,{id: number;data: BodyType<ChargePresetUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateChargePreset>>,
+        TError,
+        {id: number;data: BodyType<ChargePresetUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateChargePresetMutationOptions(options));
+    }
+
+export const getDeleteChargePresetUrl = (id: number,) => {
+
+
+
+
+  return `/api/charge-presets/${id}`
+}
+
+export const deleteChargePreset = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDeleteChargePresetUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteChargePresetMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteChargePreset>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteChargePreset>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deleteChargePreset'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteChargePreset>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteChargePreset(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteChargePresetMutationResult = NonNullable<Awaited<ReturnType<typeof deleteChargePreset>>>
+
+    export type DeleteChargePresetMutationError = ErrorType<unknown>
+
+    export const useDeleteChargePreset = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteChargePreset>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteChargePreset>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getDeleteChargePresetMutationOptions(options));
     }
 
 export const getListEstimatesUrl = (params?: ListEstimatesParams,) => {

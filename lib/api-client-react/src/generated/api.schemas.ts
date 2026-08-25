@@ -475,6 +475,28 @@ export interface EstimateFieldUpdate {
 }
 
 /**
+ * A reusable template for a one-off custom charge. Inserting it into an estimate copies the label and price; the estimate keeps its own copy, so later edits here never change it.
+ */
+export interface ChargePreset {
+  id: number;
+  label: string;
+  /** Copied onto the estimate as the line price; negative for a discount */
+  defaultPrice: number;
+}
+
+export interface ChargePresetInput {
+  /** @minLength 1 */
+  label: string;
+  defaultPrice: number;
+}
+
+export interface ChargePresetUpdate {
+  /** @minLength 1 */
+  label?: string;
+  defaultPrice?: number;
+}
+
+/**
  * A line on an estimate. With a fieldId or serviceId the price is computed server-side from that definition; with neither it is a custom one-off charge (haul-away, dump fee, discount) whose label and submitted price are validated and kept as entered.
  */
 export interface EstimateLine {
@@ -570,6 +592,19 @@ export interface EstimateUpdateInput {
  * Present when another admin saved a newer version of this estimate
  */
 export type EstimateConflictCode = typeof EstimateConflictCode[keyof typeof EstimateConflictCode];
+
+
+export const EstimateConflictCode = {
+  estimate_version_conflict: 'estimate_version_conflict',
+} as const;
+
+export interface EstimateConflict {
+  error: string;
+  /** Present when another admin saved a newer version of this estimate */
+  code?: EstimateConflictCode;
+  current?: Estimate;
+}
+
 export interface EstimateSendInput {
   toEmail: string;
   message?: string;
@@ -1341,13 +1376,3 @@ export type GetContractorEarningsParams = {
 date: string;
 };
 
-export const EstimateConflictCode = {
-  estimate_version_conflict: 'estimate_version_conflict',
-} as const;
-
-export interface EstimateConflict {
-  error: string;
-  /** Present when another admin saved a newer version of this estimate */
-  code?: EstimateConflictCode;
-  current?: Estimate;
-}

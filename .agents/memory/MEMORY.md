@@ -8,4 +8,5 @@
 - [JSONB document read-modify-write](jsonb-document-concurrency.md) — lock the row before merging a whole-document JSONB column, or concurrent writers drop each other's keys.
 - [User account identity model](user-account-identity.md) — accounts belong to a person's verified email, not a Clerk identity; role changes and merges must cover every sign-in method.
 - [Field payment accounting](field-payment-accounting.md) — surcharges must join the invoice total, and payment/completion handlers must serialize on the job row or payments detach.
+- [Charge presets are copied templates](estimate-charge-presets.md) — estimate lines copy a preset's label and price by value; never reference the preset row, or renames rewrite past quotes.
 - [Radix Tabs forceMount visibility](radix-tabs-forcemount.md) — force-mounted tab panels stay visible; hide with CSS, and guard the remaining discard paths with a dirty check.

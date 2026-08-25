@@ -499,6 +499,100 @@ test("custom estimate lines keep their entered price through create and edit", a
   assert.equal(stillStored.lines.length, 2);
 });
 
+test("charge presets are validated like custom lines and never alter existing estimates", async () => {
+  const { chargePresetsTable } = await import("@workspace/db");
+  const created = await api("/charge-presets", admin.id, {
+    method: "POST",
+    body: JSON.stringify({ label: "  Haul-away  ", defaultPrice: 75.456 }),
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.label, "Haul-away"); // trimmed
+  assert.equal(created.body.defaultPrice, 75.46); // rounded to cents
+  const presetId: number = created.body.id;
+
+  try {
+    const listed = await api("/charge-presets", admin.id);
+    assert.equal(listed.status, 200);
+    assert.ok(listed.body.some((p: any) => p.id === presetId));
+
+    // The same label/price rules as a hand-typed custom line, on create and rename.
+    for (const body of [
+      { label: "   ", defaultPrice: 40 },
+      { label: "Dump fee", defaultPrice: null },
+      { label: "Dump fee", defaultPrice: "forty" },
+    ]) {
+      const rejected = await api("/charge-presets", admin.id, { method: "POST", body: JSON.stringify(body) });
+      assert.equal(rejected.status, 400);
+    }
+    const badRename = await api(`/charge-presets/${presetId}`, admin.id, {
+      method: "PATCH",
+      body: JSON.stringify({ label: "   " }),
+    });
+    assert.equal(badRename.status, 400);
+    const badReprice = await api(`/charge-presets/${presetId}`, admin.id, {
+      method: "PATCH",
+      body: JSON.stringify({ defaultPrice: "lots" }),
+    });
+    assert.equal(badReprice.status, 400);
+    const [unchanged] = await db.select().from(chargePresetsTable).where(eq(chargePresetsTable.id, presetId));
+    assert.equal(unchanged.label, "Haul-away");
+    assert.equal(unchanged.defaultPrice, 75.46);
+
+    // A preset is a template, not a link: the estimate keeps its own copy.
+    const estimate = await api("/estimates", admin.id, {
+      method: "POST",
+      body: JSON.stringify({
+        clientId: clientWithCoords.id,
+        lines: [{ label: created.body.label, value: "2 loads", calculatedPrice: created.body.defaultPrice }],
+      }),
+    });
+    assert.equal(estimate.status, 201);
+    assert.equal(estimate.body.total, 75.46);
+
+    const renamed = await api(`/charge-presets/${presetId}`, admin.id, {
+      method: "PATCH",
+      body: JSON.stringify({ label: "Debris removal", defaultPrice: 120 }),
+    });
+    assert.equal(renamed.status, 200);
+    assert.equal(renamed.body.label, "Debris removal");
+    assert.equal(renamed.body.defaultPrice, 120);
+
+    const deleted = await api(`/charge-presets/${presetId}`, admin.id, { method: "DELETE" });
+    assert.equal(deleted.status, 204);
+    assert.equal((await api(`/charge-presets/${presetId}`, admin.id, {
+      method: "PATCH",
+      body: JSON.stringify({ label: "Gone" }),
+    })).status, 404);
+
+    // Renaming and deleting the preset left the estimate exactly as saved.
+    const [storedEstimate] = await db
+      .select()
+      .from(estimatesTable)
+      .where(eq(estimatesTable.id, estimate.body.id));
+    assert.deepEqual(storedEstimate.lines, [
+      { label: "Haul-away", value: "2 loads", calculatedPrice: 75.46 },
+    ]);
+    assert.equal(storedEstimate.total, 75.46);
+
+    // A preset-priced discount still cannot drive the estimate below zero.
+    const negative = await api("/estimates", admin.id, {
+      method: "POST",
+      body: JSON.stringify({
+        clientId: clientWithCoords.id,
+        lines: [{ label: "Spring discount", value: "", calculatedPrice: -750 }],
+      }),
+    });
+    assert.equal(negative.status, 400);
+    assert.match(negative.body.error, /owe the customer money/);
+
+    // Contractors cannot read or manage the office's presets.
+    assert.equal((await api("/charge-presets", contractorA.id)).status, 403);
+    assert.equal((await api("/charge-presets", null)).status, 401);
+  } finally {
+    await db.delete(chargePresetsTable).where(eq(chargePresetsTable.id, presetId));
+  }
+});
+
 test("an estimate whose discount exceeds the work is rejected, but a zero total saves", async () => {
   // A mistyped discount (-750 instead of -75) must never save as money owed.
   const overDiscounted = await api("/estimates", admin.id, {

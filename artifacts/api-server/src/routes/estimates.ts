@@ -1,11 +1,20 @@
 import { Router, type IRouter } from "express";
-import { db, estimateFieldsTable, estimatesTable, clientsTable, servicesTable } from "@workspace/db";
+import {
+  db,
+  chargePresetsTable,
+  estimateFieldsTable,
+  estimatesTable,
+  clientsTable,
+  servicesTable,
+} from "@workspace/db";
 import type { EstimateLine } from "@workspace/db";
 import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
 import {
   CreateEstimateFieldBody,
   UpdateEstimateFieldBody,
+  CreateChargePresetBody,
+  UpdateChargePresetBody,
   CreateEstimateBody,
   UpdateEstimateBody,
   SendEstimateBody,
@@ -184,7 +193,28 @@ router.post("/public/estimates/:token/respond", async (req, res) => {
   );
 });
 
-router.use(["/estimate-fields", "/estimates"], requireAuth, requireAdmin);
+router.use(["/estimate-fields", "/charge-presets", "/estimates"], requireAuth, requireAdmin);
+
+/**
+ * The label/price rules a one-off charge must satisfy. Applied to hand-typed
+ * custom estimate lines and, identically, to the saved presets that get copied
+ * into them — a preset must never be able to carry a value onto an estimate
+ * that the estimate itself would reject.
+ */
+function validateChargeLabel(rawLabel: string): string {
+  const label = rawLabel.trim();
+  if (!label) {
+    throw Object.assign(new Error("A custom line needs a label"), { status: 400 });
+  }
+  return label;
+}
+
+function validateChargePrice(label: string, price: number | null | undefined): number {
+  if (price == null || !Number.isFinite(price)) {
+    throw Object.assign(new Error(`"${label}" needs a numeric price`), { status: 400 });
+  }
+  return Math.round(price * 100) / 100;
+}
 
 // ---- estimate fields ----
 
@@ -213,6 +243,75 @@ router.delete("/estimate-fields/:id", async (req, res) => {
   await db.delete(estimateFieldsTable).where(eq(estimateFieldsTable.id, Number(req.params.id)));
   return res.status(204).end();
 });
+
+// ---- charge presets ----
+// Templates for the custom (one-off) charge lines on an estimate. Shared by the
+// whole office. Inserting a preset copies its label and price onto the estimate,
+// so renaming or deleting one here leaves existing estimates exactly as saved.
+
+/** Reject a preset the same way the estimate would reject the line it becomes. */
+function parseChargePreset(raw: { label?: string; defaultPrice?: number }) {
+  const label = validateChargeLabel(raw.label ?? "");
+  return { label, defaultPrice: validateChargePrice(label, raw.defaultPrice) };
+}
+
+router.get("/charge-presets", async (_req, res) => {
+  return res.json(await db.select().from(chargePresetsTable).orderBy(chargePresetsTable.label, chargePresetsTable.id));
+});
+
+router.post("/charge-presets", async (req, res) => {
+  let values: { label: string; defaultPrice: number };
+  try {
+    values = parseChargePreset(CreateChargePresetBody.parse(req.body));
+  } catch (error) {
+    const message = chargePresetBadRequestMessage(error);
+    if (message) return res.status(400).json({ error: message });
+    throw error;
+  }
+  const [preset] = await db.insert(chargePresetsTable).values(values).returning();
+  return res.status(201).json(preset);
+});
+
+router.patch("/charge-presets/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  const [existing] = await db.select().from(chargePresetsTable).where(eq(chargePresetsTable.id, id));
+  if (!existing) return res.status(404).json({ error: "Charge preset not found" });
+  let values: { label: string; defaultPrice: number };
+  try {
+    const body = UpdateChargePresetBody.parse(req.body);
+    values = parseChargePreset({
+      label: body.label ?? existing.label,
+      defaultPrice: body.defaultPrice ?? existing.defaultPrice,
+    });
+  } catch (error) {
+    const message = chargePresetBadRequestMessage(error);
+    if (message) return res.status(400).json({ error: message });
+    throw error;
+  }
+  const [preset] = await db
+    .update(chargePresetsTable)
+    .set(values)
+    .where(eq(chargePresetsTable.id, id))
+    .returning();
+  if (!preset) return res.status(404).json({ error: "Charge preset not found" });
+  return res.json(preset);
+});
+
+router.delete("/charge-presets/:id", async (req, res) => {
+  // Presets are templates, never references: estimates hold their own copy of
+  // the label and price, so deleting one changes nothing that was already built.
+  await db.delete(chargePresetsTable).where(eq(chargePresetsTable.id, Number(req.params.id)));
+  return res.status(204).end();
+});
+
+/** Our own 400s carry a message; a schema failure would otherwise be an opaque 500. */
+function chargePresetBadRequestMessage(error: unknown): string | null {
+  if (error instanceof Error && (error as { status?: number }).status === 400) return error.message;
+  if (error instanceof Error && error.name === "ZodError") {
+    return "This preset could not be saved. Give it a label and a numeric price.";
+  }
+  return null;
+}
 
 // ---- estimates ----
 
@@ -277,14 +376,8 @@ async function priceEstimateLines(lines: EstimateLine[]): Promise<EstimateLine[]
     // Custom line (one-off charge such as a haul-away fee or a discount): there
     // is no definition to price it from, so the submitted amount is kept. Since
     // that amount is trusted, it must at least be a real label and a real number.
-    const label = line.label.trim();
-    if (!label) {
-      throw Object.assign(new Error("A custom line needs a label"), { status: 400 });
-    }
-    if (line.calculatedPrice == null || !Number.isFinite(line.calculatedPrice)) {
-      throw Object.assign(new Error(`"${label}" needs a numeric price`), { status: 400 });
-    }
-    return { ...line, label, calculatedPrice: round(line.calculatedPrice) };
+    const label = validateChargeLabel(line.label);
+    return { ...line, label, calculatedPrice: validateChargePrice(label, line.calculatedPrice) };
   });
 }
 

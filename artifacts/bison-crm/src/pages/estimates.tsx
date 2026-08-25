@@ -3,15 +3,16 @@ import {
   useListEstimates, useGetEstimate, useCreateEstimate, useUpdateEstimate, useDeleteEstimate, useSendEstimate,
   useReconcileEstimateDelivery,
   useListEstimateFields, useCreateEstimateField, useUpdateEstimateField, useDeleteEstimateField,
+  useListChargePresets, useCreateChargePreset, useUpdateChargePreset, useDeleteChargePreset,
   useListClients, useListServices
 } from '@workspace/api-client-react';
-import type { Estimate, EstimateField, EstimateFieldInput, EstimateLine, Service } from '@workspace/api-client-react';
+import type { ChargePreset, Estimate, EstimateField, EstimateFieldInput, EstimateLine, Service } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
-import { Download, Send, Trash2, Plus, AlertCircle, Pencil } from 'lucide-react';
+import { Download, Send, Trash2, Plus, AlertCircle, Pencil, Bookmark } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useUnsavedChangesWarning } from '@/hooks/use-unsaved-changes-warning';
 import { cn } from '@/lib/utils';
@@ -120,6 +121,7 @@ export default function Estimates() {
               )}
             </TabsTrigger>
             <TabsTrigger value="fields">Custom Fields</TabsTrigger>
+            <TabsTrigger value="presets">Charge Presets</TabsTrigger>
           </TabsList>
         </div>
 
@@ -245,6 +247,10 @@ export default function Estimates() {
 
         <TabsContent value="fields" className="flex-1 m-0">
           <EstimateFields />
+        </TabsContent>
+
+        <TabsContent value="presets" className="flex-1 m-0">
+          <ChargePresets />
         </TabsContent>
       </Tabs>
 
@@ -390,6 +396,8 @@ function EstimateBuilder({ editEstimate, onDirtyChange, onFinished, onCancelEdit
   const { data: clients } = useListClients();
   const { data: fields } = useListEstimateFields();
   const { data: services } = useListServices();
+  const { data: chargePresets } = useListChargePresets();
+  const createPreset = useCreateChargePreset();
   const createEstimate = useCreateEstimate();
   const updateEstimate = useUpdateEstimate();
   const queryClient = useQueryClient();
@@ -746,6 +754,29 @@ function EstimateBuilder({ editEstimate, onDirtyChange, onFinished, onCancelEdit
               <Plus className="w-4 h-4 mr-2" /> Add custom line
             </Button>
           </div>
+          {/* Presets are templates: inserting one copies its label and price onto
+              this estimate, and both stay editable here without touching the preset. */}
+          {chargePresets?.length ? (
+            <div className="flex flex-wrap items-center gap-2 mb-3 rounded-md border bg-muted/40 p-3">
+              <span className="text-xs font-medium text-muted-foreground mr-1">Insert a saved charge:</span>
+              {chargePresets.map(p => (
+                <Button
+                  key={p.id}
+                  variant="outline"
+                  size="sm"
+                  className="h-7"
+                  title={`Add "${p.label}" at ${money(p.defaultPrice)} — the price stays editable on this estimate`}
+                  onClick={() => setCustomLines(prev => [
+                    ...prev,
+                    { key: nextCustomLineKey(), label: p.label, value: '', price: String(p.defaultPrice) },
+                  ])}
+                >
+                  <Plus className="w-3 h-3 mr-1" />
+                  {p.label} <span className="ml-1 tabular-nums text-muted-foreground">{money(p.defaultPrice)}</span>
+                </Button>
+              ))}
+            </div>
+          ) : null}
           {!customLines.length ? (
             <p className="text-sm text-muted-foreground">No custom lines.</p>
           ) : (
@@ -776,6 +807,27 @@ function EstimateBuilder({ editEstimate, onDirtyChange, onFinished, onCancelEdit
                       onChange={e => set({ price: e.target.value })}
                       placeholder="Price"
                     />
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      title={
+                        c.label.trim() === '' || priceInvalid
+                          ? 'Give this line a label and a numeric price to save it as a preset'
+                          : `Save "${c.label.trim()}" as a reusable charge preset`
+                      }
+                      className="text-muted-foreground hover:text-primary"
+                      disabled={c.label.trim() === '' || priceInvalid || createPreset.isPending}
+                      onClick={() => createPreset.mutate(
+                        { data: { label: c.label.trim(), defaultPrice: customLinePrice(c.price)! } },
+                        {
+                          onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/charge-presets'] }),
+                          onError: (error) =>
+                            alert(error instanceof Error ? error.message : 'Could not save this preset'),
+                        },
+                      )}
+                    >
+                      <Bookmark className="w-4 h-4" />
+                    </Button>
                     <Button
                       size="icon"
                       variant="ghost"
@@ -1013,6 +1065,148 @@ function EstimateFields() {
             <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
             <Button disabled={!editing?.form.label.trim() || createField.isPending || updateField.isPending} onClick={saveForm}>
               {editing?.id == null ? 'Create Field' : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+type PresetForm = { label: string; price: string };
+
+/**
+ * Office-wide templates for the one-off charges typed into an estimate's Custom
+ * Lines. A preset is copied when inserted, never linked, so renaming or deleting
+ * one here leaves every estimate already built or sent exactly as it was.
+ */
+function ChargePresets() {
+  const { data: presets, isLoading } = useListChargePresets();
+  const createPreset = useCreateChargePreset();
+  const updatePreset = useUpdateChargePreset();
+  const deletePreset = useDeleteChargePreset();
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState<{ id: number | null; form: PresetForm } | null>(null);
+  const [error, setError] = useState('');
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['/api/charge-presets'] });
+
+  const label = editing?.form.label.trim() ?? '';
+  const price = customLinePrice(editing?.form.price ?? '');
+  const canSave = label !== '' && price != null;
+
+  const saveForm = () => {
+    if (!editing || !canSave) return;
+    setError('');
+    const data = { label, defaultPrice: price! };
+    const done = {
+      onSuccess: () => { invalidate(); setEditing(null); },
+      // The server applies the same label/price rules as a custom estimate line,
+      // so anything it rejects is shown here rather than silently discarded.
+      onError: (err: unknown) => setError(err instanceof Error ? err.message : 'Could not save this preset'),
+    };
+    if (editing.id == null) createPreset.mutate({ data }, done);
+    else updatePreset.mutate({ id: editing.id, data }, done);
+  };
+
+  const openEditor = (preset: ChargePreset | null) => {
+    setError('');
+    setEditing(preset
+      ? { id: preset.id, form: { label: preset.label, price: String(preset.defaultPrice) } }
+      : { id: null, form: { label: '', price: '' } });
+  };
+
+  return (
+    <div className="bg-card border rounded-lg shadow-sm flex-1 overflow-auto h-full p-6 space-y-4">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-xl font-bold">Charge Presets</h2>
+          <p className="text-sm text-muted-foreground">
+            Reusable one-off charges like Haul-away, Dump fee, or a seasonal discount (use a negative price).
+            Inserting one copies its label and price onto the estimate, where the price stays editable.
+          </p>
+        </div>
+        <Button onClick={() => openEditor(null)}>
+          <Plus className="w-4 h-4 mr-2" /> Add Preset
+        </Button>
+      </div>
+
+      {isLoading ? <div>Loading...</div> :
+       !presets?.length ? <div className="text-sm text-muted-foreground">No charge presets yet.</div> :
+       <Table>
+         <TableHeader>
+           <TableRow>
+             <TableHead>Label</TableHead>
+             <TableHead>Default price</TableHead>
+             <TableHead className="w-24"></TableHead>
+           </TableRow>
+         </TableHeader>
+         <TableBody>
+           {presets.map(p => (
+             <TableRow key={p.id}>
+               <TableCell className="font-medium">{p.label}</TableCell>
+               <TableCell className="tabular-nums">{money(p.defaultPrice)}</TableCell>
+               <TableCell className="text-right whitespace-nowrap">
+                 <Button variant="ghost" size="sm" onClick={() => openEditor(p)}>Edit</Button>
+                 <Button variant="ghost" size="icon" className="text-destructive" onClick={() => {
+                   if (confirm(`Delete preset "${p.label}"? Estimates that already use it keep their saved lines.`)) {
+                     deletePreset.mutate({ id: p.id }, { onSuccess: invalidate });
+                   }
+                 }}>
+                   <Trash2 className="w-4 h-4" />
+                 </Button>
+               </TableCell>
+             </TableRow>
+           ))}
+         </TableBody>
+       </Table>
+      }
+
+      <Dialog open={!!editing} onOpenChange={open => !open && setEditing(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editing?.id == null ? 'Add Charge Preset' : 'Edit Charge Preset'}</DialogTitle>
+          </DialogHeader>
+          {editing && (
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium mb-1 block">Label</label>
+                <Input
+                  value={editing.form.label}
+                  placeholder="e.g. Haul-away"
+                  onChange={e => setEditing(prev => prev && ({ ...prev, form: { ...prev.form, label: e.target.value } }))}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Default price ($)</label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  className="w-40"
+                  value={editing.form.price}
+                  placeholder="75.00"
+                  onChange={e => setEditing(prev => prev && ({ ...prev, form: { ...prev.form, price: e.target.value } }))}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Use a negative amount for a discount. This is only a starting value — the price can be changed on each estimate.
+                </p>
+              </div>
+              {editing.id != null && (
+                <p className="text-xs text-muted-foreground">
+                  Renaming or repricing this preset only affects charges inserted from now on. Estimates already built keep what they were saved with.
+                </p>
+              )}
+              {error && (
+                <div className="flex gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{error}</span>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
+            <Button disabled={!canSave || createPreset.isPending || updatePreset.isPending} onClick={saveForm}>
+              {editing?.id == null ? 'Create Preset' : 'Save Changes'}
             </Button>
           </DialogFooter>
         </DialogContent>
