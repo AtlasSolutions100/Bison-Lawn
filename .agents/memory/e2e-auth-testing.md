@@ -13,6 +13,7 @@ Integration tests authenticate via a test-only bypass in the API auth middleware
 ## Browser testing with Clerk
 - The testing subagent signs users in programmatically (see testing skill's clerk-auth.md); never script Clerk's UI.
 - New sign-ins provision as contractor; promote to admin by updating the users row (role=admin, role_source=owner_assigned) between test phases — testers share the dev DB.
+- This applies to ANY manual promotion, not just tests: auth re-resolves role on every request, so setting `role=admin` without `role_source=owner_assigned` silently reverts to contractor on the next page load. Only owner-secret emails keep admin without that marker. The Team page role dropdown does this correctly — prefer it over raw SQL.
 - Tester browser timezone may differ from server local date: date-scoped seed data (e.g. jobs "today") may be invisible; seed for the tester's UTC date or instruct date navigation.
 
 ## Runner note
