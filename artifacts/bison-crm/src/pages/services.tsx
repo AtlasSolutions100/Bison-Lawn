@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { 
   useListServices, useCreateService, useUpdateService, useDeleteService, useCalculateServicePrice,
   useListPackages, useCreatePackage, useUpdatePackage, useDeletePackage, useGetService,
-  useGetBillingSettings, useUpdateBillingSettings
+  useGetBillingSettings, useUpdateBillingSettings,
+  type Service, type ServicePackage
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -16,11 +17,12 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
+import { useToast } from '@/hooks/use-toast';
 
 const equationSchema = z.object({
   baseSqft: z.coerce.number(),
   basePrice: z.coerce.number(),
-  upToSqft: z.coerce.number(),
+  upToSqft: z.union([z.literal(''), z.coerce.number()]),
   incrementSqft: z.coerce.number().default(0),
   incrementPrice: z.coerce.number().default(0),
 });
@@ -28,15 +30,29 @@ const equationSchema = z.object({
 const serviceSchema = z.object({
   name: z.string().min(1, "Required"),
   description: z.string().optional(),
+  quantity: z.union([z.literal(''), z.coerce.number().finite()]),
+  rate: z.union([z.literal(''), z.coerce.number().finite()]),
+  billableHours: z.union([z.literal(''), z.coerce.number().finite()]),
+  teamSize: z.union([z.literal(''), z.coerce.number().int()]),
+  minDays: z.union([z.literal(''), z.coerce.number().int()]),
+  defaultStartDate: z.string(),
+  defaultEndDate: z.string(),
+  renewDate: z.string(),
   pricingEquations: z.array(equationSchema),
   contractorOfferable: z.boolean().default(false),
-  contractorPrice: z.union([z.coerce.number(), z.literal('')]).optional(),
+  contractorPrice: z.union([z.literal(''), z.coerce.number().finite()]).optional(),
 });
 
 const packageSchema = z.object({
   name: z.string().min(1, "Required"),
   description: z.string().optional(),
   serviceIds: z.array(z.number()),
+  scheduleType: z.union([z.enum(['window', 'recurring', 'one_time']), z.literal('')]),
+  startDate: z.string(),
+  endDate: z.string(),
+  frequencyWeeks: z.union([z.literal(''), z.coerce.number().int().positive()]),
+  seasonEndDate: z.string(),
+  renewDate: z.string(),
 });
 
 export default function Services() {
@@ -256,9 +272,10 @@ function PackagesList() {
   );
 }
 
-function ServiceDialog({ serviceToEdit }: { serviceToEdit?: any }) {
+function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const createService = useCreateService();
   const updateService = useUpdateService();
   const calculatePrice = useCalculateServicePrice();
@@ -271,7 +288,18 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: any }) {
     defaultValues: {
       name: serviceToEdit?.name || '',
       description: serviceToEdit?.description || '',
-      pricingEquations: serviceToEdit?.pricingEquations || [{ baseSqft: 0, basePrice: 0, incrementSqft: 0, incrementPrice: 0, upToSqft: 0 }],
+      quantity: serviceToEdit?.quantity ?? 1,
+      rate: serviceToEdit?.rate ?? 0,
+      billableHours: serviceToEdit?.billableHours ?? '',
+      teamSize: serviceToEdit?.teamSize ?? '',
+      minDays: serviceToEdit?.minDays ?? '',
+      defaultStartDate: serviceToEdit?.defaultStartDate ?? '',
+      defaultEndDate: serviceToEdit?.defaultEndDate ?? '',
+      renewDate: serviceToEdit?.renewDate ?? '',
+      pricingEquations: serviceToEdit?.pricingEquations?.map(equation => ({
+        ...equation,
+        upToSqft: equation.upToSqft ?? '',
+      })) || [{ baseSqft: 0, basePrice: 0, incrementSqft: 0, incrementPrice: 0, upToSqft: '' }],
       contractorOfferable: serviceToEdit?.contractorOfferable ?? false,
       contractorPrice: serviceToEdit?.contractorPrice ?? '',
     }
@@ -282,6 +310,18 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: any }) {
   const onSubmit = (raw: z.infer<typeof serviceSchema>) => {
     const data = {
       ...raw,
+      quantity: raw.quantity === '' ? 1 : raw.quantity,
+      rate: raw.rate === '' ? 0 : raw.rate,
+      billableHours: raw.billableHours === '' ? null : raw.billableHours,
+      teamSize: raw.teamSize === '' ? null : raw.teamSize,
+      minDays: raw.minDays === '' ? null : raw.minDays,
+      defaultStartDate: raw.defaultStartDate || null,
+      defaultEndDate: raw.defaultEndDate || null,
+      renewDate: raw.renewDate || null,
+      pricingEquations: raw.pricingEquations.map(equation => ({
+        ...equation,
+        upToSqft: equation.upToSqft === '' ? null : equation.upToSqft,
+      })),
       contractorPrice: raw.contractorPrice === '' || raw.contractorPrice == null ? null : Number(raw.contractorPrice),
     };
     if (serviceToEdit) {
@@ -289,7 +329,9 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: any }) {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: ['/api/services'] });
           setOpen(false);
-        }
+          toast({ title: 'Service updated' });
+        },
+        onError: () => toast({ title: 'Could not update service', variant: 'destructive' }),
       });
     } else {
       createService.mutate({ data }, {
@@ -297,7 +339,9 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: any }) {
           queryClient.invalidateQueries({ queryKey: ['/api/services'] });
           setOpen(false);
           form.reset();
-        }
+          toast({ title: 'Service created' });
+        },
+        onError: () => toast({ title: 'Could not create service', variant: 'destructive' }),
       });
     }
   };
@@ -319,7 +363,7 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: any }) {
           <Button className="bg-primary text-primary-foreground hover:bg-primary/90 font-semibold shadow-sm"><Plus className="w-4 h-4 mr-2" /> New Service</Button>
         )}
       </DialogTrigger>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{serviceToEdit ? 'Edit Service' : 'Create New Service'}</DialogTitle>
         </DialogHeader>
@@ -334,6 +378,42 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: any }) {
                 <FormField control={form.control} name="description" render={({ field }) => (
                   <FormItem><FormLabel>Description</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage/></FormItem>
                 )} />
+
+                <div className="p-4 bg-muted/30 border rounded-lg space-y-3">
+                  <h4 className="font-semibold">Pricing</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <FormField control={form.control} name="quantity" render={({ field }) => (
+                      <FormItem><FormLabel>Default Quantity</FormLabel><FormControl><Input type="number" min="0" step="0.01" {...field} /></FormControl><FormMessage/></FormItem>
+                    )} />
+                    <FormField control={form.control} name="rate" render={({ field }) => (
+                      <FormItem><FormLabel>Rate ($)</FormLabel><FormControl><Input type="number" min="0" step="0.01" {...field} /></FormControl><FormMessage/></FormItem>
+                    )} />
+                  </div>
+                </div>
+
+                <div className="p-4 bg-muted/30 border rounded-lg space-y-3">
+                  <h4 className="font-semibold">Scheduling & Crew</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <FormField control={form.control} name="billableHours" render={({ field }) => (
+                      <FormItem><FormLabel>Billable Hours</FormLabel><FormControl><Input type="number" min="0" step="0.25" {...field} /></FormControl><FormMessage/></FormItem>
+                    )} />
+                    <FormField control={form.control} name="teamSize" render={({ field }) => (
+                      <FormItem><FormLabel>Team Size</FormLabel><FormControl><Input type="number" min="1" step="1" {...field} /></FormControl><FormMessage/></FormItem>
+                    )} />
+                    <FormField control={form.control} name="minDays" render={({ field }) => (
+                      <FormItem><FormLabel>Minimum Days</FormLabel><FormControl><Input type="number" min="0" step="1" {...field} /></FormControl><FormMessage/></FormItem>
+                    )} />
+                    <FormField control={form.control} name="defaultStartDate" render={({ field }) => (
+                      <FormItem><FormLabel>Default Start Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage/></FormItem>
+                    )} />
+                    <FormField control={form.control} name="defaultEndDate" render={({ field }) => (
+                      <FormItem><FormLabel>Default End Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage/></FormItem>
+                    )} />
+                    <FormField control={form.control} name="renewDate" render={({ field }) => (
+                      <FormItem><FormLabel>Renew Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage/></FormItem>
+                    )} />
+                  </div>
+                </div>
 
                 <div className="p-4 bg-muted/30 border rounded-lg space-y-3">
                   <FormField control={form.control} name="contractorOfferable" render={({ field }) => (
@@ -425,7 +505,7 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: any }) {
         <DialogFooter className="pt-4 mt-4 border-t">
           <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
           <Button type="submit" form="service-form" disabled={createService.isPending || updateService.isPending}>
-            {serviceToEdit ? 'Save Changes' : 'Create Service'}
+            {createService.isPending || updateService.isPending ? 'Saving...' : serviceToEdit ? 'Save Changes' : 'Create Service'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -433,11 +513,13 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: any }) {
   );
 }
 
-function PackageDialog({ packageToEdit }: { packageToEdit?: any }) {
+function PackageDialog({ packageToEdit }: { packageToEdit?: ServicePackage }) {
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const createPackage = useCreatePackage();
   const updatePackage = useUpdatePackage();
+  const { data: services, isLoading: servicesLoading, isError: servicesError } = useListServices();
 
   const form = useForm<z.infer<typeof packageSchema>>({
     resolver: zodResolver(packageSchema),
@@ -445,16 +527,37 @@ function PackageDialog({ packageToEdit }: { packageToEdit?: any }) {
       name: packageToEdit?.name || '',
       description: packageToEdit?.description || '',
       serviceIds: packageToEdit?.serviceIds || [],
+      scheduleType: packageToEdit?.scheduleType ?? '',
+      startDate: packageToEdit?.startDate ?? '',
+      endDate: packageToEdit?.endDate ?? '',
+      frequencyWeeks: packageToEdit?.frequencyWeeks ?? '',
+      seasonEndDate: packageToEdit?.seasonEndDate ?? '',
+      renewDate: packageToEdit?.renewDate ?? '',
     }
   });
 
-  const onSubmit = (data: z.infer<typeof packageSchema>) => {
+  const scheduleType = form.watch('scheduleType');
+
+  const onSubmit = (raw: z.infer<typeof packageSchema>) => {
+    const data = {
+      name: raw.name,
+      description: raw.description,
+      serviceIds: raw.serviceIds,
+      scheduleType: raw.scheduleType || null,
+      startDate: raw.scheduleType === 'window' || raw.scheduleType === 'recurring' ? raw.startDate || null : null,
+      endDate: raw.scheduleType === 'window' ? raw.endDate || null : null,
+      frequencyWeeks: raw.scheduleType === 'recurring' && raw.frequencyWeeks !== '' ? raw.frequencyWeeks : null,
+      seasonEndDate: raw.scheduleType === 'recurring' ? raw.seasonEndDate || null : null,
+      renewDate: raw.scheduleType === 'recurring' ? raw.renewDate || null : null,
+    };
     if (packageToEdit) {
       updatePackage.mutate({ id: packageToEdit.id, data }, {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: ['/api/packages'] });
           setOpen(false);
-        }
+          toast({ title: 'Package updated' });
+        },
+        onError: () => toast({ title: 'Could not update package', variant: 'destructive' }),
       });
     } else {
       createPackage.mutate({ data }, {
@@ -462,7 +565,9 @@ function PackageDialog({ packageToEdit }: { packageToEdit?: any }) {
           queryClient.invalidateQueries({ queryKey: ['/api/packages'] });
           setOpen(false);
           form.reset();
-        }
+          toast({ title: 'Package created' });
+        },
+        onError: () => toast({ title: 'Could not create package', variant: 'destructive' }),
       });
     }
   };
@@ -473,10 +578,12 @@ function PackageDialog({ packageToEdit }: { packageToEdit?: any }) {
         {packageToEdit ? (
           <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary"><Edit2 className="w-4 h-4" /></Button>
         ) : (
-          <Button className="hidden"></Button>
+          <Button className="bg-primary text-primary-foreground hover:bg-primary/90 font-semibold shadow-sm">
+            <Plus className="w-4 h-4 mr-2" /> New Package
+          </Button>
         )}
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{packageToEdit ? 'Edit Package' : 'Create New Package'}</DialogTitle>
         </DialogHeader>
@@ -488,10 +595,94 @@ function PackageDialog({ packageToEdit }: { packageToEdit?: any }) {
             <FormField control={form.control} name="description" render={({ field }) => (
               <FormItem><FormLabel>Description</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage/></FormItem>
             )} />
+
+            <div className="space-y-3 rounded-lg border p-4">
+              <div>
+                <h4 className="font-semibold">Included Services</h4>
+                <p className="text-xs text-muted-foreground">Choose the services assigned together in this package.</p>
+              </div>
+              {servicesLoading && <p className="text-sm text-muted-foreground animate-pulse">Loading services...</p>}
+              {servicesError && <p className="text-sm text-destructive">Could not load services. Close this dialog and try again.</p>}
+              {!servicesLoading && !servicesError && (
+                <FormField control={form.control} name="serviceIds" render={({ field }) => (
+                  <FormItem className="grid grid-cols-1 sm:grid-cols-2 gap-2 space-y-0">
+                    {services?.map(service => (
+                      <label key={service.id} className="flex items-center gap-2 rounded-md border p-3 text-sm">
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4 accent-primary"
+                          checked={field.value.includes(service.id)}
+                          onChange={event => field.onChange(
+                            event.target.checked
+                              ? [...field.value, service.id]
+                              : field.value.filter(id => id !== service.id),
+                          )}
+                        />
+                        {service.name}
+                      </label>
+                    ))}
+                    {!services?.length && <p className="text-sm text-muted-foreground">No services are available.</p>}
+                    <FormMessage />
+                  </FormItem>
+                )} />
+              )}
+            </div>
+
+            <div className="space-y-4 rounded-lg border p-4 bg-muted/20">
+              <div>
+                <h4 className="font-semibold">Inherited Scheduling Defaults</h4>
+                <p className="text-xs text-muted-foreground">
+                  These defaults are copied to each service when this package is assigned to a client.
+                  Changing them later will not rewrite clients who already have the package.
+                </p>
+              </div>
+              <FormField control={form.control} name="scheduleType" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Schedule Type</FormLabel>
+                  <FormControl>
+                    <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" {...field}>
+                      <option value="">Ask when assigning</option>
+                      <option value="window">Service window</option>
+                      <option value="recurring">Recurring</option>
+                      <option value="one_time">One-time</option>
+                    </select>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+
+              {scheduleType === 'window' && (
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField control={form.control} name="startDate" render={({ field }) => (
+                    <FormItem><FormLabel>Start Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage/></FormItem>
+                  )} />
+                  <FormField control={form.control} name="endDate" render={({ field }) => (
+                    <FormItem><FormLabel>End Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage/></FormItem>
+                  )} />
+                </div>
+              )}
+
+              {scheduleType === 'recurring' && (
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField control={form.control} name="frequencyWeeks" render={({ field }) => (
+                    <FormItem><FormLabel>Every (weeks)</FormLabel><FormControl><Input type="number" min="1" step="1" {...field} /></FormControl><FormMessage/></FormItem>
+                  )} />
+                  <FormField control={form.control} name="startDate" render={({ field }) => (
+                    <FormItem><FormLabel>Start Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage/></FormItem>
+                  )} />
+                  <FormField control={form.control} name="seasonEndDate" render={({ field }) => (
+                    <FormItem><FormLabel>Season End Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage/></FormItem>
+                  )} />
+                  <FormField control={form.control} name="renewDate" render={({ field }) => (
+                    <FormItem><FormLabel>Renew Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage/></FormItem>
+                  )} />
+                </div>
+              )}
+            </div>
             <DialogFooter className="pt-4">
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={createPackage.isPending || updatePackage.isPending}>
-                {packageToEdit ? 'Save Changes' : 'Create Package'}
+                {createPackage.isPending || updatePackage.isPending ? 'Saving...' : packageToEdit ? 'Save Changes' : 'Create Package'}
               </Button>
             </DialogFooter>
           </form>

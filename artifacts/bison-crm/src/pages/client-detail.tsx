@@ -14,12 +14,17 @@ import {
   useListServices,
   useListPackages,
   useCalculateServicePrice,
+  useListEstimates,
+  useListInvoices,
+  useCreateJob,
+  useCreateTicket,
+  useEmailClient,
   Client
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { 
   ArrowLeft, MapPin, Phone, Mail, DollarSign, Calendar, FileText, 
-  Settings, User, Plus, MessageSquare, Clock, Trash2 
+  Settings, Plus, MessageSquare, Clock, Trash2, Briefcase, ListTodo
 } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
@@ -30,6 +35,7 @@ import { format } from 'date-fns';
 import { 
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter 
 } from '@/components/ui/dialog';
+import { useToast } from '@/hooks/use-toast';
 
 export default function ClientDetail() {
   const [, params] = useRoute('/clients/:id');
@@ -83,6 +89,28 @@ export default function ClientDetail() {
                 {client.email && <span className="flex items-center gap-1"><Mail className="w-4 h-4"/> {client.email}</span>}
                 <span className="flex items-center gap-1"><MapPin className="w-4 h-4"/> {client.serviceAddress}, {client.city}</span>
               </div>
+              <div className="flex flex-wrap items-center gap-2 pt-4">
+                <Button size="sm" onClick={() => setLocation(`/estimates?clientId=${id}&new=1`)}>
+                  <FileText className="w-4 h-4 mr-1" /> Create Estimate
+                </Button>
+                <EmailClientDialog client={client} />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={client.lat == null && client.lng == null && !client.serviceAddress}
+                  title={client.lat == null && client.lng == null && !client.serviceAddress ? 'Add a service address or map location first' : undefined}
+                  onClick={() => {
+                    const destination = client.lat != null && client.lng != null
+                      ? `${client.lat},${client.lng}`
+                      : [client.serviceAddress, client.city].filter(Boolean).join(', ');
+                    window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(destination)}`, '_blank', 'noopener,noreferrer');
+                  }}
+                >
+                  <MapPin className="w-4 h-4 mr-1" /> Show on Map
+                </Button>
+                <AddJobDialog client={client} />
+                <AddTicketDialog client={client} />
+              </div>
             </div>
 
             <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 min-w-[200px] flex items-center justify-between">
@@ -131,6 +159,160 @@ function RecordPaymentDialog({ clientId }: { clientId: number }) {
     <Button size="sm" onClick={() => setLocation(`/invoices?clientId=${clientId}`)}>
       Payments
     </Button>
+  );
+}
+
+function EmailClientDialog({ client }: { client: Client }) {
+  const [open, setOpen] = useState(false);
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+  const emailClient = useEmailClient();
+  const { toast } = useToast();
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    emailClient.mutate({ id: client.id, data: { subject, body } }, {
+      onSuccess: (result) => {
+        toast({ title: 'Email sent', description: `Delivered to ${result.to}.` });
+        setSubject('');
+        setBody('');
+        setOpen(false);
+      },
+      onError: (error) => toast({
+        title: 'Email could not be sent',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      }),
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" disabled={!client.email} title={!client.email ? 'Add an email address to this client first' : undefined}>
+          <Mail className="w-4 h-4 mr-1" /> Send Email
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Email {client.name}</DialogTitle></DialogHeader>
+        <form onSubmit={submit} className="space-y-4">
+          <p className="text-sm text-muted-foreground">To: {client.email}</p>
+          <div>
+            <label className="text-sm font-medium mb-1 block">Subject</label>
+            <Input value={subject} onChange={e => setSubject(e.target.value)} maxLength={200} required />
+          </div>
+          <div>
+            <label className="text-sm font-medium mb-1 block">Message</label>
+            <textarea className="flex min-h-40 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={body} onChange={e => setBody(e.target.value)} maxLength={10000} required />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button type="submit" disabled={emailClient.isPending || !subject.trim() || !body.trim()}>
+              {emailClient.isPending ? 'Sending...' : 'Send Email'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AddJobDialog({ client }: { client: Client }) {
+  const [open, setOpen] = useState(false);
+  const [serviceId, setServiceId] = useState('');
+  const [scheduledDate, setScheduledDate] = useState('');
+  const [amount, setAmount] = useState('');
+  const [notes, setNotes] = useState('');
+  const { data: services } = useListServices();
+  const createJob = useCreateJob();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    createJob.mutate({
+      data: {
+        clientId: client.id,
+        serviceId: serviceId ? Number(serviceId) : null,
+        scheduledDate: scheduledDate || null,
+        amount: Number(amount),
+        notes: notes || null,
+      },
+    }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ['/api/jobs'] });
+        toast({ title: 'Job added' });
+        setOpen(false);
+      },
+      onError: () => toast({ title: 'Job could not be added', variant: 'destructive' }),
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild><Button size="sm" variant="outline"><Briefcase className="w-4 h-4 mr-1" /> Add Job</Button></DialogTrigger>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Add Job for {client.name}</DialogTitle></DialogHeader>
+        <form onSubmit={submit} className="space-y-4">
+          <div>
+            <label className="text-sm font-medium mb-1 block">Service</label>
+            <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={serviceId} onChange={e => setServiceId(e.target.value)}>
+              <option value="">General / no service</option>
+              {services?.map(service => <option key={service.id} value={service.id}>{service.name}</option>)}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div><label className="text-sm font-medium mb-1 block">Scheduled Date</label><Input type="date" value={scheduledDate} onChange={e => setScheduledDate(e.target.value)} /></div>
+            <div><label className="text-sm font-medium mb-1 block">Amount</label><Input type="number" min="0" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} required /></div>
+          </div>
+          <div><label className="text-sm font-medium mb-1 block">Notes</label><textarea className="flex min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={notes} onChange={e => setNotes(e.target.value)} /></div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button type="submit" disabled={createJob.isPending || amount === ''}>{createJob.isPending ? 'Adding...' : 'Add Job'}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AddTicketDialog({ client }: { client: Client }) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const createTicket = useCreateTicket();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    createTicket.mutate({ data: { clientId: client.id, title, description, dueDate: dueDate || null } }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ['/api/tickets'] });
+        toast({ title: 'Ticket added' });
+        setOpen(false);
+      },
+      onError: () => toast({ title: 'Ticket could not be added', variant: 'destructive' }),
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild><Button size="sm" variant="outline"><ListTodo className="w-4 h-4 mr-1" /> Add Ticket</Button></DialogTrigger>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Add Ticket for {client.name}</DialogTitle></DialogHeader>
+        <form onSubmit={submit} className="space-y-4">
+          <div><label className="text-sm font-medium mb-1 block">Title</label><Input value={title} onChange={e => setTitle(e.target.value)} required /></div>
+          <div><label className="text-sm font-medium mb-1 block">Description</label><textarea className="flex min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={description} onChange={e => setDescription(e.target.value)} /></div>
+          <div><label className="text-sm font-medium mb-1 block">Due Date</label><Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} /></div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button type="submit" disabled={createTicket.isPending || !title.trim()}>{createTicket.isPending ? 'Adding...' : 'Add Ticket'}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -290,14 +472,35 @@ function AddServiceDialog({ clientId }: { clientId: number }) {
   const createService = useCreateClientService();
   const calculatePrice = useCalculateServicePrice();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const [type, setType] = useState<'service'|'package'>('service');
   const [itemId, setItemId] = useState<string>('');
   const [sqft, setSqft] = useState<number>(0);
   const [priceOverride, setPriceOverride] = useState<string>('');
-  const [scheduleType, setScheduleType] = useState<'window'|'recurring'>('recurring');
+  const [scheduleType, setScheduleType] = useState<'window'|'recurring'|'one_time'>('recurring');
+  const [firstServiceDate, setFirstServiceDate] = useState('');
+  const [frequencyWeeks, setFrequencyWeeks] = useState('1');
+  const [seasonEndDate, setSeasonEndDate] = useState('');
+  const [windowStart, setWindowStart] = useState('');
+  const [windowEnd, setWindowEnd] = useState('');
 
   const [livePrice, setLivePrice] = useState<number|null>(null);
+
+  const selectItem = (value: string) => {
+    setItemId(value);
+    if (type !== 'package') return;
+    const selected = packages?.find(pkg => String(pkg.id) === value);
+    if (!selected) return;
+    if (selected.scheduleType === 'window' || selected.scheduleType === 'recurring' || selected.scheduleType === 'one_time') {
+      setScheduleType(selected.scheduleType);
+    }
+    setWindowStart(selected.startDate ?? '');
+    setWindowEnd(selected.endDate ?? '');
+    setFirstServiceDate(selected.startDate ?? '');
+    setFrequencyWeeks(selected.frequencyWeeks ? String(selected.frequencyWeeks) : '1');
+    setSeasonEndDate(selected.seasonEndDate ?? '');
+  };
 
   // Live price effect
   useEffect(() => {
@@ -312,26 +515,35 @@ function AddServiceDialog({ clientId }: { clientId: number }) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const finalPrice = priceOverride ? parseFloat(priceOverride) : (livePrice || 0);
+    const finalPrice = priceOverride ? parseFloat(priceOverride) : livePrice;
     
-    // In a real app we'd collect all the schedule dates from form inputs. 
-    // Mocking the dates for the payload.
     const payload: any = {
-      amount: finalPrice,
       scheduleType,
+      ...(finalPrice != null ? { amount: finalPrice } : {}),
       ...(type === 'service' ? { serviceId: parseInt(itemId) } : { packageId: parseInt(itemId) }),
       ...(scheduleType === 'recurring' ? {
-        frequencyWeeks: 1, firstDate: '2024-05-01', renewDate: '2025-05-01'
+        frequencyWeeks: parseInt(frequencyWeeks),
+        firstServiceDate,
+        seasonEndDate: seasonEndDate || null,
+      } : scheduleType === 'window' ? {
+        startDate: windowStart,
+        endDate: windowEnd,
       } : {
-        startDate: '2024-05-01', endDate: '2024-05-07'
+        firstServiceDate: firstServiceDate || null,
       })
     };
 
     createService.mutate({ id: clientId, data: payload }, {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: [`/api/clients/${clientId}/client-services`] });
+        toast({ title: 'Service assigned' });
         setOpen(false);
-      }
+      },
+      onError: (error) => toast({
+        title: 'Service could not be assigned',
+        description: error instanceof Error ? error.message : 'Check the schedule and try again.',
+        variant: 'destructive',
+      }),
     });
   };
 
@@ -358,7 +570,7 @@ function AddServiceDialog({ clientId }: { clientId: number }) {
             </div>
             <div>
               <label className="text-sm font-medium mb-1 block">Item</label>
-              <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none" value={itemId} onChange={(e) => setItemId(e.target.value)} required>
+              <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none" value={itemId} onChange={(e) => selectItem(e.target.value)} required>
                 <option value="">Select...</option>
                 {type === 'service' 
                   ? services?.map(s => <option key={s.id} value={s.id}>{s.name}</option>)
@@ -367,6 +579,39 @@ function AddServiceDialog({ clientId }: { clientId: number }) {
               </select>
             </div>
           </div>
+
+          {scheduleType === 'recurring' ? (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="text-sm font-medium mb-1 block">First Service Date</label>
+                <Input type="date" value={firstServiceDate} onChange={e => setFirstServiceDate(e.target.value)} required />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Frequency (weeks)</label>
+                <Input type="number" min="1" step="1" value={frequencyWeeks} onChange={e => setFrequencyWeeks(e.target.value)} required />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Season End Date</label>
+                <Input type="date" value={seasonEndDate} onChange={e => setSeasonEndDate(e.target.value)} />
+              </div>
+            </div>
+          ) : scheduleType === 'window' ? (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium mb-1 block">Window Start</label>
+                <Input type="date" value={windowStart} onChange={e => setWindowStart(e.target.value)} required />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Window End</label>
+                <Input type="date" value={windowEnd} onChange={e => setWindowEnd(e.target.value)} required />
+              </div>
+            </div>
+          ) : (
+            <div>
+              <label className="text-sm font-medium mb-1 block">Service Date (optional)</label>
+              <Input type="date" value={firstServiceDate} onChange={e => setFirstServiceDate(e.target.value)} />
+            </div>
+          )}
 
           {type === 'service' && itemId && (
             <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-lg border">
@@ -393,6 +638,7 @@ function AddServiceDialog({ clientId }: { clientId: number }) {
               <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none" value={scheduleType} onChange={(e) => setScheduleType(e.target.value as any)}>
                 <option value="recurring">Recurring (Weekly/etc)</option>
                 <option value="window">Date Window (One-off)</option>
+                <option value="one_time">One-time</option>
               </select>
             </div>
           </div>
@@ -408,6 +654,7 @@ function AddServiceDialog({ clientId }: { clientId: number }) {
 }
 
 function ClientEstimates({ clientId }: { clientId: number }) {
+  const { data: estimates, isLoading, isError } = useListEstimates({ clientId });
   return (
     <Card className="shadow-sm border-border">
       <CardHeader className="pb-3 border-b bg-card/50">
@@ -415,14 +662,30 @@ function ClientEstimates({ clientId }: { clientId: number }) {
           <FileText className="w-5 h-5 text-muted-foreground" /> Estimates
         </CardTitle>
       </CardHeader>
-      <CardContent className="p-6 text-center text-muted-foreground">
-        Estimates list goes here.
+      <CardContent className="p-0">
+        {isLoading ? (
+          <div className="p-6 text-center text-muted-foreground animate-pulse">Loading estimates...</div>
+        ) : isError ? (
+          <div className="p-6 text-center text-destructive">Estimates could not be loaded.</div>
+        ) : !estimates?.length ? (
+          <div className="p-6 text-center text-muted-foreground">No estimates for this client.</div>
+        ) : (
+          <div className="divide-y">
+            {estimates.map(estimate => (
+              <Link key={estimate.id} href="/estimates" className="flex items-center justify-between p-4 hover:bg-muted/30">
+                <div><p className="font-medium">Estimate #{estimate.id}</p><p className="text-xs text-muted-foreground">{format(new Date(estimate.createdAt), 'MMM d, yyyy')}</p></div>
+                <div className="text-right"><p className="font-bold">${estimate.total.toFixed(2)}</p><p className="text-xs capitalize text-muted-foreground">{estimate.status}</p></div>
+              </Link>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
 }
 
 function ClientInvoices({ clientId }: { clientId: number }) {
+  const { data: invoices, isLoading, isError } = useListInvoices({ clientId });
   return (
     <Card className="shadow-sm border-border">
       <CardHeader className="pb-3 border-b bg-card/50">
@@ -430,8 +693,23 @@ function ClientInvoices({ clientId }: { clientId: number }) {
           <DollarSign className="w-5 h-5 text-muted-foreground" /> Invoices
         </CardTitle>
       </CardHeader>
-      <CardContent className="p-6 text-center text-muted-foreground">
-        Invoices list goes here.
+      <CardContent className="p-0">
+        {isLoading ? (
+          <div className="p-6 text-center text-muted-foreground animate-pulse">Loading invoices...</div>
+        ) : isError ? (
+          <div className="p-6 text-center text-destructive">Invoices could not be loaded.</div>
+        ) : !invoices?.length ? (
+          <div className="p-6 text-center text-muted-foreground">No invoices for this client.</div>
+        ) : (
+          <div className="divide-y">
+            {invoices.map(invoice => (
+              <Link key={invoice.id} href={`/invoices?clientId=${clientId}`} className="flex items-center justify-between p-4 hover:bg-muted/30">
+                <div><p className="font-medium">Invoice #{invoice.id}</p><p className="text-xs text-muted-foreground">{format(new Date(invoice.createdAt), 'MMM d, yyyy')}</p></div>
+                <div className="text-right"><p className="font-bold">${invoice.total.toFixed(2)}</p><p className="text-xs capitalize text-muted-foreground">{invoice.status}</p></div>
+              </Link>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

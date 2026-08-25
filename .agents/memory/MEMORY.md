@@ -9,6 +9,8 @@
 - [JSONB document read-modify-write](jsonb-document-concurrency.md) — lock the row before merging a whole-document JSONB column, or concurrent writers drop each other's keys.
 - [User account identity model](user-account-identity.md) — accounts belong to a person's verified email, not a Clerk identity; role changes and merges must cover every sign-in method.
 - [Field payment accounting](field-payment-accounting.md) — surcharges must join the invoice total, and payment/completion handlers must serialize on the job row or payments detach.
-- [Charge presets are copied templates](estimate-charge-presets.md) — estimate lines copy a preset's label and price by value; never reference the preset row, or renames rewrite past quotes.
+- [Reusable templates are copied, never referenced](estimate-charge-presets.md) — charge presets and package schedules are copied by value; referencing them lets an edit rewrite past quotes and live schedules.
+- [Account credit is an unattached payment](account-credit-model.md) — a payment with no invoice IS the credit; voiding must detach payments, and balance writers must lock the client row.
+- [Optional fields must not select a branch](silent-branch-fallthrough.md) — a missing field must 4xx, not quietly pick another write path; native form validation hides the absent server guard.
 - [Local draft recovery](local-draft-recovery.md) — restore by remount, give every hydrate effect a one-shot skip, and don't persist until the restore prompt is answered.
 - [Radix Tabs forceMount visibility](radix-tabs-forcemount.md) — force-mounted tab panels stay visible; hide with CSS, and guard the remaining discard paths with a dirty check.

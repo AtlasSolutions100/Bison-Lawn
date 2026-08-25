@@ -110,11 +110,22 @@ export const servicesTable = pgTable("services", {
 export type Service = typeof servicesTable.$inferSelect;
 
 // ---------- packages ----------
+// A package is a collection of services plus the scheduling defaults its members
+// inherit. Assigning a package copies these onto each client_services row by
+// value, so editing the package later never rewrites work already scheduled for
+// a client, and the office can still customise quantity/dates per client.
 export const packagesTable = pgTable("packages", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
   serviceIds: jsonb("service_ids").$type<number[]>().notNull().default([]),
+  // Inherited scheduling defaults (all optional; null means "ask at assign time")
+  scheduleType: text("schedule_type"), // window | recurring | one_time
+  startDate: text("start_date"),
+  endDate: text("end_date"),
+  frequencyWeeks: integer("frequency_weeks"),
+  seasonEndDate: text("season_end_date"),
+  renewDate: text("renew_date"),
 });
 export type ServicePackage = typeof packagesTable.$inferSelect;
 

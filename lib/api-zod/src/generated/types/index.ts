@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './applyPaymentInput';
+export * from './applyPaymentResult';
 export * from './appUser';
 export * from './appUserRole';
 export * from './appUserUpdate';
@@ -17,6 +19,8 @@ export * from './chargePreset';
 export * from './chargePresetInput';
 export * from './chargePresetUpdate';
 export * from './client';
+export * from './clientEmailInput';
+export * from './clientEmailResult';
 export * from './clientInput';
 export * from './clientInputPropertyData';
 export * from './clientInputStatus';
@@ -103,7 +107,10 @@ export * from './service';
 export * from './serviceInput';
 export * from './servicePackage';
 export * from './servicePackageInput';
+export * from './servicePackageInputScheduleType';
+export * from './servicePackageScheduleType';
 export * from './servicePackageUpdate';
+export * from './servicePackageUpdateScheduleType';
 export * from './serviceUpdate';
 export * from './suggestedAction';
 export * from './suggestedActionActionType';

@@ -26,7 +26,8 @@ export interface ClientServiceInput {
      * @nullable
      */
   sqft?: number | null;
-  scheduleType: ClientServiceInputScheduleType;
+  /** Optional only when packageId is given and that package sets its own schedule type; otherwise required. */
+  scheduleType?: ClientServiceInputScheduleType;
   /** @nullable */
   startDate?: string | null;
   /** @nullable */

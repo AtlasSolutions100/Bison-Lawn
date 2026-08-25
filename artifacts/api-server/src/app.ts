@@ -1,4 +1,9 @@
-import express, { type Express } from "express";
+import express, {
+  type Express,
+  type Request,
+  type Response,
+  type NextFunction,
+} from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import { clerkMiddleware } from "@clerk/express";
@@ -85,5 +90,44 @@ app.use(
 app.use(weatherSchedulerRequestHook());
 
 app.use("/api", router);
+
+// Without this, anything a route throws — most commonly a request body that fails
+// its schema — falls through to Express's default handler and comes back as an HTML
+// 500. The client then shows a generic failure for what is really a fixable input
+// problem, and a stack trace leaks into the response body.
+/**
+ * Recognise a schema validation error by shape rather than importing zod and using
+ * `instanceof`. The generated schemas carry their own zod copy, and an `instanceof`
+ * check against a second copy fails silently — turning every bad request back into
+ * an opaque 500 with no sign that anything is wrong.
+ */
+function schemaIssues(err: unknown): { path?: unknown; message: string }[] | null {
+  if (typeof err !== "object" || err === null) return null;
+  const issues = (err as { issues?: unknown }).issues;
+  if (!Array.isArray(issues)) return null;
+  const named = issues.filter(
+    (issue): issue is { path?: unknown; message: string } =>
+      typeof issue === "object" &&
+      issue !== null &&
+      typeof (issue as { message?: unknown }).message === "string",
+  );
+  return named.length > 0 ? named : null;
+}
+
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  const issues = schemaIssues(err);
+  if (issues) {
+    const detail = issues
+      .map(({ path, message }) => {
+        const field = Array.isArray(path) ? path.map(String).join(".") : "";
+        return field ? `${field}: ${message}` : message;
+      })
+      .join("; ");
+    return res.status(400).json({ error: detail || "Invalid request" });
+  }
+  logger.error({ err }, "unhandled request error");
+  if (res.headersSent) return;
+  return res.status(500).json({ error: "Something went wrong. Please try again." });
+});
 
 export default app;

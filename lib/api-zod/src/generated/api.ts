@@ -101,9 +101,13 @@ export const ListClientsResponseItem = zod.object({
   "mapNote": zod.string().nullish(),
   "propertyData": zod.record(zod.string(), zod.string()).optional(),
   "lastServiceDate": zod.string().nullish(),
+  "unappliedCredit": zod.number().optional().describe('Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice.'),
   "createdAt": zod.string().optional()
 })
 export const ListClientsResponse = zod.array(ListClientsResponseItem)
+
+
+
 
 
 export const CreateClientBody = zod.object({
@@ -135,6 +139,7 @@ export const CreateClientResponse = zod.object({
   "mapNote": zod.string().nullish(),
   "propertyData": zod.record(zod.string(), zod.string()).optional(),
   "lastServiceDate": zod.string().nullish(),
+  "unappliedCredit": zod.number().optional().describe('Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice.'),
   "createdAt": zod.string().optional()
 })
 
@@ -158,6 +163,7 @@ export const GetClientResponse = zod.object({
   "mapNote": zod.string().nullish(),
   "propertyData": zod.record(zod.string(), zod.string()).optional(),
   "lastServiceDate": zod.string().nullish(),
+  "unappliedCredit": zod.number().optional().describe('Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice.'),
   "createdAt": zod.string().optional()
 })
 
@@ -165,6 +171,8 @@ export const GetClientResponse = zod.object({
 export const UpdateClientParams = zod.object({
   "id": zod.coerce.number().int()
 })
+
+
 
 
 export const UpdateClientBody = zod.object({
@@ -196,6 +204,7 @@ export const UpdateClientResponse = zod.object({
   "mapNote": zod.string().nullish(),
   "propertyData": zod.record(zod.string(), zod.string()).optional(),
   "lastServiceDate": zod.string().nullish(),
+  "unappliedCredit": zod.number().optional().describe('Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice.'),
   "createdAt": zod.string().optional()
 })
 
@@ -224,6 +233,8 @@ export const ListClientNotesResponse = zod.array(ListClientNotesResponseItem)
 export const CreateClientNoteParams = zod.object({
   "id": zod.coerce.number().int()
 })
+
+
 
 
 export const CreateClientNoteBody = zod.object({
@@ -256,6 +267,30 @@ export const ListClientAuditResponseItem = zod.object({
   "createdAt": zod.string()
 })
 export const ListClientAuditResponse = zod.array(ListClientAuditResponseItem)
+
+
+/**
+ * @summary Send a one-off email to a client from the office
+ */
+export const EmailClientParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const emailClientBodySubjectMax = 200;
+
+export const emailClientBodyBodyMax = 10000;
+
+
+
+export const EmailClientBody = zod.object({
+  "subject": zod.string().min(1).max(emailClientBodySubjectMax),
+  "body": zod.string().min(1).max(emailClientBodyBodyMax)
+})
+
+export const EmailClientResponse = zod.object({
+  "sent": zod.boolean(),
+  "to": zod.string()
+})
 
 
 /**
@@ -299,7 +334,7 @@ export const CreateClientServiceBody = zod.object({
   "quantity": zod.number().optional(),
   "amount": zod.number().nullish().describe('Override; defaults to engine-calculated or service rate'),
   "sqft": zod.number().nullish().describe('Used with pricing equations to compute amount'),
-  "scheduleType": zod.enum(['window', 'recurring', 'one_time']),
+  "scheduleType": zod.enum(['window', 'recurring', 'one_time']).optional().describe('Optional only when packageId is given and that package sets its own schedule type; otherwise required.'),
   "startDate": zod.string().nullish(),
   "endDate": zod.string().nullish(),
   "frequencyWeeks": zod.int().nullish(),
@@ -398,6 +433,9 @@ export const ListServicesResponseItem = zod.object({
 export const ListServicesResponse = zod.array(ListServicesResponseItem)
 
 
+
+
+
 export const CreateServiceBody = zod.object({
   "name": zod.string().min(1),
   "description": zod.string().optional(),
@@ -477,6 +515,8 @@ export const UpdateServiceParams = zod.object({
 })
 
 
+
+
 export const UpdateServiceBody = zod.object({
   "name": zod.string().min(1).optional(),
   "description": zod.string().nullish(),
@@ -553,6 +593,12 @@ export const ListPackagesResponseItem = zod.object({
   "name": zod.string(),
   "description": zod.string().nullish(),
   "serviceIds": zod.array(zod.int()),
+  "scheduleType": zod.union([zod.literal('window'),zod.literal('recurring'),zod.literal('one_time'),zod.literal(null)]).nullish(),
+  "startDate": zod.string().nullish(),
+  "endDate": zod.string().nullish(),
+  "frequencyWeeks": zod.int().nullish(),
+  "seasonEndDate": zod.string().nullish(),
+  "renewDate": zod.string().nullish(),
   "services": zod.array(zod.object({
   "id": zod.int(),
   "name": zod.string(),
@@ -575,14 +621,23 @@ export const ListPackagesResponseItem = zod.object({
   "contractorOfferable": zod.boolean().optional(),
   "contractorPrice": zod.number().nullish()
 })).optional()
-})
+}).describe('A collection of services plus the scheduling defaults its members inherit. Assigning the package copies these onto each client service by value, so editing the package later never rewrites work already scheduled.')
 export const ListPackagesResponse = zod.array(ListPackagesResponseItem)
+
+
+
 
 
 export const CreatePackageBody = zod.object({
   "name": zod.string().min(1),
   "description": zod.string().optional(),
-  "serviceIds": zod.array(zod.int())
+  "serviceIds": zod.array(zod.int()),
+  "scheduleType": zod.union([zod.literal('window'),zod.literal('recurring'),zod.literal('one_time'),zod.literal(null)]).nullish(),
+  "startDate": zod.string().nullish(),
+  "endDate": zod.string().nullish(),
+  "frequencyWeeks": zod.int().nullish(),
+  "seasonEndDate": zod.string().nullish(),
+  "renewDate": zod.string().nullish()
 })
 
 export const CreatePackageResponse = zod.object({
@@ -590,6 +645,12 @@ export const CreatePackageResponse = zod.object({
   "name": zod.string(),
   "description": zod.string().nullish(),
   "serviceIds": zod.array(zod.int()),
+  "scheduleType": zod.union([zod.literal('window'),zod.literal('recurring'),zod.literal('one_time'),zod.literal(null)]).nullish(),
+  "startDate": zod.string().nullish(),
+  "endDate": zod.string().nullish(),
+  "frequencyWeeks": zod.int().nullish(),
+  "seasonEndDate": zod.string().nullish(),
+  "renewDate": zod.string().nullish(),
   "services": zod.array(zod.object({
   "id": zod.int(),
   "name": zod.string(),
@@ -612,7 +673,7 @@ export const CreatePackageResponse = zod.object({
   "contractorOfferable": zod.boolean().optional(),
   "contractorPrice": zod.number().nullish()
 })).optional()
-})
+}).describe('A collection of services plus the scheduling defaults its members inherit. Assigning the package copies these onto each client service by value, so editing the package later never rewrites work already scheduled.')
 
 
 export const UpdatePackageParams = zod.object({
@@ -620,10 +681,18 @@ export const UpdatePackageParams = zod.object({
 })
 
 
+
+
 export const UpdatePackageBody = zod.object({
   "name": zod.string().min(1).optional(),
   "description": zod.string().nullish(),
-  "serviceIds": zod.array(zod.int()).optional()
+  "serviceIds": zod.array(zod.int()).optional(),
+  "scheduleType": zod.union([zod.literal('window'),zod.literal('recurring'),zod.literal('one_time'),zod.literal(null)]).nullish(),
+  "startDate": zod.string().nullish(),
+  "endDate": zod.string().nullish(),
+  "frequencyWeeks": zod.int().nullish(),
+  "seasonEndDate": zod.string().nullish(),
+  "renewDate": zod.string().nullish()
 })
 
 export const UpdatePackageResponse = zod.object({
@@ -631,6 +700,12 @@ export const UpdatePackageResponse = zod.object({
   "name": zod.string(),
   "description": zod.string().nullish(),
   "serviceIds": zod.array(zod.int()),
+  "scheduleType": zod.union([zod.literal('window'),zod.literal('recurring'),zod.literal('one_time'),zod.literal(null)]).nullish(),
+  "startDate": zod.string().nullish(),
+  "endDate": zod.string().nullish(),
+  "frequencyWeeks": zod.int().nullish(),
+  "seasonEndDate": zod.string().nullish(),
+  "renewDate": zod.string().nullish(),
   "services": zod.array(zod.object({
   "id": zod.int(),
   "name": zod.string(),
@@ -653,7 +728,7 @@ export const UpdatePackageResponse = zod.object({
   "contractorOfferable": zod.boolean().optional(),
   "contractorPrice": zod.number().nullish()
 })).optional()
-})
+}).describe('A collection of services plus the scheduling defaults its members inherit. Assigning the package copies these onto each client service by value, so editing the package later never rewrites work already scheduled.')
 
 
 export const DeletePackageParams = zod.object({
@@ -672,6 +747,9 @@ export const ListEstimateFieldsResponseItem = zod.object({
   "sortOrder": zod.int().nullish()
 })
 export const ListEstimateFieldsResponse = zod.array(ListEstimateFieldsResponseItem)
+
+
+
 
 
 export const CreateEstimateFieldBody = zod.object({
@@ -695,6 +773,8 @@ export const CreateEstimateFieldResponse = zod.object({
 export const UpdateEstimateFieldParams = zod.object({
   "id": zod.coerce.number().int()
 })
+
+
 
 
 export const UpdateEstimateFieldBody = zod.object({
@@ -733,6 +813,9 @@ export const ListChargePresetsResponseItem = zod.object({
 export const ListChargePresetsResponse = zod.array(ListChargePresetsResponseItem)
 
 
+
+
+
 export const CreateChargePresetBody = zod.object({
   "label": zod.string().min(1),
   "defaultPrice": zod.number()
@@ -748,6 +831,8 @@ export const CreateChargePresetResponse = zod.object({
 export const UpdateChargePresetParams = zod.object({
   "id": zod.coerce.number().int()
 })
+
+
 
 
 export const UpdateChargePresetBody = zod.object({
@@ -1393,6 +1478,8 @@ export const AddJobProductParams = zod.object({
 })
 
 
+
+
 export const AddJobProductBody = zod.object({
   "name": zod.string().min(1),
   "price": zod.number(),
@@ -1488,6 +1575,7 @@ export const AddExtraWorkParams = zod.object({
 export const addExtraWorkBodyQuantityMin = 0.01;
 
 
+
 export const AddExtraWorkBody = zod.object({
   "serviceId": zod.int(),
   "quantity": zod.number().min(addExtraWorkBodyQuantityMin).optional()
@@ -1511,6 +1599,7 @@ export const RecordOnSitePaymentParams = zod.object({
 })
 
 export const recordOnSitePaymentBodyAmountMin = 0.01;
+
 
 
 export const RecordOnSitePaymentBody = zod.object({
@@ -1550,6 +1639,7 @@ export const GetBillingSettingsResponse = zod.object({
  */
 export const updateBillingSettingsBodyCardFeePercentMin = 0;
 export const updateBillingSettingsBodyCardFeePercentMax = 25;
+
 
 
 export const UpdateBillingSettingsBody = zod.object({
@@ -1673,7 +1763,8 @@ export const UpdateInvoiceResponse = zod.object({
 
 
 export const ListPaymentsQueryParams = zod.object({
-  "clientId": zod.coerce.number().int().optional()
+  "clientId": zod.coerce.number().int().optional(),
+  "unapplied": zod.coerce.boolean().optional().describe('Only payments not attached to an invoice (credit on account)')
 })
 
 export const ListPaymentsResponseItem = zod.object({
@@ -1726,6 +1817,23 @@ export const DeletePaymentParams = zod.object({
 export const DeletePaymentResponse = zod.void()
 
 
+/**
+ * @summary Apply an unapplied payment (credit on account) to one of the same client's open invoices. Any amount beyond the invoice's balance stays as credit.
+ */
+export const ApplyPaymentParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ApplyPaymentBody = zod.object({
+  "invoiceId": zod.int()
+})
+
+export const ApplyPaymentResponse = zod.object({
+  "appliedAmount": zod.number().describe('Amount actually applied to the invoice'),
+  "remainingCredit": zod.number().describe('Credit left unapplied on the account')
+})
+
+
 export const ListTicketsQueryParams = zod.object({
   "clientId": zod.coerce.number().int().optional(),
   "assignedTo": zod.coerce.number().int().optional(),
@@ -1745,6 +1853,9 @@ export const ListTicketsResponseItem = zod.object({
   "createdAt": zod.string()
 })
 export const ListTicketsResponse = zod.array(ListTicketsResponseItem)
+
+
+
 
 
 export const CreateTicketBody = zod.object({
@@ -1772,6 +1883,8 @@ export const CreateTicketResponse = zod.object({
 export const UpdateTicketParams = zod.object({
   "id": zod.coerce.number().int()
 })
+
+
 
 
 export const UpdateTicketBody = zod.object({
@@ -1809,6 +1922,8 @@ export const DeleteTicketResponse = zod.void()
 export const CreateFieldNoteParams = zod.object({
   "id": zod.coerce.number().int()
 })
+
+
 
 
 export const CreateFieldNoteBody = zod.object({
@@ -1867,6 +1982,10 @@ export const ListWeatherRulesResponseItem = zod.object({
 export const ListWeatherRulesResponse = zod.array(ListWeatherRulesResponseItem)
 
 
+
+
+
+
 export const CreateWeatherRuleBody = zod.object({
   "name": zod.string().min(1),
   "conditionType": zod.enum(['rain', 'wind', 'heat', 'cold']),
@@ -1893,6 +2012,9 @@ export const CreateWeatherRuleResponse = zod.object({
 export const UpdateWeatherRuleParams = zod.object({
   "id": zod.coerce.number().int()
 })
+
+
+
 
 
 export const UpdateWeatherRuleBody = zod.object({
@@ -1964,6 +2086,7 @@ export const RunWeatherCheckResponse = zod.object({
 }))
 })
 
+
 /**
  * @summary Daily weather-check schedule plus the last automatic and manual runs
  */
@@ -2000,6 +2123,8 @@ export const GetWeatherCheckStatusResponse = zod.object({
   "finishedAt": zod.string().nullish()
 }),zod.null()]).optional()
 })
+
+
 export const ListSuggestedActionsQueryParams = zod.object({
   "status": zod.enum(['pending', 'approved', 'rejected']).optional()
 })
@@ -2219,4 +2344,5 @@ export const GetContractorEarningsResponseItem = zod.object({
   "completedCount": zod.int().optional()
 })
 export const GetContractorEarningsResponse = zod.array(GetContractorEarningsResponseItem)
+
 

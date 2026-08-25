@@ -8,4 +8,8 @@
 
 export type ListPaymentsParams = {
 clientId?: number;
+/**
+ * Only payments not attached to an invoice (credit on account)
+ */
+unapplied?: boolean;
 };

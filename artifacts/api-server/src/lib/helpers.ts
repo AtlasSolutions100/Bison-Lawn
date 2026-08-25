@@ -10,6 +10,11 @@ import type { BillingSettings } from "@workspace/db";
 import type { PricingEquation } from "@workspace/db";
 import { and, eq, ne, sum } from "drizzle-orm";
 
+/** Round a monetary value to whole cents. */
+export function roundMoney(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
 export async function logAudit(opts: {
   clientId?: number | null;
   actorName?: string | null;
@@ -49,37 +54,70 @@ export function calculatePrice(
   return { price: Math.round(price * 100) / 100, equationIndex: idx };
 }
 
-/** Recompute a client's account balance = sum(invoice totals) - sum(payments). */
-export async function recalcClientBalance(clientId: number) {
-  const [inv] = await db
+/**
+ * A drizzle transaction handle, or the base db when no transaction is open.
+ * Money helpers take one so a caller can fold them into its own transaction.
+ */
+export type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Recompute a client's account balance = sum(non-void invoice totals) - sum(payments).
+ *
+ * Payments are counted whether or not they are attached to an invoice: an unattached
+ * payment is credit on the account, and credit legitimately pushes the balance below
+ * zero. Voiding an invoice therefore has to detach its payments (see the void handler
+ * in routes/billing.ts) — otherwise the invoice leaves the total while its payment
+ * stays counted, inventing credit that was never received.
+ */
+export async function recalcClientBalance(clientId: number, tx: Executor = db) {
+  // Serialize on the client row. This is a read-then-write aggregate, so without the
+  // lock two payments landing on *different* invoices of the same client would each
+  // sum a partial payment set and the later writer would persist a stale total.
+  // Callers holding an invoice lock must take this one after it: the lock order is
+  // always invoice -> client, so no two paths can deadlock against each other.
+  await tx
+    .select({ id: clientsTable.id })
+    .from(clientsTable)
+    .where(eq(clientsTable.id, clientId))
+    .for("update");
+  const [inv] = await tx
     .select({ total: sum(invoicesTable.total) })
     .from(invoicesTable)
     .where(and(eq(invoicesTable.clientId, clientId), ne(invoicesTable.status, "void")));
-  const [pay] = await db
+  const [pay] = await tx
     .select({ total: sum(paymentsTable.amount) })
     .from(paymentsTable)
     .where(eq(paymentsTable.clientId, clientId));
-  const balance = Number(inv?.total ?? 0) - Number(pay?.total ?? 0);
-  await db
+  const balance = roundMoney(Number(inv?.total ?? 0) - Number(pay?.total ?? 0));
+  await tx
     .update(clientsTable)
-    .set({ accountBalance: Math.round(balance * 100) / 100 })
+    .set({ accountBalance: balance })
     .where(eq(clientsTable.id, clientId));
   return balance;
 }
 
 /** Refresh an invoice's amountPaid + status from its payments. */
-export async function recalcInvoice(invoiceId: number) {
-  const [inv] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, invoiceId));
-  if (!inv || inv.status === "void") return;
-  const [pay] = await db
+export async function recalcInvoice(invoiceId: number, tx: Executor = db) {
+  const [inv] = await tx.select().from(invoicesTable).where(eq(invoicesTable.id, invoiceId));
+  if (!inv) return;
+  if (inv.status === "void") {
+    // A void invoice keeps no payments (they are detached to credit when it is
+    // voided), so its paid figure is always zero rather than a stale leftover.
+    if (inv.amountPaid !== 0) {
+      await tx.update(invoicesTable).set({ amountPaid: 0 }).where(eq(invoicesTable.id, invoiceId));
+    }
+    return;
+  }
+  const [pay] = await tx
     .select({ total: sum(paymentsTable.amount) })
     .from(paymentsTable)
     .where(eq(paymentsTable.invoiceId, invoiceId));
-  const paid = Number(pay?.total ?? 0);
-  const status = paid <= 0 ? "open" : paid >= inv.total ? "paid" : "partial";
-  await db
+  const paid = roundMoney(Number(pay?.total ?? 0));
+  const total = roundMoney(inv.total);
+  const status = paid <= 0 ? "open" : paid >= total ? "paid" : "partial";
+  await tx
     .update(invoicesTable)
-    .set({ amountPaid: Math.round(paid * 100) / 100, status })
+    .set({ amountPaid: paid, status })
     .where(eq(invoicesTable.id, invoiceId));
 }
 

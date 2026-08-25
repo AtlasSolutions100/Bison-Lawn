@@ -8,6 +8,7 @@ import {
 } from '@workspace/api-client-react';
 import type { ChargePreset, Estimate, EstimateField, EstimateFieldInput, EstimateLine, Service } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useLocation, useSearch } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -51,6 +52,8 @@ export default function Estimates() {
   // it initialises straight from the draft instead of re-deriving its state.
   const [restoredDraft, setRestoredDraft] = useState<EstimateDraft | null>(null);
   const [restoreNonce, setRestoreNonce] = useState(0);
+  // Client preselected by a "Create Estimate" deep link from a client page.
+  const [newClientId, setNewClientId] = useState<string | null>(null);
   const deleteEstimate = useDeleteEstimate();
   const sendEstimate = useSendEstimate();
   const reconcileDelivery = useReconcileEstimateDelivery();
@@ -138,6 +141,41 @@ export default function Estimates() {
     setPendingDraft(null);
   };
 
+  // "Create Estimate" on a client page deep-links here as
+  // /estimates?clientId=<id>&new=1. Open the builder on that client — but never
+  // at the cost of recovered work: the restore prompt is answered first, and a
+  // restored draft wins outright. The params are stripped once consumed so a
+  // refresh cannot reopen a builder the admin already walked away from.
+  const searchString = useSearch();
+  const [, setLocation] = useLocation();
+  const deepLinkHandled = useRef(false);
+
+  useEffect(() => {
+    if (deepLinkHandled.current) return;
+    const params = new URLSearchParams(searchString);
+    const requested = params.get('clientId');
+    if (!requested || params.get('new') !== '1') return;
+    // Wait for the draft check; while a prompt is open the admin's answer decides.
+    if (!draftChecked || pendingDraft) return;
+    deepLinkHandled.current = true;
+    setLocation('/estimates', { replace: true });
+    if (restoredDraft) return;
+    if (!clients?.some(c => String(c.id) === requested)) return;
+    // Remounting the builder throws away whatever is in it, so unsaved work gets
+    // the same confirmation any other replacing action would give it.
+    if (
+      builderDirty &&
+      !confirm('Discard the unsaved estimate in the builder and start a new one for this client?')
+    ) {
+      return;
+    }
+    setBuilderDirty(false);
+    setEditing(null);
+    setNewClientId(requested);
+    setRestoreNonce(n => n + 1); // remount the builder so it initialises on this client
+    setTab('builder');
+  }, [searchString, draftChecked, pendingDraft, restoredDraft, clients, setLocation]);
+
   const pendingDraftClientName = pendingDraft
     ? clients?.find(c => String(c.id) === pendingDraft.clientId)?.name ?? null
     : null;
@@ -166,6 +204,7 @@ export default function Estimates() {
   const closeBuilder = () => {
     setBuilderDirty(false);
     setRestoredDraft(null);
+    setNewClientId(null);
     setEditing(null);
     setTab('list');
   };
@@ -349,6 +388,7 @@ export default function Estimates() {
             key={`${editing ? `edit-${editing.id}` : 'new'}:${restoreNonce}`}
             editEstimate={editing}
             initialDraft={restoredDraft}
+            initialClientId={newClientId}
             storageKey={storageKey}
             // Never touch the stored draft before the admin has answered the
             // restore prompt, or a fresh builder would wipe the recovered work.
@@ -488,12 +528,14 @@ function selectionToStored(state: SelectionState): StoredSelection[] {
 }
 type VersionConflict = { message: string; current: Estimate | null };
 function EstimateBuilder({
-  editEstimate, initialDraft, storageKey, persistDraft,
+  editEstimate, initialDraft, initialClientId, storageKey, persistDraft,
   onDirtyChange, onFinished, onCancelEdit, onReloadEdit,
 }: {
   editEstimate: Estimate | null;
   /** Recovered local draft this builder was mounted to restore, if any. */
   initialDraft: EstimateDraft | null;
+  /** Client to start a new estimate on, from a "Create Estimate" deep link. */
+  initialClientId: string | null;
   storageKey: string | null;
   persistDraft: boolean;
   onDirtyChange: (dirty: boolean) => void;
@@ -504,7 +546,7 @@ function EstimateBuilder({
   // On an edit the client always comes from the saved estimate (it cannot be
   // changed), so a restore can never attach one client's values to another's.
   const [clientId, setClientId] = useState(
-    editEstimate ? String(editEstimate.clientId) : initialDraft?.clientId ?? '',
+    editEstimate ? String(editEstimate.clientId) : initialDraft?.clientId ?? initialClientId ?? '',
   );
   const [notes, setNotes] = useState(initialDraft ? initialDraft.notes : editEstimate?.notes ?? '');
   const [savePropertyData, setSavePropertyData] = useState(initialDraft ? initialDraft.savePropertyData : true);

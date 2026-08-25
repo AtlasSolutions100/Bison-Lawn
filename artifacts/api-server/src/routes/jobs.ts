@@ -345,7 +345,13 @@ router.post("/my/jobs/:id/payments", async (req, res) => {
     // Attach to the job's invoice when it exists, belongs to the client, and isn't void
     let invoice: typeof invoicesTable.$inferSelect | null = null;
     if (locked.invoiceId != null) {
-      const [inv] = await tx.select().from(invoicesTable).where(eq(invoicesTable.id, locked.invoiceId));
+      // Locked, not just read: we are about to change its total and its paid
+      // figure, and an office payment on the same invoice must not interleave.
+      const [inv] = await tx
+        .select()
+        .from(invoicesTable)
+        .where(eq(invoicesTable.id, locked.invoiceId))
+        .for("update");
       if (inv && inv.clientId === locked.clientId && inv.status !== "void") invoice = inv;
     }
     // The card surcharge is a real charge: add it to the invoice total so
@@ -369,11 +375,14 @@ router.post("/my/jobs/:id/payments", async (req, res) => {
         notes,
       })
       .returning();
+    // Same transaction as the insert: the payment and every figure derived from
+    // it must commit together, or a crash in between leaves the invoice and the
+    // client balance permanently understating what the contractor collected.
+    if (p.invoiceId) await recalcInvoice(p.invoiceId, tx);
+    await recalcClientBalance(p.clientId, tx);
     return p;
   });
   if (!payment) return res.status(404).json({ error: "Job not found" });
-  if (payment.invoiceId) await recalcInvoice(payment.invoiceId);
-  await recalcClientBalance(payment.clientId);
   await logAudit({
     clientId: job.clientId,
     actorName: req.appUser?.name,
@@ -500,14 +509,16 @@ router.post("/jobs/:id/complete", async (req, res) => {
       .returning();
 
     await tx.update(clientsTable).set({ lastServiceDate: today }).where(eq(clientsTable.id, locked.clientId));
+    // Reflect the pre-completion payments just attached above, before this
+    // commits. Done outside the transaction, a failure here would leave the job
+    // invoiced but the invoice and balance showing nothing paid.
+    await recalcInvoice(invoice.id, tx);
+    await recalcClientBalance(locked.clientId, tx);
     return { job, invoice };
   });
 
   if (!result) return res.status(404).json({ error: "Job not found" });
   if (result.invoice) {
-    // Reflect any pre-completion payments now attached to the invoice
-    await recalcInvoice(result.invoice.id);
-    await recalcClientBalance(result.job.clientId);
     await logAudit({
       clientId: result.job.clientId,
       actorName: req.appUser?.name,

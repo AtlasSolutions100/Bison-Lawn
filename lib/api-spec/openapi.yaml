@@ -206,6 +206,26 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/AuditEvent"
+  /clients/{id}/email:
+    post:
+      operationId: emailClient
+      tags: [clients]
+      summary: Send a one-off email to a client from the office
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientEmailInput"
+      responses:
+        "200":
+          description: Sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientEmailResult"
   /clients/{id}/client-services:
     get:
       operationId: listClientServices
@@ -1037,6 +1057,10 @@ paths:
         - name: clientId
           in: query
           schema: { type: integer }
+        - name: unapplied
+          in: query
+          description: Only payments not attached to an invoice (credit on account)
+          schema: { type: boolean }
       responses:
         "200":
           description: Payments
@@ -1072,6 +1096,28 @@ paths:
       responses:
         "204":
           description: Deleted
+  /payments/{id}/apply:
+    post:
+      operationId: applyPayment
+      tags: [payments]
+      summary: >-
+        Apply an unapplied payment (credit on account) to one of the same client's
+        open invoices. Any amount beyond the invoice's balance stays as credit.
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApplyPaymentInput"
+      responses:
+        "200":
+          description: Applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplyPaymentResult"
   /tickets:
     get:
       operationId: listTickets
@@ -1445,6 +1491,11 @@ components:
           type: object
           additionalProperties: { type: string }
         lastServiceDate: { type: ["string", "null"] }
+        unappliedCredit:
+          type: number
+          description: >-
+            Money received from this client that is not attached to any invoice
+            (typically an overpayment). Available to apply to an open invoice.
         createdAt: { type: string }
     ClientInput:
       type: object
@@ -1587,6 +1638,10 @@ components:
         equationIndex: { type: ["integer", "null"] }
     ServicePackage:
       type: object
+      description: >-
+        A collection of services plus the scheduling defaults its members inherit.
+        Assigning the package copies these onto each client service by value, so
+        editing the package later never rewrites work already scheduled.
       required: [id, name, serviceIds]
       properties:
         id: { type: integer }
@@ -1595,6 +1650,12 @@ components:
         serviceIds:
           type: array
           items: { type: integer }
+        scheduleType: { type: ["string", "null"], enum: [window, recurring, one_time, null] }
+        startDate: { type: ["string", "null"] }
+        endDate: { type: ["string", "null"] }
+        frequencyWeeks: { type: ["integer", "null"] }
+        seasonEndDate: { type: ["string", "null"] }
+        renewDate: { type: ["string", "null"] }
         services:
           type: array
           items:
@@ -1608,6 +1669,12 @@ components:
         serviceIds:
           type: array
           items: { type: integer }
+        scheduleType: { type: ["string", "null"], enum: [window, recurring, one_time, null] }
+        startDate: { type: ["string", "null"] }
+        endDate: { type: ["string", "null"] }
+        frequencyWeeks: { type: ["integer", "null"] }
+        seasonEndDate: { type: ["string", "null"] }
+        renewDate: { type: ["string", "null"] }
     ServicePackageUpdate:
       type: object
       properties:
@@ -1616,6 +1683,12 @@ components:
         serviceIds:
           type: array
           items: { type: integer }
+        scheduleType: { type: ["string", "null"], enum: [window, recurring, one_time, null] }
+        startDate: { type: ["string", "null"] }
+        endDate: { type: ["string", "null"] }
+        frequencyWeeks: { type: ["integer", "null"] }
+        seasonEndDate: { type: ["string", "null"] }
+        renewDate: { type: ["string", "null"] }
     ClientService:
       type: object
       required: [id, clientId, serviceId, quantity, amount, scheduleType]
@@ -1638,14 +1711,16 @@ components:
         budgetedHours: { type: ["number", "null"] }
     ClientServiceInput:
       type: object
-      required: [scheduleType]
       properties:
         serviceId: { type: ["integer", "null"] }
         packageId: { type: ["integer", "null"], description: "Provide packageId to add every service in the package" }
         quantity: { type: number }
         amount: { type: ["number", "null"], description: "Override; defaults to engine-calculated or service rate" }
         sqft: { type: ["number", "null"], description: "Used with pricing equations to compute amount" }
-        scheduleType: { type: string, enum: [window, recurring, one_time] }
+        scheduleType:
+          type: string
+          enum: [window, recurring, one_time]
+          description: "Optional only when packageId is given and that package sets its own schedule type; otherwise required."
         startDate: { type: ["string", "null"] }
         endDate: { type: ["string", "null"] }
         frequencyWeeks: { type: ["integer", "null"] }
@@ -1967,6 +2042,29 @@ components:
         method: { type: string, enum: [check, venmo, zelle, credit_card, cash, other] }
         reference: { type: string }
         notes: { type: string }
+    ClientEmailInput:
+      type: object
+      required: [subject, body]
+      properties:
+        subject: { type: string, minLength: 1, maxLength: 200 }
+        body: { type: string, minLength: 1, maxLength: 10000 }
+    ClientEmailResult:
+      type: object
+      required: [sent, to]
+      properties:
+        sent: { type: boolean }
+        to: { type: string }
+    ApplyPaymentInput:
+      type: object
+      required: [invoiceId]
+      properties:
+        invoiceId: { type: integer }
+    ApplyPaymentResult:
+      type: object
+      required: [appliedAmount, remainingCredit]
+      properties:
+        appliedAmount: { type: number, description: Amount actually applied to the invoice }
+        remainingCredit: { type: number, description: Credit left unapplied on the account }
     OfferableService:
       type: object
       required: [id, name, price]

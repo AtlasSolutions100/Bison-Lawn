@@ -6,12 +6,28 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { Service } from './service';
+import type { ServicePackageScheduleType } from './servicePackageScheduleType';
 
+/**
+ * A collection of services plus the scheduling defaults its members inherit. Assigning the package copies these onto each client service by value, so editing the package later never rewrites work already scheduled.
+ */
 export interface ServicePackage {
   id: number;
   name: string;
   /** @nullable */
   description?: string | null;
   serviceIds: number[];
+  /** @nullable */
+  scheduleType?: ServicePackageScheduleType;
+  /** @nullable */
+  startDate?: string | null;
+  /** @nullable */
+  endDate?: string | null;
+  /** @nullable */
+  frequencyWeeks?: number | null;
+  /** @nullable */
+  seasonEndDate?: string | null;
+  /** @nullable */
+  renewDate?: string | null;
   services?: Service[];
 }

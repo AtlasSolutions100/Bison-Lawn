@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
-import { CheckCircle2, MoreVertical, Plus, Trash2, PackageOpen } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, FileText, MapPin, MoreVertical, Plus, Trash2, PackageOpen } from 'lucide-react';
 
 export default function Dispatch() {
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -35,7 +35,7 @@ export default function Dispatch() {
   const _ = useGetJob(1, { query: { enabled: false, queryKey: ['/api/jobs', 1] } });
 
   return (
-    <div className="p-8 mx-auto space-y-6 flex flex-col h-[calc(100vh-2rem)] min-w-[1200px]">
+    <div className="p-8 mx-auto space-y-6 flex flex-col h-[calc(100vh-2rem)] min-w-0">
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dispatch Board</h1>
@@ -68,12 +68,18 @@ export default function Dispatch() {
 
       <div className="bg-card border rounded-lg shadow-sm flex-1 overflow-hidden flex flex-col">
         <div className="overflow-auto flex-1">
-          <Table>
+          <Table className="min-w-[2000px]">
             <TableHeader className="bg-muted/50 sticky top-0 z-10 backdrop-blur-sm">
               <TableRow>
+                <TableHead className="sticky left-0 z-20 w-64 min-w-64 bg-muted">Client</TableHead>
                 <TableHead className="w-16 text-center">Order</TableHead>
                 <TableHead className="w-36">Status</TableHead>
-                <TableHead>Client & Location</TableHead>
+                <TableHead className="w-28">Date</TableHead>
+                <TableHead className="w-36">Map</TableHead>
+                <TableHead className="w-32">City</TableHead>
+                <TableHead className="w-32">Last Service</TableHead>
+                <TableHead className="w-32">Budgeted Hours</TableHead>
+                <TableHead className="w-44">Notes</TableHead>
                 <TableHead>Service</TableHead>
                 <TableHead className="w-40">Assigned</TableHead>
                 <TableHead className="text-right">Balance</TableHead>
@@ -83,9 +89,9 @@ export default function Dispatch() {
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={8} className="text-center py-10 animate-pulse">Loading board...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={14} className="text-center py-10 animate-pulse">Loading board...</TableCell></TableRow>
               ) : !jobs?.length ? (
-                <TableRow><TableCell colSpan={8} className="text-center py-10">No jobs match the current filters.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={14} className="text-center py-10">No jobs match the current filters.</TableCell></TableRow>
               ) : (
                 jobs.map(job => <DispatchRow key={job.id} job={job} contractors={contractors} />)
               )}
@@ -116,8 +122,22 @@ function DispatchRow({ job, contractors }: { job: Job, contractors: any[] }) {
     completed: "bg-primary/20 text-primary border-primary",
   };
 
+  const hasCoordinates = job.clientLat != null && job.clientLng != null;
+  const hasLocation = hasCoordinates || !!job.clientAddress;
+  const mapUrl = hasCoordinates
+    ? `https://www.google.com/maps/search/?api=1&query=${job.clientLat},${job.clientLng}`
+    : job.clientAddress
+      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(job.clientAddress)}`
+      : '';
+
   return (
-    <TableRow className={`hover:bg-muted/30 ${job.status === 'completed' ? 'opacity-60 bg-muted/10' : ''}`}>
+    <TableRow className={`group hover:bg-muted/30 ${job.status === 'completed' ? 'opacity-60 bg-muted/10' : ''}`}>
+      <TableCell className="sticky left-0 z-[5] w-64 min-w-64 bg-card p-2 group-hover:bg-muted">
+        <div className="font-semibold text-foreground">{job.clientName}</div>
+        <div className="text-xs text-muted-foreground truncate max-w-[240px]" title={job.clientAddress ?? undefined}>
+          {job.clientAddress || 'No address'}
+        </div>
+      </TableCell>
       <TableCell className="p-1 text-center">
         <Input 
           type="number" 
@@ -139,12 +159,44 @@ function DispatchRow({ job, contractors }: { job: Job, contractors: any[] }) {
           {job.status === 'completed' && <option value="completed">COMPLETED</option>}
         </select>
       </TableCell>
+      <TableCell className="p-2 whitespace-nowrap text-sm">
+        {job.scheduledDate
+          ? formatDispatchDate(job.scheduledDate)
+          : <span className="text-muted-foreground">Not scheduled</span>}
+      </TableCell>
       <TableCell className="p-2">
-        <div className="font-semibold text-foreground">{job.clientName}</div>
-        <div className="text-xs text-muted-foreground truncate max-w-[250px]">
-          {job.clientAddress}, {job.city}
-        </div>
-        {job.mapNote && <div className="text-[10px] font-medium bg-accent/10 text-accent-foreground px-1 py-0.5 rounded mt-0.5 inline-block truncate max-w-[200px]">{job.mapNote}</div>}
+        {hasLocation ? (
+          <Button variant="outline" size="sm" className="h-8 px-2" asChild>
+            <a href={mapUrl} target="_blank" rel="noreferrer" title={hasCoordinates ? 'Open coordinates in Google Maps' : 'Open address in Google Maps'}>
+              <MapPin className="w-3.5 h-3.5 mr-1" /> Map
+            </a>
+          </Button>
+        ) : (
+          <Button variant="outline" size="sm" className="h-8 px-2" disabled title="This stop has no coordinates or address">
+            <MapPin className="w-3.5 h-3.5 mr-1" /> No location
+          </Button>
+        )}
+        {job.mapNote && (
+          <div className="mt-1 max-w-32 truncate text-[10px] font-medium text-muted-foreground" title={job.mapNote}>
+            {job.mapNote}
+          </div>
+        )}
+      </TableCell>
+      <TableCell className="p-2 text-sm">
+        {job.city || <span className="text-muted-foreground">—</span>}
+      </TableCell>
+      <TableCell className="p-2 whitespace-nowrap text-sm">
+        {job.lastServiceDate
+          ? formatDispatchDate(job.lastServiceDate)
+          : <span className="text-muted-foreground">Never serviced</span>}
+      </TableCell>
+      <TableCell className="p-2 whitespace-nowrap text-sm">
+        {job.budgetedHours != null
+          ? `${job.budgetedHours} ${job.budgetedHours === 1 ? 'hour' : 'hours'}`
+          : <span className="text-muted-foreground">Not set</span>}
+      </TableCell>
+      <TableCell className="p-2">
+        <JobNotes job={job} />
       </TableCell>
       <TableCell className="p-2 text-sm font-medium">
         {job.serviceName}
@@ -200,6 +252,43 @@ function DispatchRow({ job, contractors }: { job: Job, contractors: any[] }) {
         </Popover>
       </TableCell>
     </TableRow>
+  );
+}
+
+function formatDispatchDate(value: string) {
+  const date = new Date(value.includes('T') ? value : `${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? value : format(date, 'MMM d, yyyy');
+}
+
+function JobNotes({ job }: { job: Job }) {
+  if (!job.notes) {
+    return <span className="text-sm text-muted-foreground">—</span>;
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={`h-8 max-w-40 justify-start px-2 ${job.notesImportant ? 'bg-destructive/10 text-destructive hover:bg-destructive/20 hover:text-destructive' : ''}`}
+          title={job.notes}
+        >
+          {job.notesImportant
+            ? <AlertTriangle className="w-3.5 h-3.5 mr-1.5 shrink-0" />
+            : <FileText className="w-3.5 h-3.5 mr-1.5 shrink-0" />}
+          <span className="truncate">{job.notes}</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 text-sm whitespace-pre-wrap" align="start">
+        {job.notesImportant && (
+          <div className="mb-2 flex items-center gap-1.5 font-semibold text-destructive">
+            <AlertTriangle className="w-4 h-4" /> Important note
+          </div>
+        )}
+        {job.notes}
+      </PopoverContent>
+    </Popover>
   );
 }
 

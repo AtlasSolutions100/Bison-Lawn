@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * Optional only when packageId is given and that package sets its own schedule type; otherwise required.
+ */
 export type ClientServiceInputScheduleType = typeof ClientServiceInputScheduleType[keyof typeof ClientServiceInputScheduleType];
 
 

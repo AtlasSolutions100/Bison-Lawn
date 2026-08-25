@@ -71,7 +71,17 @@ router.get("/packages", async (_req, res) => {
 
 router.post("/packages", async (req, res) => {
   const body = CreatePackageBody.parse(req.body);
-  const [pkg] = await db.insert(packagesTable).values(body).returning();
+  const [pkg] = await db.insert(packagesTable).values({
+    name: body.name,
+    description: body.description,
+    serviceIds: body.serviceIds,
+    scheduleType: body.scheduleType,
+    startDate: body.startDate,
+    endDate: body.endDate,
+    frequencyWeeks: body.frequencyWeeks,
+    seasonEndDate: body.seasonEndDate,
+    renewDate: body.renewDate,
+  }).returning();
   return res.status(201).json(await withServices(pkg));
 });
 
@@ -79,7 +89,17 @@ router.patch("/packages/:id", async (req, res) => {
   const body = UpdatePackageBody.parse(req.body);
   const [pkg] = await db
     .update(packagesTable)
-    .set(body)
+    .set({
+      name: body.name,
+      description: body.description,
+      serviceIds: body.serviceIds,
+      scheduleType: body.scheduleType,
+      startDate: body.startDate,
+      endDate: body.endDate,
+      frequencyWeeks: body.frequencyWeeks,
+      seasonEndDate: body.seasonEndDate,
+      renewDate: body.renewDate,
+    })
     .where(eq(packagesTable.id, Number(req.params.id)))
     .returning();
   if (!pkg) return res.status(404).json({ error: "Package not found" });

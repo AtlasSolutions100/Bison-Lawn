@@ -90,6 +90,8 @@ export interface Client {
   propertyData?: ClientPropertyData;
   /** @nullable */
   lastServiceDate?: string | null;
+  /** Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice. */
+  unappliedCredit?: number;
   createdAt?: string;
 }
 
@@ -279,21 +281,84 @@ export interface PriceResult {
   equationIndex?: number | null;
 }
 
+/**
+ * @nullable
+ */
+export type ServicePackageScheduleType = typeof ServicePackageScheduleType[keyof typeof ServicePackageScheduleType] | null;
+
+
+export const ServicePackageScheduleType = {
+  window: 'window',
+  recurring: 'recurring',
+  one_time: 'one_time',
+} as const;
+
+/**
+ * A collection of services plus the scheduling defaults its members inherit. Assigning the package copies these onto each client service by value, so editing the package later never rewrites work already scheduled.
+ */
 export interface ServicePackage {
   id: number;
   name: string;
   /** @nullable */
   description?: string | null;
   serviceIds: number[];
+  /** @nullable */
+  scheduleType?: ServicePackageScheduleType;
+  /** @nullable */
+  startDate?: string | null;
+  /** @nullable */
+  endDate?: string | null;
+  /** @nullable */
+  frequencyWeeks?: number | null;
+  /** @nullable */
+  seasonEndDate?: string | null;
+  /** @nullable */
+  renewDate?: string | null;
   services?: Service[];
 }
+
+/**
+ * @nullable
+ */
+export type ServicePackageInputScheduleType = typeof ServicePackageInputScheduleType[keyof typeof ServicePackageInputScheduleType] | null;
+
+
+export const ServicePackageInputScheduleType = {
+  window: 'window',
+  recurring: 'recurring',
+  one_time: 'one_time',
+} as const;
 
 export interface ServicePackageInput {
   /** @minLength 1 */
   name: string;
   description?: string;
   serviceIds: number[];
+  /** @nullable */
+  scheduleType?: ServicePackageInputScheduleType;
+  /** @nullable */
+  startDate?: string | null;
+  /** @nullable */
+  endDate?: string | null;
+  /** @nullable */
+  frequencyWeeks?: number | null;
+  /** @nullable */
+  seasonEndDate?: string | null;
+  /** @nullable */
+  renewDate?: string | null;
 }
+
+/**
+ * @nullable
+ */
+export type ServicePackageUpdateScheduleType = typeof ServicePackageUpdateScheduleType[keyof typeof ServicePackageUpdateScheduleType] | null;
+
+
+export const ServicePackageUpdateScheduleType = {
+  window: 'window',
+  recurring: 'recurring',
+  one_time: 'one_time',
+} as const;
 
 export interface ServicePackageUpdate {
   /** @minLength 1 */
@@ -301,6 +366,18 @@ export interface ServicePackageUpdate {
   /** @nullable */
   description?: string | null;
   serviceIds?: number[];
+  /** @nullable */
+  scheduleType?: ServicePackageUpdateScheduleType;
+  /** @nullable */
+  startDate?: string | null;
+  /** @nullable */
+  endDate?: string | null;
+  /** @nullable */
+  frequencyWeeks?: number | null;
+  /** @nullable */
+  seasonEndDate?: string | null;
+  /** @nullable */
+  renewDate?: string | null;
 }
 
 export type ClientServiceScheduleType = typeof ClientServiceScheduleType[keyof typeof ClientServiceScheduleType];
@@ -341,6 +418,9 @@ export interface ClientService {
   budgetedHours?: number | null;
 }
 
+/**
+ * Optional only when packageId is given and that package sets its own schedule type; otherwise required.
+ */
 export type ClientServiceInputScheduleType = typeof ClientServiceInputScheduleType[keyof typeof ClientServiceInputScheduleType];
 
 
@@ -369,7 +449,8 @@ export interface ClientServiceInput {
      * @nullable
      */
   sqft?: number | null;
-  scheduleType: ClientServiceInputScheduleType;
+  /** Optional only when packageId is given and that package sets its own schedule type; otherwise required. */
+  scheduleType?: ClientServiceInputScheduleType;
   /** @nullable */
   startDate?: string | null;
   /** @nullable */
@@ -603,17 +684,6 @@ export interface EstimateConflict {
   /** Present when another admin saved a newer version of this estimate */
   code?: EstimateConflictCode;
   current?: Estimate;
-}
-
-export interface WeatherCheckStatus {
-  enabled: boolean;
-  runAtLocalTime: string;
-  timeZone: string;
-  daysAhead: number;
-  /** @nullable */
-  nextRunAt?: string | null;
-  lastAutomaticRun?: WeatherCheckRun | null;
-  lastManualRun?: WeatherCheckRun | null;
 }
 
 export interface EstimateSendInput {
@@ -901,6 +971,35 @@ export interface PaymentInput {
   method: PaymentInputMethod;
   reference?: string;
   notes?: string;
+}
+
+export interface ClientEmailInput {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  subject: string;
+  /**
+     * @minLength 1
+     * @maxLength 10000
+     */
+  body: string;
+}
+
+export interface ClientEmailResult {
+  sent: boolean;
+  to: string;
+}
+
+export interface ApplyPaymentInput {
+  invoiceId: number;
+}
+
+export interface ApplyPaymentResult {
+  /** Amount actually applied to the invoice */
+  appliedAmount: number;
+  /** Credit left unapplied on the account */
+  remainingCredit: number;
 }
 
 export interface OfferableService {
@@ -1200,11 +1299,6 @@ export const SuggestedActionMessageDeliveryState = {
   failed: 'failed',
 } as const;
 
-export const WeatherCheckRunStatus = {
-  running: 'running',
-  succeeded: 'succeeded',
-  failed: 'failed',
-} as const;
 export interface SuggestedAction {
   id: number;
   source: SuggestedActionSource;
@@ -1256,6 +1350,51 @@ export interface WeatherCheckResult {
 }
 
 export type WeatherCheckRunTrigger = typeof WeatherCheckRunTrigger[keyof typeof WeatherCheckRunTrigger];
+
+
+export const WeatherCheckRunTrigger = {
+  scheduled: 'scheduled',
+  manual: 'manual',
+} as const;
+
+export type WeatherCheckRunStatus = typeof WeatherCheckRunStatus[keyof typeof WeatherCheckRunStatus];
+
+
+export const WeatherCheckRunStatus = {
+  running: 'running',
+  succeeded: 'succeeded',
+  failed: 'failed',
+} as const;
+
+export interface WeatherCheckRun {
+  id: number;
+  trigger: WeatherCheckRunTrigger;
+  status: WeatherCheckRunStatus;
+  datesChecked: string[];
+  jobsChecked: number;
+  suggestionsCreated: number;
+  /** @nullable */
+  summary?: string | null;
+  /** @nullable */
+  error?: string | null;
+  /** @nullable */
+  triggeredBy?: string | null;
+  startedAt: string;
+  /** @nullable */
+  finishedAt?: string | null;
+}
+
+export interface WeatherCheckStatus {
+  enabled: boolean;
+  runAtLocalTime: string;
+  timeZone: string;
+  daysAhead: number;
+  /** @nullable */
+  nextRunAt?: string | null;
+  lastAutomaticRun?: WeatherCheckRun | null;
+  lastManualRun?: WeatherCheckRun | null;
+}
+
 export interface SuggestedActionUpdate {
   /** @nullable */
   newDate?: string | null;
@@ -1355,6 +1494,10 @@ export const ListInvoicesStatus = {
 
 export type ListPaymentsParams = {
 clientId?: number;
+/**
+ * Only payments not attached to an invoice (credit on account)
+ */
+unapplied?: boolean;
 };
 
 export type ListTicketsParams = {
@@ -1393,28 +1536,3 @@ export type GetContractorEarningsParams = {
 date: string;
 };
 
-export interface WeatherCheckRun {
-  id: number;
-  trigger: WeatherCheckRunTrigger;
-  status: WeatherCheckRunStatus;
-  datesChecked: string[];
-  jobsChecked: number;
-  suggestionsCreated: number;
-  /** @nullable */
-  summary?: string | null;
-  /** @nullable */
-  error?: string | null;
-  /** @nullable */
-  triggeredBy?: string | null;
-  startedAt: string;
-  /** @nullable */
-  finishedAt?: string | null;
-}
-
-
-export type WeatherCheckRunStatus = typeof WeatherCheckRunStatus[keyof typeof WeatherCheckRunStatus];
-
-export const WeatherCheckRunTrigger = {
-  scheduled: 'scheduled',
-  manual: 'manual',
-} as const;

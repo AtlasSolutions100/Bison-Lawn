@@ -32,5 +32,7 @@ export interface Client {
   propertyData?: ClientPropertyData;
   /** @nullable */
   lastServiceDate?: string | null;
+  /** Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice. */
+  unappliedCredit?: number;
   createdAt?: string;
 }
