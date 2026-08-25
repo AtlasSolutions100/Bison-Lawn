@@ -5,10 +5,14 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+import type { RouteStopType } from './routeStopType';
 
 export interface RouteStop {
   order: number;
-  jobId: number;
+  type: RouteStopType;
+  /** @nullable */
+  jobId?: number | null;
+  name: string;
   /** @nullable */
   clientName?: string | null;
   /** @nullable */
@@ -17,4 +21,7 @@ export interface RouteStop {
   lat?: number | null;
   /** @nullable */
   lng?: number | null;
+  /** @nullable */
+  distanceToNextKm?: number | null;
+  hasCoordinates: boolean;
 }

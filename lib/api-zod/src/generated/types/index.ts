@@ -77,6 +77,7 @@ export * from './priceResult';
 export * from './pricingEquation';
 export * from './routeResult';
 export * from './routeStop';
+export * from './routeStopType';
 export * from './service';
 export * from './serviceInput';
 export * from './servicePackage';

@@ -1292,14 +1292,19 @@ export const GetMyRouteQueryParams = zod.object({
 export const GetMyRouteResponse = zod.object({
   "stops": zod.array(zod.object({
   "order": zod.int(),
-  "jobId": zod.int(),
+  "type": zod.enum(['base', 'job']),
+  "jobId": zod.int().nullish(),
+  "name": zod.string(),
   "clientName": zod.string().nullish(),
   "address": zod.string().nullish(),
   "lat": zod.number().nullish(),
-  "lng": zod.number().nullish()
+  "lng": zod.number().nullish(),
+  "distanceToNextKm": zod.number().nullish(),
+  "hasCoordinates": zod.boolean()
 })),
   "totalDistanceKm": zod.number(),
-  "baseAddress": zod.string().nullish()
+  "baseAddress": zod.string().nullish(),
+  "optimized": zod.boolean()
 })
 
 

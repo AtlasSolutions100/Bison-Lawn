@@ -1416,17 +1416,21 @@ components:
         assignedToId: { type: ["integer", "null"] }
     RouteStop:
       type: object
-      required: [order, jobId]
+      required: [order, type, name, hasCoordinates]
       properties:
         order: { type: integer }
-        jobId: { type: integer }
+        type: { type: string, enum: [base, job] }
+        jobId: { type: ["integer", "null"] }
+        name: { type: string }
         clientName: { type: ["string", "null"] }
         address: { type: ["string", "null"] }
         lat: { type: ["number", "null"] }
         lng: { type: ["number", "null"] }
+        distanceToNextKm: { type: ["number", "null"] }
+        hasCoordinates: { type: boolean }
     RouteResult:
       type: object
-      required: [stops, totalDistanceKm]
+      required: [stops, totalDistanceKm, optimized]
       properties:
         stops:
           type: array
@@ -1434,6 +1438,7 @@ components:
             $ref: "#/components/schemas/RouteStop"
         totalDistanceKm: { type: number }
         baseAddress: { type: ["string", "null"] }
+        optimized: { type: boolean }
     Invoice:
       type: object
       required: [id, clientId, status, total, amountPaid, createdAt]

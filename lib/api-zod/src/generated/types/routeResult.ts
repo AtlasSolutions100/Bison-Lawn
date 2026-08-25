@@ -12,4 +12,5 @@ export interface RouteResult {
   totalDistanceKm: number;
   /** @nullable */
   baseAddress?: string | null;
+  optimized: boolean;
 }

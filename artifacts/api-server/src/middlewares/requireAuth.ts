@@ -63,6 +63,30 @@ declare global {
  */
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
+    // Test-only escape hatch: integration tests identify themselves via the
+    // x-test-user-id header plus a per-process random capability token that
+    // only the test runner knows. Requires BOTH NODE_ENV=test and a matching
+    // TEST_AUTH_TOKEN, so a misconfigured NODE_ENV alone can never open it.
+    if (process.env.NODE_ENV === "test" && process.env.TEST_AUTH_TOKEN) {
+      const token = req.headers["x-test-auth-token"];
+      const testUserId = req.headers["x-test-user-id"];
+      if (
+        typeof token !== "string" ||
+        token !== process.env.TEST_AUTH_TOKEN ||
+        typeof testUserId !== "string" ||
+        !/^\d+$/.test(testUserId)
+      ) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      const [testUser] = await db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.id, Number(testUserId)));
+      if (!testUser) return res.status(401).json({ error: "Unauthorized" });
+      req.appUser = testUser;
+      return next();
+    }
+
     const auth = getAuth(req);
     const clerkId = auth?.userId;
     if (!clerkId) {

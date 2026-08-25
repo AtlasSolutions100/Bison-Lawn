@@ -160,40 +160,85 @@ router.get("/my/route", async (req, res) => {
         eq(jobsTable.scheduledDate, date),
         eq(jobsTable.visibleToContractor, true),
       ),
-    );
+    )
+    .orderBy(asc(jobsTable.routeOrder), asc(jobsTable.id));
   const jobs = await hydrateJobs(rows);
 
   const withCoords = jobs.filter((j) => j.clientLat != null && j.clientLng != null);
   const withoutCoords = jobs.filter((j) => j.clientLat == null || j.clientLng == null);
 
+  const hasBase = user.baseLat != null && user.baseLng != null;
+  const optimized = hasBase && withCoords.length > 0;
+
   let ordered = jobs;
   let totalDistanceKm = 0;
-  if (user.baseLat != null && user.baseLng != null && withCoords.length > 0) {
-    const base = { lat: user.baseLat, lng: user.baseLng };
+  // distance (km) from each ordered job with coordinates to the next stop; null when unknown
+  const legKm = new Map<number, number>();
+  if (optimized) {
+    const base = { lat: user.baseLat!, lng: user.baseLng! };
     const pts = withCoords.map((j) => ({ lat: j.clientLat!, lng: j.clientLng! }));
     const order = optimizeRoute(base, pts);
     const orderedCoords = order.map((i) => withCoords[i]);
     ordered = [...orderedCoords, ...withoutCoords];
     let cur = base;
+    let prevId: number | null = null; // base handled separately below
     for (const j of orderedCoords) {
-      totalDistanceKm += haversineKm(cur.lat, cur.lng, j.clientLat!, j.clientLng!);
+      const d = haversineKm(cur.lat, cur.lng, j.clientLat!, j.clientLng!);
+      totalDistanceKm += d;
+      if (prevId === null) {
+        legKm.set(-1, d); // leg from base to first job
+      } else {
+        legKm.set(prevId, d);
+      }
+      prevId = j.id;
       cur = { lat: j.clientLat!, lng: j.clientLng! };
     }
   } else {
-    ordered = [...jobs].sort((a, b) => (a.routeOrder ?? 0) - (b.routeOrder ?? 0));
+    // deterministic dispatch order: routeOrder (nulls last), then id
+    ordered = [...jobs].sort(
+      (a, b) =>
+        (a.routeOrder ?? Number.MAX_SAFE_INTEGER) - (b.routeOrder ?? Number.MAX_SAFE_INTEGER) ||
+        a.id - b.id,
+    );
   }
+
+  const round1 = (n: number) => Math.round(n * 10) / 10;
+  const jobStops = ordered.map((j, i) => ({
+    order: optimized ? i + 2 : i + 1,
+    type: "job" as const,
+    jobId: j.id,
+    name: j.clientName ?? j.serviceName ?? `Job #${j.id}`,
+    clientName: j.clientName ?? null,
+    address: j.clientAddress ?? null,
+    lat: j.clientLat ?? null,
+    lng: j.clientLng ?? null,
+    hasCoordinates: j.clientLat != null && j.clientLng != null,
+    distanceToNextKm: legKm.has(j.id) ? round1(legKm.get(j.id)!) : null,
+  }));
+
+  const stops = optimized
+    ? [
+        {
+          order: 1,
+          type: "base" as const,
+          jobId: null,
+          name: "Home Base",
+          clientName: null,
+          address: user.baseAddress ?? null,
+          lat: user.baseLat ?? null,
+          lng: user.baseLng ?? null,
+          hasCoordinates: true,
+          distanceToNextKm: legKm.has(-1) ? round1(legKm.get(-1)!) : null,
+        },
+        ...jobStops,
+      ]
+    : jobStops;
 
   return res.json({
     baseAddress: user.baseAddress ?? null,
-    totalDistanceKm: Math.round(totalDistanceKm * 10) / 10,
-    stops: ordered.map((j, i) => ({
-      order: i + 1,
-      jobId: j.id,
-      clientName: j.clientName,
-      address: j.clientAddress,
-      lat: j.clientLat,
-      lng: j.clientLng,
-    })),
+    totalDistanceKm: round1(totalDistanceKm),
+    optimized,
+    stops,
   });
 });
 

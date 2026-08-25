@@ -35,14 +35,20 @@ export default function MyRoute() {
           </div>
         ) : (
           <>
-            <div className="bg-primary/10 border border-primary/20 text-primary p-4 rounded-xl flex items-center justify-between shadow-sm">
-              <span className="font-bold">Total Est. Distance</span>
-              <span className="text-xl font-black">{(route.totalDistanceKm * 0.621).toFixed(1)} mi</span>
-            </div>
+            {route.optimized ? (
+              <div className="bg-primary/10 border border-primary/20 text-primary p-4 rounded-xl flex items-center justify-between shadow-sm">
+                <span className="font-bold">Total Est. Distance</span>
+                <span className="text-xl font-black">{(route.totalDistanceKm * 0.621).toFixed(1)} mi</span>
+              </div>
+            ) : (
+              <div className="bg-muted border border-border text-muted-foreground p-4 rounded-xl text-sm shadow-sm">
+                Route shown in dispatch order — distance optimization needs a home base and client locations.
+              </div>
+            )}
 
             <div className="relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-border before:to-transparent pt-2">
-              {route.stops.map((stop: any, idx: number) => {
-                const mapsUrl = stop.address !== 'Home Base' 
+              {route.stops.map((stop, idx) => {
+                const mapsUrl = stop.type !== 'base' && stop.address
                   ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(stop.address)}`
                   : undefined;
 
@@ -51,13 +57,15 @@ export default function MyRoute() {
                     <div className={`flex items-center justify-center w-10 h-10 rounded-full border-4 border-background shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10
                       ${stop.type === 'base' ? 'bg-muted text-muted-foreground' : 'bg-primary text-primary-foreground font-bold'}
                     `}>
-                      {stop.type === 'base' ? <Map className="w-4 h-4" /> : idx}
+                      {stop.type === 'base' ? <Map className="w-4 h-4" /> : stop.order - (route.optimized ? 1 : 0)}
                     </div>
                     
                     <Card className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] shadow-sm border-border">
                       <CardContent className="p-3">
                         <div className="font-bold text-foreground text-sm">{stop.name}</div>
-                        <div className="text-xs text-muted-foreground mt-0.5 mb-2 leading-tight">{stop.address}</div>
+                        <div className="text-xs text-muted-foreground mt-0.5 mb-2 leading-tight">
+                          {stop.address ?? (stop.hasCoordinates ? '' : 'No address on file')}
+                        </div>
                         
                         {mapsUrl && (
                           <Button asChild variant="outline" size="sm" className="w-full h-8 text-xs font-semibold">
@@ -67,9 +75,9 @@ export default function MyRoute() {
                           </Button>
                         )}
                         
-                        {idx < route.stops.length - 1 && stop.distanceToNext && (
+                        {idx < route.stops.length - 1 && stop.distanceToNextKm != null && (
                           <div className="absolute -bottom-5 left-10 md:left-auto md:right-auto md:w-full text-center text-[10px] font-bold text-muted-foreground bg-background px-1 z-20">
-                            {stop.distanceToNext} mi
+                            {(stop.distanceToNextKm * 0.621).toFixed(1)} mi
                           </div>
                         )}
                       </CardContent>

@@ -157,6 +157,9 @@ function DispatchRow({ job, contractors }: { job: Job, contractors: any[] }) {
         >
           <option value="">Unassigned</option>
           {contractors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          {job.assignedToId && !contractors.some(c => c.id === job.assignedToId) && (
+            <option value={job.assignedToId}>{job.assignedToName ?? `User #${job.assignedToId}`}</option>
+          )}
         </select>
       </TableCell>
       <TableCell className={`p-2 text-right font-semibold text-sm ${job.clientBalance && job.clientBalance > 0 ? 'text-destructive' : 'text-muted-foreground'}`}>

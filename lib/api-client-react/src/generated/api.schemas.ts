@@ -649,9 +649,20 @@ export interface DispatchInput {
   assignedToId?: number | null;
 }
 
+export type RouteStopType = typeof RouteStopType[keyof typeof RouteStopType];
+
+
+export const RouteStopType = {
+  base: 'base',
+  job: 'job',
+} as const;
+
 export interface RouteStop {
   order: number;
-  jobId: number;
+  type: RouteStopType;
+  /** @nullable */
+  jobId?: number | null;
+  name: string;
   /** @nullable */
   clientName?: string | null;
   /** @nullable */
@@ -660,6 +671,9 @@ export interface RouteStop {
   lat?: number | null;
   /** @nullable */
   lng?: number | null;
+  /** @nullable */
+  distanceToNextKm?: number | null;
+  hasCoordinates: boolean;
 }
 
 export interface RouteResult {
@@ -667,6 +681,7 @@ export interface RouteResult {
   totalDistanceKm: number;
   /** @nullable */
   baseAddress?: string | null;
+  optimized: boolean;
 }
 
 export type InvoiceStatus = typeof InvoiceStatus[keyof typeof InvoiceStatus];
