@@ -142,7 +142,7 @@ async function createJob(overrides: Partial<typeof jobsTable.$inferInsert> = {})
 }
 
 test("unauthenticated requests are rejected", async () => {
-  const res = await api(`/my/route?date=${date}`, contractorB.id);
+  const res = await api("/me", null);
   assert.equal(res.status, 401);
 });
 
@@ -174,7 +174,7 @@ test("configured primary and secondary owner emails resolve to admin access", as
 });
 
 test("contractors cannot reach admin-only job listings", async () => {
-  const res = await api(`/my/route?date=${date}`, contractorB.id);
+  const res = await api("/jobs", contractorA.id);
   assert.equal(res.status, 403);
 });
 
@@ -189,7 +189,7 @@ test("contractors see only their own dispatched, visible jobs", async () => {
     visibleToContractor: false,
   });
 
-  const res = await api(`/my/route?date=${date}`, contractorB.id);
+  const res = await api(`/my/jobs?date=${TODAY}`, contractorA.id);
   assert.equal(res.status, 200);
   const jobIds = res.body.map((j: any) => j.id);
   assert.ok(jobIds.includes(mine.id));
@@ -206,15 +206,21 @@ test("contractors see only their own dispatched, visible jobs", async () => {
 
 test("dispatching waiting-list work assigns, dates, and dispatches jobs", async () => {
   const waiting = await createJob({ dispatched: false, scheduledDate: null });
-  const res = await api(`/my/route?date=${date}`, contractorB.id);
+  const res = await api("/jobs/dispatch", admin.id, {
+    method: "POST",
+    body: JSON.stringify({ jobIds: [waiting.id], date: TODAY, assignedToId: contractorA.id }),
+  });
   assert.equal(res.status, 200);
-  let [row] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, inv.body.id));
+  const [row] = await db.select().from(jobsTable).where(eq(jobsTable.id, waiting.id));
   assert.equal(row.dispatched, true);
   assert.equal(row.scheduledDate, TODAY);
   assert.equal(row.assignedToId, contractorA.id);
 
   // contractors cannot dispatch
-  const denied = await api(`/jobs/${other.id}/complete`, contractorB.id, { method: "POST" });
+  const denied = await api("/jobs/dispatch", contractorA.id, {
+    method: "POST",
+    body: JSON.stringify({ jobIds: [waiting.id], date: TODAY }),
+  });
   assert.equal(denied.status, 403);
 });
 
@@ -225,27 +231,11 @@ test("completing a job creates exactly one invoice, even when repeated", async (
     scheduledDate: TODAY,
     amount: 75,
   });
-    const first = await api(`/estimates/${created.body.id}`, admin.id, {
-      method: "PATCH",
-      body: JSON.stringify({
-        version: staleVersion,
-        notes: "first admin's edit",
-        lines: [{ fieldId: turf.id, label: "", value: "2000" }],
-      }),
-    });
-    assert.equal(first.status, 200);
-    assert.equal(first.body.total, 20);
-    assert.equal(first.body.version, staleVersion + 1);
+  const first = await api(`/jobs/${job.id}/complete`, contractorA.id, { method: "POST" });
+  assert.equal(first.status, 200);
+  assert.equal(first.body.status, "completed");
 
-    // The second admin saves from the snapshot they loaded before that write.
-    const second = await api(`/estimates/${created.body.id}`, admin.id, {
-      method: "PATCH",
-      body: JSON.stringify({
-        version: staleVersion,
-        notes: "second admin's edit",
-        lines: [{ fieldId: turf.id, label: "", value: "9000" }],
-      }),
-    });
+  const second = await api(`/jobs/${job.id}/complete`, contractorA.id, { method: "POST" });
   assert.equal(second.status, 200);
 
   const invoices = await db.select().from(invoicesTable).where(eq(invoicesTable.jobId, job.id));
@@ -261,11 +251,7 @@ test("completing a job creates exactly one invoice, even when repeated", async (
 test("payments and voids recalculate invoice status and client balance", async () => {
   const [client] = await db
     .insert(clientsTable)
-    .values({
-      name: `Property Writeback ${stamp}`,
-      status: "client",
-      propertyData: { [turf.label]: "5000", "Sprinkler Zones": "8" },
-    })
+    .values({ name: "Billing Client", status: "client" })
     .returning();
   ids.clients.push(client.id);
 
@@ -297,10 +283,10 @@ test("payments and voids recalculate invoice status and client balance", async (
   assert.equal(c.accountBalance, -40);
 
   // payments against a void invoice are rejected
-      const rejected = await api(`/estimates/${locked.id}`, admin.id, {
-        method: "PATCH",
-        body: JSON.stringify({ version: locked.version, lines: [{ fieldId: turf.id, label: "x", value: "1000" }] }),
-      });
+  const rejected = await api("/payments", admin.id, {
+    method: "POST",
+    body: JSON.stringify({ clientId: client.id, invoiceId: inv.body.id, amount: 10, method: "cash" }),
+  });
   assert.equal(rejected.status, 400);
 
   // deleting the payment restores the balance
@@ -312,7 +298,7 @@ test("payments and voids recalculate invoice status and client balance", async (
 });
 
 test("contractor route includes home base, stop types, names, and leg distances", async () => {
-  const date = "2091-06-01";
+  const date = "2091-05-01"; // isolated date so no other jobs interfere
   const j1 = await createJob({ assignedToId: contractorA.id, dispatched: true, scheduledDate: date });
   const j2 = await createJob({
     assignedToId: contractorA.id,
@@ -321,7 +307,7 @@ test("contractor route includes home base, stop types, names, and leg distances"
     clientId: clientNoCoords.id,
   });
 
-  const res = await api(`/my/route?date=${date}`, contractorB.id);
+  const res = await api(`/my/route?date=${date}`, contractorA.id);
   assert.equal(res.status, 200);
   assert.equal(res.body.optimized, true);
   assert.equal(res.body.baseAddress, "100 Depot St");
@@ -375,16 +361,19 @@ test("un-optimized routes keep deterministic dispatch order for null routeOrder"
 });
 
 test("estimate PDF downloads and a secure customer response can be recorded only once", async () => {
-    const token = `recovery-${state}-${Date.now()}`;
-    const [estimate] = await db
-      .insert(estimatesTable)
-      .values({
-        clientId: clientWithCoords.id,
-        status: "draft",
-        total: 55,
-        lines: [{ fieldId: 1, label: "Recovery offer", value: "1", calculatedPrice: 55 }],
-      })
-      .returning();
+  const token = `estimate-response-${Date.now()}`;
+  const [estimate] = await db
+    .insert(estimatesTable)
+    .values({
+      clientId: clientWithCoords.id,
+      status: "sent",
+      total: 80,
+      lines: [{ fieldId: 1, label: "Mowing", value: "1 visit", calculatedPrice: 80 }],
+      sentAt: new Date(),
+      sentToEmail: "customer@example.com",
+      responseTokenHash: createHash("sha256").update(token).digest("hex"),
+    })
+    .returning();
 
   const pdf = await fetch(`${baseUrl}/api/estimates/${estimate.id}/pdf`, {
     headers: { "x-test-user-id": String(admin.id), "x-test-auth-token": TEST_AUTH_TOKEN },
@@ -403,7 +392,7 @@ test("estimate PDF downloads and a secure customer response can be recorded only
   assert.equal(stillSent.status, "sent");
 
   const accepted = await fetch(
-    `${baseUrl}/api/public/estimates/${oldToken}/respond`,
+    `${baseUrl}/api/public/estimates/${encodeURIComponent(token)}/respond`,
     {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -424,7 +413,7 @@ test("estimate PDF downloads and a secure customer response can be recorded only
   assert.equal(declinedAfterAccept.status, 200);
   assert.match(await declinedAfterAccept.text(), /Estimate already accepted/);
 
-    const [stored] = await db.select().from(estimatesTable).where(eq(estimatesTable.id, created.body.id));
+  const [stored] = await db.select().from(estimatesTable).where(eq(estimatesTable.id, estimate.id));
   assert.equal(stored.status, "accepted");
   assert.ok(stored.respondedAt);
 
@@ -433,39 +422,32 @@ test("estimate PDF downloads and a secure customer response can be recorded only
 });
 
 test("custom estimate lines keep their entered price through create and edit", async () => {
-    const created = await api("/estimates", admin.id, {
-      method: "POST",
-      body: JSON.stringify({
-        clientId: client.id,
-        savePropertyData: true,
-        lines: [
-          { fieldId: turf.id, label: "", value: "6200" },
-          { fieldId: gate.id, label: "", value: "4417" },
-          // Blank values must never erase or add a saved detail.
-          { fieldId: notes.id, label: "", value: "   " },
-          // Service lines describe work, not the property.
-          { serviceId: service.id, label: "", value: "" },
-        ],
-      }),
-    });
+  const created = await api("/estimates", admin.id, {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: clientWithCoords.id,
+      lines: [
+        { label: " Haul-away ", value: "2 loads", calculatedPrice: 75.456 },
+        { label: "Spring discount", value: "", calculatedPrice: -25 },
+      ],
+    }),
+  });
+  assert.equal(created.status, 201);
+  // trimmed label, rounded to cents, and both lines counted in the total
+  assert.deepEqual(
+    created.body.lines.map((l: any) => [l.label, l.value, l.calculatedPrice]),
+    [
+      ["Haul-away", "2 loads", 75.46],
+      ["Spring discount", "", -25],
+    ],
+  );
+  assert.equal(created.body.total, 50.46);
 
-    const staleVersion = created.body.version;
-    assert.equal(created.status, 201);
-    assert.equal(created.body.total, 20);
-    assert.equal(created.body.version, 1);
-
-    // Editing reprices server-side and ignores submitted prices.
-    const edited = await api(`/estimates/${created.body.id}`, admin.id, {
-      method: "PATCH",
-      body: JSON.stringify({
-        version: created.body.version,
-        lines: [
-          savedLines[1],
-          savedLines[2],
-          { fieldId: keeper.id, label: "", value: "3000" },
-        ],
-      }),
-    });
+  // An edit round-trip resubmits the saved custom lines unchanged.
+  const edited = await api(`/estimates/${created.body.id}`, admin.id, {
+    method: "PATCH",
+    body: JSON.stringify({ version: created.body.version, notes: "Includes dump fee", lines: created.body.lines }),
+  });
   assert.equal(edited.status, 200);
   assert.deepEqual(edited.body.lines, created.body.lines);
   assert.equal(edited.body.total, 50.46);
@@ -517,6 +499,126 @@ test("custom estimate lines keep their entered price through create and edit", a
   assert.equal(stillStored.lines.length, 2);
 });
 
+test("an estimate whose discount exceeds the work is rejected, but a zero total saves", async () => {
+  // A mistyped discount (-750 instead of -75) must never save as money owed.
+  const overDiscounted = await api("/estimates", admin.id, {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: clientWithCoords.id,
+      lines: [
+        { label: "Haul-away", value: "2 loads", calculatedPrice: 75 },
+        { label: "Spring discount", value: "", calculatedPrice: -750 },
+      ],
+    }),
+  });
+  assert.equal(overDiscounted.status, 400);
+  assert.match(overDiscounted.body.error, /owe the customer money/);
+
+  // A discount that lands exactly on zero is a legitimate courtesy estimate.
+  const zeroed = await api("/estimates", admin.id, {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: clientWithCoords.id,
+      lines: [
+        { label: "Haul-away", value: "2 loads", calculatedPrice: 75 },
+        { label: "Courtesy discount", value: "", calculatedPrice: -75 },
+      ],
+    }),
+  });
+  assert.equal(zeroed.status, 201);
+  assert.equal(zeroed.body.total, 0);
+
+  // The same rule applies on edit, and a rejected edit leaves the draft alone.
+  const badEdit = await api(`/estimates/${zeroed.body.id}`, admin.id, {
+    method: "PATCH",
+    body: JSON.stringify({
+      version: zeroed.body.version,
+      lines: [
+        { label: "Haul-away", value: "2 loads", calculatedPrice: 75 },
+        { label: "Courtesy discount", value: "", calculatedPrice: -75.01 },
+      ],
+    }),
+  });
+  assert.equal(badEdit.status, 400);
+  assert.match(badEdit.body.error, /owe the customer money/);
+
+  const [stillZero] = await db.select().from(estimatesTable).where(eq(estimatesTable.id, zeroed.body.id));
+  assert.equal(stillZero.total, 0);
+  assert.equal(stillZero.lines.length, 2);
+
+  // Reducing the discount so the total climbs back above zero saves normally.
+  const goodEdit = await api(`/estimates/${zeroed.body.id}`, admin.id, {
+    method: "PATCH",
+    body: JSON.stringify({
+      version: zeroed.body.version,
+      lines: [
+        { label: "Haul-away", value: "2 loads", calculatedPrice: 75 },
+        { label: "Courtesy discount", value: "", calculatedPrice: -25 },
+      ],
+    }),
+  });
+  assert.equal(goodEdit.status, 200);
+  assert.equal(goodEdit.body.total, 50);
+});
+
+test("a stale estimate edit is rejected instead of overwriting a colleague's save", async () => {
+  const created = await api("/estimates", admin.id, {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: clientWithCoords.id,
+      lines: [{ label: "Mulch", value: "3 yards", calculatedPrice: 120 }],
+    }),
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.version, 1);
+  const staleVersion = created.body.version;
+
+  // Both admins loaded the same draft; the first one saves.
+  const first = await api(`/estimates/${created.body.id}`, admin.id, {
+    method: "PATCH",
+    body: JSON.stringify({
+      version: staleVersion,
+      notes: "first admin's edit",
+      lines: [{ label: "Mulch", value: "4 yards", calculatedPrice: 160 }],
+    }),
+  });
+  assert.equal(first.status, 200);
+  assert.equal(first.body.total, 160);
+  assert.equal(first.body.version, staleVersion + 1);
+
+  // The second admin saves from the snapshot they loaded before that write.
+  const second = await api(`/estimates/${created.body.id}`, admin.id, {
+    method: "PATCH",
+    body: JSON.stringify({
+      version: staleVersion,
+      notes: "second admin's edit",
+      lines: [{ label: "Mulch", value: "9 yards", calculatedPrice: 360 }],
+    }),
+  });
+  assert.equal(second.status, 409);
+  assert.equal(second.body.code, "estimate_version_conflict");
+  assert.equal(second.body.current.version, staleVersion + 1);
+  assert.equal(second.body.current.total, 160);
+
+  // The first admin's save survived untouched.
+  const [stored] = await db.select().from(estimatesTable).where(eq(estimatesTable.id, created.body.id));
+  assert.equal(stored.total, 160);
+  assert.equal(stored.notes, "first admin's edit");
+
+  // Reloading the current version lets the second admin reapply their change.
+  const retried = await api(`/estimates/${created.body.id}`, admin.id, {
+    method: "PATCH",
+    body: JSON.stringify({
+      version: second.body.current.version,
+      notes: "second admin's edit",
+      lines: [{ label: "Mulch", value: "9 yards", calculatedPrice: 360 }],
+    }),
+  });
+  assert.equal(retried.status, 200);
+  assert.equal(retried.body.total, 360);
+  assert.equal(retried.body.version, staleVersion + 2);
+});
+
 test("estimate delivery rejects concurrent sends and preserves final customer responses", async () => {
   const [sending, accepted] = await db
     .insert(estimatesTable)
@@ -555,16 +657,16 @@ test("estimate delivery rejects concurrent sends and preserves final customer re
 });
 
 test("provider-accepted delivery can only be reconciled, never sent twice", async () => {
-  const pendingHash = createHash("sha256").update(pendingToken).digest("hex");
-    const [estimate] = await db
-      .insert(estimatesTable)
-      .values({
-        clientId: clientWithCoords.id,
-        status: "draft",
-        total: 55,
-        lines: [{ fieldId: 1, label: "Recovery offer", value: "1", calculatedPrice: 55 }],
-      })
-      .returning();
+  const pendingHash = createHash("sha256").update("provider-accepted-no-duplicate").digest("hex");
+  const [estimate] = await db
+    .insert(estimatesTable)
+    .values({
+      clientId: clientWithCoords.id,
+      status: "draft",
+      total: 25,
+      lines: [{ fieldId: 1, label: "No duplicate", value: "1", calculatedPrice: 25 }],
+    })
+    .returning();
   await claimEstimateDelivery(estimate.id, pendingHash);
   await recordEstimateProviderAccepted(
     estimate.id,
@@ -580,7 +682,7 @@ test("provider-accepted delivery can only be reconciled, never sent twice", asyn
   assert.equal(resend.status, 409);
   assert.match(resend.body.error, /Reconcile/i);
 
-    const [stored] = await db.select().from(estimatesTable).where(eq(estimatesTable.id, created.body.id));
+  const [stored] = await db.select().from(estimatesTable).where(eq(estimatesTable.id, estimate.id));
   assert.equal(stored.deliveryState, "provider_accepted");
   assert.equal(stored.pendingResponseTokenHash, pendingHash);
   assert.equal(stored.deliveryAttempts, 1);
@@ -588,17 +690,20 @@ test("provider-accepted delivery can only be reconciled, never sent twice", asyn
 });
 
 test("a failed resend keeps the previously delivered customer response link active", async () => {
-  const oldHash = createHash("sha256").update(oldToken).digest("hex");
-  const pendingHash = createHash("sha256").update(pendingToken).digest("hex");
-    const [estimate] = await db
-      .insert(estimatesTable)
-      .values({
-        clientId: clientWithCoords.id,
-        status: "draft",
-        total: 55,
-        lines: [{ fieldId: 1, label: "Recovery offer", value: "1", calculatedPrice: 55 }],
-      })
-      .returning();
+  const oldHash = createHash("sha256").update("old-active-token").digest("hex");
+  const pendingHash = createHash("sha256").update("new-pending-token").digest("hex");
+  const [estimate] = await db
+    .insert(estimatesTable)
+    .values({
+      clientId: clientWithCoords.id,
+      status: "sent",
+      total: 30,
+      lines: [{ fieldId: 1, label: "Existing offer", value: "1", calculatedPrice: 30 }],
+      responseTokenHash: oldHash,
+      deliveryState: "sent",
+      sentAt: new Date(),
+    })
+    .returning();
 
   const claimed = await claimEstimateDelivery(estimate.id, pendingHash);
   assert.equal(claimed?.deliveryState, "sending");
@@ -622,15 +727,18 @@ test("accepting during a resend cannot be overwritten when Gmail completes", asy
   const oldHash = createHash("sha256").update(oldToken).digest("hex");
   const pendingToken = "race-new-pending-token";
   const pendingHash = createHash("sha256").update(pendingToken).digest("hex");
-    const [estimate] = await db
-      .insert(estimatesTable)
-      .values({
-        clientId: clientWithCoords.id,
-        status: "draft",
-        total: 55,
-        lines: [{ fieldId: 1, label: "Recovery offer", value: "1", calculatedPrice: 55 }],
-      })
-      .returning();
+  const [estimate] = await db
+    .insert(estimatesTable)
+    .values({
+      clientId: clientWithCoords.id,
+      status: "sent",
+      total: 45,
+      lines: [{ fieldId: 1, label: "Race offer", value: "1", calculatedPrice: 45 }],
+      responseTokenHash: oldHash,
+      deliveryState: "sent",
+      sentAt: new Date(),
+    })
+    .returning();
 
   await claimEstimateDelivery(estimate.id, pendingHash);
   const accepted = await fetch(
@@ -713,8 +821,10 @@ test("provider-accepted and interrupted sends can be reconciled without a duplic
 
 test("estimate lines are priced server-side from field and service definitions", async () => {
   const [turf] = await db
-    .insert(estimateFieldsTable)
-    .values({ label: `Concurrent Turf ${Date.now()}`, fieldType: "calculable", pricePerUnit: 10, unitSize: 1000 })
+    .insert((await import("@workspace/db")).estimateFieldsTable)
+    .values([
+      { label: `Turf Sqft ${Date.now()}`, fieldType: "calculable", pricePerUnit: 20, unitSize: 1000, sortOrder: 1 },
+    ])
     .returning();
   const [gate] = await db
     .insert((await import("@workspace/db")).estimateFieldsTable)
@@ -737,20 +847,14 @@ test("estimate lines are priced server-side from field and service definitions",
     const created = await api("/estimates", admin.id, {
       method: "POST",
       body: JSON.stringify({
-        clientId: client.id,
-        savePropertyData: true,
+        clientId: clientWithCoords.id,
         lines: [
-          { fieldId: turf.id, label: "", value: "6200" },
-          { fieldId: gate.id, label: "", value: "4417" },
-          // Blank values must never erase or add a saved detail.
-          { fieldId: notes.id, label: "", value: "   " },
-          // Service lines describe work, not the property.
-          { serviceId: service.id, label: "", value: "" },
+          { fieldId: turf.id, label: "tampered", value: "6200", calculatedPrice: 1 },
+          { fieldId: gate.id, label: "tampered", value: "4417", calculatedPrice: 999 },
+          { serviceId: aeration.id, label: "tampered", value: "6200", calculatedPrice: 2 },
         ],
       }),
     });
-
-    const staleVersion = created.body.version;
     assert.equal(created.status, 201);
     const [turfLine, gateLine, svcLine] = created.body.lines;
     assert.equal(turfLine.calculatedPrice, 124); // 6200/1000 * 20
@@ -768,9 +872,12 @@ test("estimate lines are priced server-side from field and service definitions",
       }),
     });
     assert.equal(badField.status, 400);
-    const badValue = await api(`/estimates/${created.body.id}`, admin.id, {
-      method: "PATCH",
-      body: JSON.stringify({ version: edited.body.version, lines: [{ fieldId: turf.id, label: "x", value: "abc" }] }),
+    const badValue = await api("/estimates", admin.id, {
+      method: "POST",
+      body: JSON.stringify({
+        clientId: clientWithCoords.id,
+        lines: [{ fieldId: turf.id, label: "x", value: "not-a-number" }],
+      }),
     });
     assert.equal(badValue.status, 400);
 
@@ -789,7 +896,7 @@ test("estimate lines are priced server-side from field and service definitions",
     });
     assert.equal(repriced.body.lines[0].calculatedPrice, 60); // 1000/500 * 30
   } finally {
-  const { estimateFieldsTable } = await import("@workspace/db");
+    const { estimateFieldsTable } = await import("@workspace/db");
     await db.delete(estimateFieldsTable).where(inArray(estimateFieldsTable.id, [turf.id, gate.id]));
   }
 });
@@ -798,46 +905,32 @@ test("draft estimates can be edited and repriced; final estimates stay immutable
   const { estimateFieldsTable, auditEventsTable } = await import("@workspace/db");
   const [turf] = await db
     .insert(estimateFieldsTable)
-    .values({ label: `Concurrent Turf ${Date.now()}`, fieldType: "calculable", pricePerUnit: 10, unitSize: 1000 })
+    .values({ label: `Edit Turf ${Date.now()}`, fieldType: "calculable", pricePerUnit: 10, unitSize: 1000 })
     .returning();
 
   try {
     const created = await api("/estimates", admin.id, {
       method: "POST",
       body: JSON.stringify({
-        clientId: client.id,
-        savePropertyData: true,
-        lines: [
-          { fieldId: turf.id, label: "", value: "6200" },
-          { fieldId: gate.id, label: "", value: "4417" },
-          // Blank values must never erase or add a saved detail.
-          { fieldId: notes.id, label: "", value: "   " },
-          // Service lines describe work, not the property.
-          { serviceId: service.id, label: "", value: "" },
-        ],
+        clientId: clientWithCoords.id,
+        notes: "first pass",
+        lines: [{ fieldId: turf.id, label: "", value: "2000" }],
       }),
     });
-
-    const staleVersion = created.body.version;
     assert.equal(created.status, 201);
     assert.equal(created.body.total, 20);
-    assert.equal(created.body.version, 1);
 
     // Editing reprices server-side and ignores submitted prices.
     const edited = await api(`/estimates/${created.body.id}`, admin.id, {
       method: "PATCH",
       body: JSON.stringify({
         version: created.body.version,
-        lines: [
-          savedLines[1],
-          savedLines[2],
-          { fieldId: keeper.id, label: "", value: "3000" },
-        ],
+        notes: "corrected sqft",
+        lines: [{ fieldId: turf.id, label: "tampered", value: "5000", calculatedPrice: 1 }],
       }),
     });
     assert.equal(edited.status, 200);
     assert.equal(edited.body.total, 50); // 5000/1000 * 10
-    assert.equal(edited.body.version, 2); // an accepted edit bumps the version
     assert.equal(edited.body.lines[0].label, turf.label);
     assert.equal(edited.body.notes, "corrected sqft");
     assert.equal(edited.body.status, "draft");
@@ -847,8 +940,6 @@ test("draft estimates can be edited and repriced; final estimates stay immutable
       .select()
       .from(auditEventsTable)
       .where(eq(auditEventsTable.clientId, clientWithCoords.id));
-
-    const reloaded = await api(`/estimates/${created.body.id}`, admin.id, {});
     assert.ok(events.some((e) => e.action === "estimate_updated" && e.description.includes(`#${created.body.id}`)));
 
     // Invalid references and non-numeric calculable values are rejected.
@@ -874,7 +965,7 @@ test("draft estimates can be edited and repriced; final estimates stay immutable
         body: JSON.stringify({ version: locked.version, lines: [{ fieldId: turf.id, label: "x", value: "1000" }] }),
       });
       assert.equal(rejected.status, 409);
-    const [unchanged] = await db.select().from(clientsTable).where(eq(clientsTable.id, client.id));
+      const [unchanged] = await db.select().from(estimatesTable).where(eq(estimatesTable.id, locked.id));
       assert.equal(unchanged.total, 20);
       assert.deepEqual(unchanged.lines, []);
     }
@@ -888,6 +979,13 @@ test("draft estimates can be edited and repriced; final estimates stay immutable
       method: "PATCH",
       body: JSON.stringify({ version: sending.version, lines: [{ fieldId: turf.id, label: "x", value: "1000" }] }),
     });
+    assert.equal(blocked.status, 409);
+  } finally {
+    await db.delete(estimateFieldsTable).where(eq(estimateFieldsTable.id, turf.id));
+  }
+});
+
+test("editing a draft preserves lines whose field or service was deleted", async () => {
   const { estimateFieldsTable } = await import("@workspace/db");
   const stamp = Date.now();
   const [keeper] = await db
@@ -907,20 +1005,14 @@ test("draft estimates can be edited and repriced; final estimates stay immutable
     const created = await api("/estimates", admin.id, {
       method: "POST",
       body: JSON.stringify({
-        clientId: client.id,
-        savePropertyData: true,
+        clientId: clientWithCoords.id,
         lines: [
-          { fieldId: turf.id, label: "", value: "6200" },
-          { fieldId: gate.id, label: "", value: "4417" },
-          // Blank values must never erase or add a saved detail.
-          { fieldId: notes.id, label: "", value: "   " },
-          // Service lines describe work, not the property.
-          { serviceId: service.id, label: "", value: "" },
+          { fieldId: keeper.id, label: "", value: "2000" },
+          { fieldId: doomedField.id, label: "", value: "4000" },
+          { serviceId: doomedService.id, label: "", value: "" },
         ],
       }),
     });
-
-    const staleVersion = created.body.version;
     assert.equal(created.status, 201);
     assert.equal(created.body.total, 70); // 20 + 20 + 30
     const savedLines = created.body.lines;
@@ -1013,8 +1105,6 @@ test("saving an estimate can write field values back to the client's property de
         ],
       }),
     });
-
-    const staleVersion = created.body.version;
     assert.equal(created.status, 201);
     // The response reports exactly what changed so the UI cannot claim a
     // property update that did not happen.
@@ -1108,12 +1198,3 @@ test("saving an estimate can write field values back to the client's property de
       .where(inArray(estimateFieldsTable.id, [turf.id, gate.id, notes.id]));
   }
 });
-
-    const retried = await api(`/estimates/${created.body.id}`, admin.id, {
-      method: "PATCH",
-      body: JSON.stringify({
-        version: reloaded.body.version,
-        notes: "second admin's edit",
-        lines: [{ fieldId: turf.id, label: "", value: "9000" }],
-      }),
-    });

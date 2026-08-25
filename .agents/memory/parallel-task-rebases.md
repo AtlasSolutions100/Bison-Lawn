@@ -30,6 +30,18 @@ return), so non-overlapping hunks get grafted into the wrong function.
   delivery state), and the original patch will typecheck while ignoring it.
 - When a later round conflicts on the task's *own* earlier revision, keep the
   already-applied side — that is the one adapted to upstream.
+- **The upstream commit itself can be the corrupted one.** Resetting a file to
+  upstream is not a guaranteed clean base: a merged sibling task can land a route
+  module or test file that neither typechecks nor runs (whole handlers replaced by
+  fragments of an unrelated feature). Verify the reset baseline before re-applying;
+  if it is broken, rebuild the file as *last-good commit + the merged task's
+  genuinely new blocks*, then re-apply the current change. Repairing that damage is
+  in scope, because completion validation runs on the current branch.
+- A multi-commit rebase re-mangles a file on *every* round, including rounds where
+  that file reports no conflict at all. After the rebase reports success, diff the
+  final tree against the round you actually validated and restore any file that
+  silently drifted, then re-run the suite — a clean earlier round is no evidence
+  about the final commit.
 - Generated code (orval output and similar) is never worth hand-merging: resolve
   the source spec, regenerate, and confirm the regeneration produces no other
   diff.

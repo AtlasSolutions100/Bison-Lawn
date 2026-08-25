@@ -532,6 +532,9 @@ function EstimateBuilder({ editEstimate, onDirtyChange, onFinished, onCancelEdit
     return state?.selected && f.fieldType === 'calculable' && (state.value.trim() === '' || !Number.isFinite(Number(state.value)));
   });
   const invalidCustom = customLines.some(c => c.label.trim() === '' || customLinePrice(c.price) == null);
+  // A discount larger than the rest of the estimate would owe the customer
+  // money; the server rejects it, so flag it here before the save round-trip.
+  const negativeTotal = lines.length > 0 && !invalidCustom && !invalidCalculable && Math.round(total * 100) / 100 < 0;
 
   const saving = createEstimate.isPending || updateEstimate.isPending;
 
@@ -836,7 +839,7 @@ function EstimateBuilder({ editEstimate, onDirtyChange, onFinished, onCancelEdit
             {carriedLines.length} saved line{carriedLines.length === 1 ? '' : 's'} came from a field or service that no longer exists. They are kept as-is.
           </p>
         )}
-        <div className="flex justify-between border-t pt-2 font-bold">
+        <div className={`flex justify-between border-t pt-2 font-bold ${negativeTotal ? 'text-destructive' : ''}`}>
           <span>Total</span>
           <span className="tabular-nums">{money(total)}</span>
         </div>
@@ -862,7 +865,12 @@ function EstimateBuilder({ editEstimate, onDirtyChange, onFinished, onCancelEdit
         )}
         {invalidCalculable && <p className="text-xs text-destructive">Enter numeric values for all selected calculable fields.</p>}
         {invalidCustom && <p className="text-xs text-destructive">Give every custom line a label and a numeric price.</p>}
-        <Button className="w-full" disabled={!clientId || !lines.length || invalidCalculable || invalidCustom || saving} onClick={handleSave}>
+        {negativeTotal && (
+          <p className="text-xs text-destructive">
+            This total would owe the customer money. Check the discount amount — the total must be zero or more.
+          </p>
+        )}
+        <Button className="w-full" disabled={!clientId || !lines.length || invalidCalculable || invalidCustom || negativeTotal || saving} onClick={handleSave}>
           {saving ? 'Saving…' : editEstimate ? 'Save Changes' : 'Save Estimate'}
         </Button>
         {editEstimate && (

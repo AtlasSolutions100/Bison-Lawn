@@ -91,20 +91,15 @@ function responseConfirmationPage(token: string, action: "accept" | "decline", e
 // Public customer response routes. Tokens are random, only their SHA-256 hashes are stored.
 // GET is deliberately read-only because email security scanners commonly prefetch links.
 router.get("/public/estimates/:token/respond", async (req, res) => {
-  const action = req.body.action;
+  const action = req.query.action;
   if (action !== "accept" && action !== "decline") {
-    return res.status(400).send(responsePage("Invalid response", "This response is not valid.", false));
+    return res.status(400).send(responsePage("Invalid response", "This response link is not valid.", false));
   }
-  const data = await loadEstimateDocument(Number(req.params.id));
-  if (!data) return res.status(404).json({ error: "Estimate not found" });
+  const data = await loadPublicEstimate(req.params.token);
+  if (!data) return res.status(404).send(responsePage("Link not found", "This estimate link is invalid or expired.", false));
   const { estimate } = data;
   if (estimate.status === "accepted" || estimate.status === "declined") {
-    const accepted = await recordEstimateProviderAccepted(
-      data.estimate.id,
-      hash,
-      body.toEmail,
-      sentMessage.id ?? null,
-    );
+    const accepted = estimate.status === "accepted";
     return res.send(
       responsePage(
         `Estimate already ${estimate.status}`,
@@ -121,8 +116,8 @@ router.post("/public/estimates/:token/respond", async (req, res) => {
   if (action !== "accept" && action !== "decline") {
     return res.status(400).send(responsePage("Invalid response", "This response is not valid.", false));
   }
-  const data = await loadEstimateDocument(Number(req.params.id));
-  if (!data) return res.status(404).json({ error: "Estimate not found" });
+  const data = await loadPublicEstimate(req.params.token);
+  if (!data) return res.status(404).send(responsePage("Link not found", "This estimate link is invalid or expired.", false));
   const { estimate } = data;
   if (estimate.status === "accepted" || estimate.status === "declined") {
     return res.send(
@@ -134,21 +129,34 @@ router.post("/public/estimates/:token/respond", async (req, res) => {
     );
   }
   const status = action === "accept" ? "accepted" : "declined";
-  let providerAccepted = false;
+  const providerAccepted = data.tokenSource === "provider_accepted";
   const [updated] = await db
     .update(estimatesTable)
-    .set({ notes: body.notes ?? null, lines, total, version: existing.version + 1 })
+    .set(
+      providerAccepted
+        ? {
+            status,
+            respondedAt: new Date(),
+            responseTokenHash: data.hash,
+            pendingResponseTokenHash: null,
+            deliveryState: "sent",
+          }
+        : { status, respondedAt: new Date() },
+    )
     .where(
-      and(
-        eq(estimatesTable.id, id),
-        eq(estimatesTable.status, "draft"),
-        eq(estimatesTable.deliveryState, existing.deliveryState),
-        eq(estimatesTable.version, body.version),
-      ),
+      providerAccepted
+        ? and(
+            eq(estimatesTable.id, estimate.id),
+            eq(estimatesTable.deliveryState, "provider_accepted"),
+            eq(estimatesTable.pendingResponseTokenHash, data.hash),
+          )
+        : and(
+            eq(estimatesTable.id, estimate.id),
+            eq(estimatesTable.status, "sent"),
+            eq(estimatesTable.responseTokenHash, data.hash),
+          ),
     )
     .returning();
-
-    const [latest] = await db.select().from(estimatesTable).where(eq(estimatesTable.id, id));
   if (!updated) {
     const latest = await loadPublicEstimate(req.params.token);
     return res.send(
@@ -185,17 +193,13 @@ router.get("/estimate-fields", async (_req, res) => {
 });
 
 router.post("/estimate-fields", async (req, res) => {
-  const body = SendEstimateBody.parse(req.body);
-  const [field] = await db
-    .update(estimateFieldsTable)
-    .set(body)
-    .where(eq(estimateFieldsTable.id, Number(req.params.id)))
-    .returning();
+  const body = CreateEstimateFieldBody.parse(req.body);
+  const [field] = await db.insert(estimateFieldsTable).values(body).returning();
   return res.status(201).json(field);
 });
 
 router.patch("/estimate-fields/:id", async (req, res) => {
-  const body = SendEstimateBody.parse(req.body);
+  const body = UpdateEstimateFieldBody.parse(req.body);
   const [field] = await db
     .update(estimateFieldsTable)
     .set(body)
@@ -342,6 +346,27 @@ async function priceEstimateLinesPreservingHistory(
 }
 
 /**
+ * Sum the priced lines to the estimate's grand total, rejecting a total below
+ * zero. Individual negative lines are legitimate (that is how a discount is
+ * entered), but a negative *total* says the business owes the customer money —
+ * in practice a mistyped discount such as -750 for -75, which the PDF and the
+ * customer email would otherwise show verbatim.
+ */
+function estimateTotalOrThrow(lines: EstimateLine[]): number {
+  const total = Math.round(lines.reduce((s, l) => s + (l.calculatedPrice ?? 0), 0) * 100) / 100;
+  if (total < 0) {
+    throw Object.assign(
+      new Error(
+        `This estimate totals $${total.toFixed(2)}, which would owe the customer money. ` +
+          "Check the discount amount — the total must be zero or more.",
+      ),
+      { status: 400 },
+    );
+  }
+  return total;
+}
+
+/**
  * Turn a rejected estimate body into a message for the caller: our own pricing
  * errors carry status 400, and a schema failure (for example a custom line whose
  * price is not a number) would otherwise surface as an opaque 500.
@@ -394,16 +419,18 @@ async function mergePropertyDataFromLines(
 }
 
 router.post("/estimates", async (req, res) => {
-  const body = SendEstimateBody.parse(req.body);
+  let body: ReturnType<typeof CreateEstimateBody.parse>;
   let lines: EstimateLine[];
+  let total: number;
   try {
-    lines = await priceEstimateLinesPreservingHistory(body.lines, existing.lines);
+    body = CreateEstimateBody.parse(req.body);
+    lines = await priceEstimateLines(body.lines);
+    total = estimateTotalOrThrow(lines);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown delivery error";
+    const message = estimateBadRequestMessage(error);
     if (message) return res.status(400).json({ error: message });
     throw error;
   }
-  const total = Math.round(lines.reduce((s, l) => s + (l.calculatedPrice ?? 0), 0) * 100) / 100;
   // One transaction so the estimate and the client's refreshed property details
   // either both land or neither does. The client row is locked first: property
   // details are one JSON document, so concurrent saves must take turns reading
@@ -421,7 +448,7 @@ router.post("/estimates", async (req, res) => {
         clientId: body.clientId,
         notes: body.notes ?? null,
         lines,
-        total: Math.round(total * 100) / 100,
+        total,
       })
       .returning();
     const changed = body.savePropertyData
@@ -468,11 +495,11 @@ router.get("/estimates/:id", async (req, res) => {
  * two admins on the same draft cannot silently overwrite each other.
  */
 router.patch("/estimates/:id", async (req, res) => {
-  const body = SendEstimateBody.parse(req.body);
+  let body: ReturnType<typeof UpdateEstimateBody.parse>;
   try {
     body = UpdateEstimateBody.parse(req.body);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown delivery error";
+    const message = estimateBadRequestMessage(error);
     if (message) return res.status(400).json({ error: message });
     throw error;
   }
@@ -499,14 +526,15 @@ router.patch("/estimates/:id", async (req, res) => {
   }
 
   let lines: EstimateLine[];
+  let total: number;
   try {
     lines = await priceEstimateLinesPreservingHistory(body.lines, existing.lines);
+    total = estimateTotalOrThrow(lines);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown delivery error";
+    const message = estimateBadRequestMessage(error);
     if (message) return res.status(400).json({ error: message });
     throw error;
   }
-  const total = Math.round(lines.reduce((s, l) => s + (l.calculatedPrice ?? 0), 0) * 100) / 100;
 
   // Re-check the draft state and the version inside the write so a send claimed
   // (or a competing edit committed) between the read above and here cannot have
@@ -523,11 +551,32 @@ router.patch("/estimates/:id", async (req, res) => {
       ),
     )
     .returning();
-
+  if (!updated) {
+    // Lost the race with a competing edit or a send claimed in between. Hand
+    // back the row as it stands now so the admin can reload and reapply.
     const [latest] = await db.select().from(estimatesTable).where(eq(estimatesTable.id, id));
+    if (!latest) return res.status(404).json({ error: "Estimate not found" });
+    return res.status(409).json({
+      error:
+        "Someone else saved changes to this estimate while you were editing. Reload the current version and reapply your changes.",
+      code: "estimate_version_conflict",
+      current: await withClientName(latest),
+    });
+  }
+
+  await logAudit({
+    clientId: updated.clientId,
+    actorName: req.appUser?.name,
+    action: "estimate_updated",
+    description: `Edited draft estimate #${updated.id} — ${lines.length} line${lines.length === 1 ? "" : "s"}, total $${existing.total} → $${updated.total}`,
+  });
+  return res.json(await withClientName(updated));
+});
+
+router.get("/estimates/:id/pdf", async (req, res) => {
   const data = await loadEstimateDocument(Number(req.params.id));
   if (!data) return res.status(404).json({ error: "Estimate not found" });
-    const pdf = await createEstimatePdf(data);
+  const pdf = await createEstimatePdf(data);
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `inline; filename="bison-estimate-${data.estimate.id}.pdf"`);
   return res.send(pdf);
