@@ -106,9 +106,6 @@ export const ListClientsResponseItem = zod.object({
 export const ListClientsResponse = zod.array(ListClientsResponseItem)
 
 
-
-
-
 export const CreateClientBody = zod.object({
   "name": zod.string().min(1),
   "status": zod.enum(['lead', 'client', 'former_client']).optional(),
@@ -170,8 +167,6 @@ export const UpdateClientParams = zod.object({
 })
 
 
-
-
 export const UpdateClientBody = zod.object({
   "name": zod.string().min(1).optional(),
   "status": zod.enum(['lead', 'client', 'former_client']).optional(),
@@ -229,8 +224,6 @@ export const ListClientNotesResponse = zod.array(ListClientNotesResponseItem)
 export const CreateClientNoteParams = zod.object({
   "id": zod.coerce.number().int()
 })
-
-
 
 
 export const CreateClientNoteBody = zod.object({
@@ -405,9 +398,6 @@ export const ListServicesResponseItem = zod.object({
 export const ListServicesResponse = zod.array(ListServicesResponseItem)
 
 
-
-
-
 export const CreateServiceBody = zod.object({
   "name": zod.string().min(1),
   "description": zod.string().optional(),
@@ -485,8 +475,6 @@ export const GetServiceResponse = zod.object({
 export const UpdateServiceParams = zod.object({
   "id": zod.coerce.number().int()
 })
-
-
 
 
 export const UpdateServiceBody = zod.object({
@@ -591,9 +579,6 @@ export const ListPackagesResponseItem = zod.object({
 export const ListPackagesResponse = zod.array(ListPackagesResponseItem)
 
 
-
-
-
 export const CreatePackageBody = zod.object({
   "name": zod.string().min(1),
   "description": zod.string().optional(),
@@ -633,8 +618,6 @@ export const CreatePackageResponse = zod.object({
 export const UpdatePackageParams = zod.object({
   "id": zod.coerce.number().int()
 })
-
-
 
 
 export const UpdatePackageBody = zod.object({
@@ -691,9 +674,6 @@ export const ListEstimateFieldsResponseItem = zod.object({
 export const ListEstimateFieldsResponse = zod.array(ListEstimateFieldsResponseItem)
 
 
-
-
-
 export const CreateEstimateFieldBody = zod.object({
   "label": zod.string().min(1),
   "fieldType": zod.enum(['calculable', 'text', 'number', 'boolean']),
@@ -715,8 +695,6 @@ export const CreateEstimateFieldResponse = zod.object({
 export const UpdateEstimateFieldParams = zod.object({
   "id": zod.coerce.number().int()
 })
-
-
 
 
 export const UpdateEstimateFieldBody = zod.object({
@@ -1354,8 +1332,6 @@ export const AddJobProductParams = zod.object({
 })
 
 
-
-
 export const AddJobProductBody = zod.object({
   "name": zod.string().min(1),
   "price": zod.number(),
@@ -1451,7 +1427,6 @@ export const AddExtraWorkParams = zod.object({
 export const addExtraWorkBodyQuantityMin = 0.01;
 
 
-
 export const AddExtraWorkBody = zod.object({
   "serviceId": zod.int(),
   "quantity": zod.number().min(addExtraWorkBodyQuantityMin).optional()
@@ -1475,7 +1450,6 @@ export const RecordOnSitePaymentParams = zod.object({
 })
 
 export const recordOnSitePaymentBodyAmountMin = 0.01;
-
 
 
 export const RecordOnSitePaymentBody = zod.object({
@@ -1515,7 +1489,6 @@ export const GetBillingSettingsResponse = zod.object({
  */
 export const updateBillingSettingsBodyCardFeePercentMin = 0;
 export const updateBillingSettingsBodyCardFeePercentMax = 25;
-
 
 
 export const UpdateBillingSettingsBody = zod.object({
@@ -1713,9 +1686,6 @@ export const ListTicketsResponseItem = zod.object({
 export const ListTicketsResponse = zod.array(ListTicketsResponseItem)
 
 
-
-
-
 export const CreateTicketBody = zod.object({
   "clientId": zod.int().nullish(),
   "title": zod.string().min(1),
@@ -1741,8 +1711,6 @@ export const CreateTicketResponse = zod.object({
 export const UpdateTicketParams = zod.object({
   "id": zod.coerce.number().int()
 })
-
-
 
 
 export const UpdateTicketBody = zod.object({
@@ -1780,8 +1748,6 @@ export const DeleteTicketResponse = zod.void()
 export const CreateFieldNoteParams = zod.object({
   "id": zod.coerce.number().int()
 })
-
-
 
 
 export const CreateFieldNoteBody = zod.object({
@@ -1840,10 +1806,6 @@ export const ListWeatherRulesResponseItem = zod.object({
 export const ListWeatherRulesResponse = zod.array(ListWeatherRulesResponseItem)
 
 
-
-
-
-
 export const CreateWeatherRuleBody = zod.object({
   "name": zod.string().min(1),
   "conditionType": zod.enum(['rain', 'wind', 'heat', 'cold']),
@@ -1870,9 +1832,6 @@ export const CreateWeatherRuleResponse = zod.object({
 export const UpdateWeatherRuleParams = zod.object({
   "id": zod.coerce.number().int()
 })
-
-
-
 
 
 export const UpdateWeatherRuleBody = zod.object({
@@ -1932,7 +1891,8 @@ export const RunWeatherCheckResponse = zod.object({
   "customerMessage": zod.string().nullish(),
   "status": zod.enum(['pending', 'approved', 'rejected']),
   "clientEmail": zod.string().nullish(),
-  "messageDeliveryState": zod.enum(['pending_review', 'not_applicable', 'no_email', 'sending', 'sent', 'failed']),
+  "messageDeliveryState": zod.enum(['pending_review', 'not_applicable', 'no_email', 'sending', 'abandoned', 'sent', 'failed']),
+  "messageDeliveryClaimedAt": zod.string().nullish(),
   "messageSentToEmail": zod.string().nullish(),
   "messageSentAt": zod.string().nullish(),
   "messageDeliveryError": zod.string().nullish(),
@@ -1963,7 +1923,8 @@ export const ListSuggestedActionsResponseItem = zod.object({
   "customerMessage": zod.string().nullish(),
   "status": zod.enum(['pending', 'approved', 'rejected']),
   "clientEmail": zod.string().nullish(),
-  "messageDeliveryState": zod.enum(['pending_review', 'not_applicable', 'no_email', 'sending', 'sent', 'failed']),
+  "messageDeliveryState": zod.enum(['pending_review', 'not_applicable', 'no_email', 'sending', 'abandoned', 'sent', 'failed']),
+  "messageDeliveryClaimedAt": zod.string().nullish(),
   "messageSentToEmail": zod.string().nullish(),
   "messageSentAt": zod.string().nullish(),
   "messageDeliveryError": zod.string().nullish(),
@@ -2002,7 +1963,8 @@ export const UpdateSuggestedActionResponse = zod.object({
   "customerMessage": zod.string().nullish(),
   "status": zod.enum(['pending', 'approved', 'rejected']),
   "clientEmail": zod.string().nullish(),
-  "messageDeliveryState": zod.enum(['pending_review', 'not_applicable', 'no_email', 'sending', 'sent', 'failed']),
+  "messageDeliveryState": zod.enum(['pending_review', 'not_applicable', 'no_email', 'sending', 'abandoned', 'sent', 'failed']),
+  "messageDeliveryClaimedAt": zod.string().nullish(),
   "messageSentToEmail": zod.string().nullish(),
   "messageSentAt": zod.string().nullish(),
   "messageDeliveryError": zod.string().nullish(),
@@ -2035,7 +1997,8 @@ export const ApproveSuggestedActionResponse = zod.object({
   "customerMessage": zod.string().nullish(),
   "status": zod.enum(['pending', 'approved', 'rejected']),
   "clientEmail": zod.string().nullish(),
-  "messageDeliveryState": zod.enum(['pending_review', 'not_applicable', 'no_email', 'sending', 'sent', 'failed']),
+  "messageDeliveryState": zod.enum(['pending_review', 'not_applicable', 'no_email', 'sending', 'abandoned', 'sent', 'failed']),
+  "messageDeliveryClaimedAt": zod.string().nullish(),
   "messageSentToEmail": zod.string().nullish(),
   "messageSentAt": zod.string().nullish(),
   "messageDeliveryError": zod.string().nullish(),
@@ -2068,7 +2031,8 @@ export const RejectSuggestedActionResponse = zod.object({
   "customerMessage": zod.string().nullish(),
   "status": zod.enum(['pending', 'approved', 'rejected']),
   "clientEmail": zod.string().nullish(),
-  "messageDeliveryState": zod.enum(['pending_review', 'not_applicable', 'no_email', 'sending', 'sent', 'failed']),
+  "messageDeliveryState": zod.enum(['pending_review', 'not_applicable', 'no_email', 'sending', 'abandoned', 'sent', 'failed']),
+  "messageDeliveryClaimedAt": zod.string().nullish(),
   "messageSentToEmail": zod.string().nullish(),
   "messageSentAt": zod.string().nullish(),
   "messageDeliveryError": zod.string().nullish(),
@@ -2124,5 +2088,4 @@ export const GetContractorEarningsResponseItem = zod.object({
   "completedCount": zod.int().optional()
 })
 export const GetContractorEarningsResponse = zod.array(GetContractorEarningsResponseItem)
-
 

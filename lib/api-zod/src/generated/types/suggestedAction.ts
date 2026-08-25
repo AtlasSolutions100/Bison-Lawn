@@ -35,6 +35,8 @@ export interface SuggestedAction {
   clientEmail?: string | null;
   messageDeliveryState: SuggestedActionMessageDeliveryState;
   /** @nullable */
+  messageDeliveryClaimedAt?: string | null;
+  /** @nullable */
   messageSentToEmail?: string | null;
   /** @nullable */
   messageSentAt?: string | null;

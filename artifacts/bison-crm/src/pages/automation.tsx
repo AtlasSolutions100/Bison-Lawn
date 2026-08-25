@@ -136,6 +136,8 @@ function SuggestionCard({ suggestion: s }: { suggestion: SuggestedAction }) {
         refresh();
         if (updated.messageDeliveryState === 'failed') {
           alert(`The ${s.actionType} was applied, but the customer email could not be sent: ${updated.messageDeliveryError ?? 'unknown error'}`);
+        } else if (updated.messageDeliveryState === 'abandoned' || updated.messageDeliveryState === 'sending') {
+          alert(`The ${s.actionType} was applied, but the customer email never finished sending. Check the delivery status and contact the customer if needed.`);
         } else if (updated.messageDeliveryState === 'no_email') {
           alert(`The ${s.actionType} was applied, but the customer message was not sent — this client has no email address on file.`);
         }
@@ -265,10 +267,26 @@ function DeliveryStatus({ suggestion: s }: { suggestion: SuggestedAction }) {
     );
   }
 
-  // "sending" only persists if the server was interrupted mid-delivery.
+  // A claim that never reported an outcome: the send was interrupted and no
+  // one knows whether the customer got it. Never leave it looking in-flight.
+  if (s.messageDeliveryState === 'abandoned') {
+    return (
+      <div className="mt-2 text-xs bg-destructive/10 border border-destructive/30 text-destructive rounded-md p-2">
+        <span className="font-bold flex items-center gap-1">
+          <MailWarning className="w-3.5 h-3.5" /> Never completed — sending was interrupted
+          {s.messageDeliveryClaimedAt ? `, started ${format(new Date(s.messageDeliveryClaimedAt), 'MMM d, yyyy h:mm a')}` : ''}
+        </span>
+        <p className="mt-1">
+          No delivery outcome was recorded{s.messageSentToEmail ? ` for ${s.messageSentToEmail}` : ''}. Assume this customer was not notified and contact them directly.
+        </p>
+      </div>
+    );
+  }
+
+  // A live claim — the send is in flight right now.
   return (
     <p className="text-xs text-muted-foreground flex items-center gap-1 mt-2">
-      <Mail className="w-3.5 h-3.5" /> Sending...
+      <Mail className="w-3.5 h-3.5" /> Sending right now...
     </p>
   );
 }

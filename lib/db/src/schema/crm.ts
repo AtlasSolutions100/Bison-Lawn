@@ -284,7 +284,10 @@ export const suggestedActionsTable = pgTable("suggested_actions", {
   status: text("status").notNull().default("pending"), // pending | approved | rejected
   // Delivery of the approved customer message by email.
   // pending_review | not_applicable (no message) | no_email (client has none) | sending | sent | failed
+  // | abandoned (claimed "sending" but the request/server died before an outcome was written)
   messageDeliveryState: text("message_delivery_state").notNull().default("pending_review"),
+  // When the approving transaction claimed delivery; used to age out abandoned claims.
+  messageDeliveryClaimedAt: timestamp("message_delivery_claimed_at"),
   messageSentToEmail: text("message_sent_to_email"),
   messageSentAt: timestamp("message_sent_at"),
   messageDeliveryError: text("message_delivery_error"),

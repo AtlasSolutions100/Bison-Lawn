@@ -14,6 +14,7 @@ export const SuggestedActionMessageDeliveryState = {
   not_applicable: 'not_applicable',
   no_email: 'no_email',
   sending: 'sending',
+  abandoned: 'abandoned',
   sent: 'sent',
   failed: 'failed',
 } as const;

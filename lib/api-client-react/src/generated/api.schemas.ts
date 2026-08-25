@@ -1133,6 +1133,7 @@ export const SuggestedActionMessageDeliveryState = {
   not_applicable: 'not_applicable',
   no_email: 'no_email',
   sending: 'sending',
+  abandoned: 'abandoned',
   sent: 'sent',
   failed: 'failed',
 } as const;
@@ -1161,6 +1162,8 @@ export interface SuggestedAction {
   /** @nullable */
   clientEmail?: string | null;
   messageDeliveryState: SuggestedActionMessageDeliveryState;
+  /** @nullable */
+  messageDeliveryClaimedAt?: string | null;
   /** @nullable */
   messageSentToEmail?: string | null;
   /** @nullable */
@@ -1320,4 +1323,3 @@ export const ListSuggestedActionsStatus = {
 export type GetContractorEarningsParams = {
 date: string;
 };
-

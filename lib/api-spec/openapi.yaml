@@ -2000,7 +2000,9 @@ components:
         clientEmail: { type: ["string", "null"] }
         messageDeliveryState:
           type: string
-          enum: [pending_review, not_applicable, no_email, sending, sent, failed]
+          # "sending" is a live claim; "abandoned" is a claim that never reported an outcome
+          enum: [pending_review, not_applicable, no_email, sending, abandoned, sent, failed]
+        messageDeliveryClaimedAt: { type: ["string", "null"] }
         messageSentToEmail: { type: ["string", "null"] }
         messageSentAt: { type: ["string", "null"] }
         messageDeliveryError: { type: ["string", "null"] }

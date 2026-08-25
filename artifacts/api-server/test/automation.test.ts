@@ -398,6 +398,92 @@ test("a provider failure is recorded as failed and never shown as delivered", as
   );
 });
 
+test("a claim stuck in 'sending' is aged out as never completed, not left in-flight or shown as delivered", async () => {
+  const job = await makeJob({ clientId: emailClient.id });
+  // Simulate a server death between the delivery claim and the outcome write:
+  // an approved suggestion whose claim is older than the abandonment window.
+  const staleClaim = new Date(Date.now() - 30 * 60 * 1000);
+  const [stale] = await db
+    .insert(suggestedActionsTable)
+    .values({
+      source: "weather",
+      jobId: job.id,
+      clientId: emailClient.id,
+      actionType: "skip",
+      reason: "test abandoned claim",
+      targetDate: TOMORROW,
+      customerMessage: "Storms tomorrow — we have to skip your service.",
+      status: "approved",
+      reviewedById: admin.id,
+      reviewedAt: staleClaim,
+      messageDeliveryState: "sending",
+      messageDeliveryClaimedAt: staleClaim,
+    })
+    .returning();
+
+  // A claim made just now is genuinely in flight and must stay untouched.
+  const [fresh] = await db
+    .insert(suggestedActionsTable)
+    .values({
+      source: "weather",
+      jobId: job.id,
+      clientId: emailClient.id,
+      actionType: "skip",
+      reason: "test live claim",
+      targetDate: TOMORROW,
+      customerMessage: "Storms tomorrow — we have to skip your service.",
+      status: "approved",
+      reviewedById: admin.id,
+      reviewedAt: new Date(),
+      messageDeliveryState: "sending",
+      messageDeliveryClaimedAt: new Date(),
+    })
+    .returning();
+
+  const list = await api("/suggested-actions?status=approved", admin.id);
+  assert.equal(list.status, 200);
+
+  const staleRow = list.body.find((r: any) => r.id === stale.id);
+  assert.ok(staleRow, "the stuck suggestion must appear in the office view");
+  assert.equal(staleRow.messageDeliveryState, "abandoned");
+  assert.notEqual(staleRow.messageDeliveryState, "sent");
+  assert.equal(staleRow.messageSentAt, null, "an abandoned claim must never look delivered");
+  assert.match(staleRow.messageDeliveryError, /interrupted/i);
+
+  const freshRow = list.body.find((r: any) => r.id === fresh.id);
+  assert.equal(freshRow.messageDeliveryState, "sending", "a live claim is still in flight");
+
+  const [storedStale] = await db
+    .select()
+    .from(suggestedActionsTable)
+    .where(eq(suggestedActionsTable.id, stale.id));
+  assert.equal(storedStale.messageDeliveryState, "abandoned");
+  assert.equal(storedStale.messageSentAt, null);
+
+  const audits = await db
+    .select()
+    .from(auditEventsTable)
+    .where(eq(auditEventsTable.clientId, emailClient.id));
+  assert.ok(
+    audits.some(
+      (e) => e.action === "suggestion_message_abandoned" && e.description.includes(`#${stale.id}`),
+    ),
+    "an abandoned delivery must be recorded for the office",
+  );
+  assert.ok(
+    !audits.some(
+      (e) => e.action === "suggestion_message_sent" && e.description.includes(`#${stale.id}`),
+    ),
+    "an abandoned delivery must never be audited as sent",
+  );
+
+  // Repeated listing does not re-flag the already-resolved row.
+  await db
+    .update(suggestedActionsTable)
+    .set({ messageDeliveryState: "not_applicable" })
+    .where(eq(suggestedActionsTable.id, fresh.id));
+});
+
 test("a suggestion without a customer message needs no delivery", async () => {
   const job = await makeJob();
   const [s] = await db

@@ -24,6 +24,21 @@ the request "clean" would desynchronize the office from the crew's actual schedu
 **How to apply:** Return success with a visible delivery status, write the failure to the audit trail, and
 tell the office to contact the customer directly.
 
+## A delivery claim needs a timestamp and an expiry, or it becomes a permanent lie
+Any state that means "a provider call is in flight" must be stamped with when it was claimed, and a claim
+older than a short window must be aged out into a distinct terminal-ish state (e.g. "abandoned") that reads
+as unresolved work.
+
+**Why:** The claim is written before the provider call and the outcome after it. A crash or restart between
+the two leaves the row in the in-flight state forever, and the office reads an in-flight badge as "it is
+happening" rather than "nobody knows what happened".
+
+**How to apply:** Stamp the claim time in the claiming transaction; sweep expired claims when the list is
+read (treat a null claim time as expired, for rows written before stamping existed); keep the in-flight and
+abandoned states visually distinct. Scope every outcome write to its own claim (id + claim timestamp +
+allowed prior states) so a late-finishing send can still correct its own abandoned row but can never
+overwrite a newer claim.
+
 ## Missing contact details are a state, not a silent skip
 A customer with no email on file gets an explicit "no_email" delivery state rather than being skipped
 quietly.

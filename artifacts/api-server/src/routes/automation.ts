@@ -7,7 +7,7 @@ import {
   clientsTable,
   usersTable,
 } from "@workspace/db";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import {
   CreateWeatherRuleBody,
   UpdateWeatherRuleBody,
@@ -311,10 +311,55 @@ async function hydrateSuggestions(rows: SuggestionRow[]) {
     reviewedByName: r.reviewedById ? (uMap.get(r.reviewedById) ?? null) : null,
     reviewedAt: r.reviewedAt ? r.reviewedAt.toISOString() : null,
     messageSentAt: r.messageSentAt ? r.messageSentAt.toISOString() : null,
+    messageDeliveryClaimedAt: r.messageDeliveryClaimedAt ? r.messageDeliveryClaimedAt.toISOString() : null,
   }));
 }
 
+/**
+ * How long a delivery claim may stay in "sending" before the office should stop
+ * seeing it as in-flight. A Gmail send takes seconds; anything older than this
+ * means the request or the server died between the claim and the outcome write.
+ */
+export const ABANDONED_CLAIM_AGE_MS = 2 * 60 * 1000;
+
+const ABANDONED_CLAIM_MESSAGE =
+  "Delivery was interrupted before it completed — the server never recorded whether this email was sent. Assume the customer was not notified.";
+
+/**
+ * Age out delivery claims that never reported an outcome. Rows claimed before
+ * the cutoff (or with no claim timestamp at all, from before claims were
+ * stamped) become "abandoned" so the office sees unfinished work instead of a
+ * permanent "sending" badge. A send that is somehow still running can still
+ * overwrite this with its real outcome.
+ */
+async function expireAbandonedMessageClaims(): Promise<SuggestionRow[]> {
+  const cutoff = new Date(Date.now() - ABANDONED_CLAIM_AGE_MS);
+  return db
+    .update(suggestedActionsTable)
+    .set({ messageDeliveryState: "abandoned", messageDeliveryError: ABANDONED_CLAIM_MESSAGE })
+    .where(
+      and(
+        eq(suggestedActionsTable.messageDeliveryState, "sending"),
+        or(
+          isNull(suggestedActionsTable.messageDeliveryClaimedAt),
+          lt(suggestedActionsTable.messageDeliveryClaimedAt, cutoff),
+        ),
+      ),
+    )
+    .returning();
+}
+
 router.get("/suggested-actions", async (req, res) => {
+  const abandoned = await expireAbandonedMessageClaims();
+  for (const row of abandoned) {
+    await logAudit({
+      clientId: row.clientId,
+      actorName: "System",
+      action: "suggestion_message_abandoned",
+      description: `The approved ${row.actionType} message for suggestion #${row.id} never finished sending; delivery was interrupted and no outcome was recorded`,
+    });
+  }
+
   const q = req.query as Record<string, string | undefined>;
   const conds = [];
   if (q.status) conds.push(eq(suggestedActionsTable.status, q.status));
@@ -420,6 +465,9 @@ router.post("/suggested-actions/:id/approve", async (req, res) => {
         reviewedById: req.appUser!.id,
         reviewedAt: new Date(),
         messageDeliveryState: deliveryState,
+        // Stamp the claim so an interrupted send can be aged out instead of
+        // sitting in "sending" forever.
+        messageDeliveryClaimedAt: deliveryState === "sending" ? new Date() : null,
         messageDeliveryError: null,
       })
       .where(eq(suggestedActionsTable.id, id))
@@ -463,6 +511,30 @@ router.post("/suggested-actions/:id/approve", async (req, res) => {
 });
 
 /**
+ * Only the claim that started a send may write its outcome. A claim that was
+ * already aged out to "abandoned" can still be corrected by its own send
+ * finishing late, but a newer claim's row is never overwritten by an older one.
+ */
+function ownClaim(suggestion: SuggestionRow) {
+  return and(
+    eq(suggestedActionsTable.id, suggestion.id),
+    inArray(suggestedActionsTable.messageDeliveryState, ["sending", "abandoned"]),
+    suggestion.messageDeliveryClaimedAt
+      ? eq(suggestedActionsTable.messageDeliveryClaimedAt, suggestion.messageDeliveryClaimedAt)
+      : isNull(suggestedActionsTable.messageDeliveryClaimedAt),
+  );
+}
+
+/** Re-read a suggestion when its outcome write did not apply to this claim. */
+async function currentSuggestion(suggestion: SuggestionRow): Promise<SuggestionRow> {
+  const [row] = await db
+    .select()
+    .from(suggestedActionsTable)
+    .where(eq(suggestedActionsTable.id, suggestion.id));
+  return row ?? suggestion;
+}
+
+/**
  * Send the approved message and persist the outcome. The schedule change is
  * already committed, so a delivery failure is recorded and surfaced rather
  * than thrown — the office needs to see it and contact the customer.
@@ -491,7 +563,7 @@ async function deliverCustomerMessage(
         messageDeliveryError: null,
         messageGmailId: sent.id ?? null,
       })
-      .where(eq(suggestedActionsTable.id, suggestion.id))
+      .where(ownClaim(suggestion))
       .returning();
     try {
       await logAudit({
@@ -503,7 +575,7 @@ async function deliverCustomerMessage(
     } catch (auditError) {
       req.log.error({ err: auditError, suggestionId: suggestion.id }, "message sent but audit write failed");
     }
-    return updated ?? suggestion;
+    return updated ?? (await currentSuggestion(suggestion));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown delivery error";
     const [failed] = await db
@@ -513,7 +585,7 @@ async function deliverCustomerMessage(
         messageSentToEmail: toEmail,
         messageDeliveryError: message.slice(0, 500),
       })
-      .where(eq(suggestedActionsTable.id, suggestion.id))
+      .where(ownClaim(suggestion))
       .returning();
     try {
       await logAudit({
@@ -525,7 +597,7 @@ async function deliverCustomerMessage(
     } catch (auditError) {
       req.log.error({ err: auditError, suggestionId: suggestion.id }, "message delivery failure audit write failed");
     }
-    return failed ?? suggestion;
+    return failed ?? (await currentSuggestion(suggestion));
   }
 }
 
