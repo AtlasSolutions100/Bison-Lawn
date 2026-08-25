@@ -38,7 +38,7 @@ export default function Estimates() {
   const [editing, setEditing] = useState<Estimate | null>(null);
   // The builder stays mounted across tab switches, so unsaved work is only ever
   // discarded by an action that replaces it (switching edit target, cancelling)
-  // or by leaving the page. Both of those confirm first.
+  // or by leaving the page — including browser Back. All of those confirm first.
   const [builderDirty, setBuilderDirty] = useState(false);
   // Local autosave of the in-progress builder, so a crash or a closed window is
   // recoverable. Scoped to the signed-in admin.

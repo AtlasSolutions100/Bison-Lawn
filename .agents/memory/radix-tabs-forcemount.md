@@ -25,4 +25,6 @@ Keeping state alive only covers tab switches. The remaining escape routes need e
 - Actions that remount the form (switching which record is being edited, cancel) — confirm when dirty.
 - Tab close/reload — `beforeunload`.
 - In-app links — wouter renders plain anchors, so a capture-phase document click listener can intercept and
-  confirm. Programmatic navigation and browser Back cannot be cancelled through the History API.
+  confirm.
+- Browser Back/Forward and programmatic navigation — see history-navigation-guard.md for the guard-entry
+  technique that makes those cancellable too.

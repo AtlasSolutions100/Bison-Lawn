@@ -14,3 +14,4 @@
 - [Optional fields must not select a branch](silent-branch-fallthrough.md) — a missing field must 4xx, not quietly pick another write path; native form validation hides the absent server guard.
 - [Local draft recovery](local-draft-recovery.md) — restore by remount, give every hydrate effect a one-shot skip, and don't persist until the restore prompt is answered.
 - [Radix Tabs forceMount visibility](radix-tabs-forcemount.md) — force-mounted tab panels stay visible; hide with CSS, and guard the remaining discard paths with a dirty check.
+- [Unsaved-work navigation guard](history-navigation-guard.md) — a duplicate "guard" history entry makes Back cancellable; never traverse synchronously inside popstate.

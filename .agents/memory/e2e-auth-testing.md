@@ -14,6 +14,8 @@ Integration tests authenticate via a test-only bypass in the API auth middleware
 - The testing subagent signs users in programmatically (see testing skill's clerk-auth.md); never script Clerk's UI.
 - New sign-ins provision as contractor; promote to admin by updating the users row (role=admin, role_source=owner_assigned) between test phases — testers share the dev DB.
 - This applies to ANY manual promotion, not just tests: auth re-resolves role on every request, so setting `role=admin` without `role_source=owner_assigned` silently reverts to contractor on the next page load. Only owner-secret emails keep admin without that marker. The Team page role dropdown does this correctly — prefer it over raw SQL.
+- Testers must not restart the workflows with auth env overrides (`NODE_ENV=test`, bypass tokens) for a Clerk browser flow: the API then rejects the real Clerk cookie and every page stalls on the "could not load your profile" card. Plain programmatic sign-in is enough; say so in the test plan.
+- Native `window.confirm` flows need a fresh one-shot dialog handler per step, stated explicitly in the plan — a tester that reuses (or forgets) a handler silently reports the dismiss path as the accept path.
 - Tester browser timezone may differ from server local date: date-scoped seed data (e.g. jobs "today") may be invisible; seed for the tester's UTC date or instruct date navigation.
 
 ## Self-hosted browser suite (committed Playwright tests)
