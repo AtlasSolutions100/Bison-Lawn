@@ -22,6 +22,7 @@ const TEST_AUTH_TOKEN = `test_${Math.random().toString(36).slice(2)}${Date.now()
 process.env.TEST_AUTH_TOKEN = TEST_AUTH_TOKEN;
 
 const { default: app } = await import("../src/app.ts");
+const { setCustomerMessageGmailProxyForTests } = await import("../src/routes/automation.ts");
 
 let server: Server;
 let baseUrl: string;
@@ -35,6 +36,7 @@ let admin: { id: number };
 let contractorA: { id: number };
 let contractorB: { id: number };
 let client: { id: number };
+let emailClient: { id: number; email: string | null };
 
 const TOMORROW = new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 10);
 
@@ -89,6 +91,19 @@ before(async () => {
     .returning();
   client = c;
   ids.clients.push(c.id);
+
+  const [ce] = await db
+    .insert(clientsTable)
+    .values({
+      name: "Automation Email Client",
+      status: "client",
+      email: "customer@example.com",
+      lat: 32.79,
+      lng: -96.81,
+    })
+    .returning();
+  emailClient = ce;
+  ids.clients.push(ce.id);
 });
 
 after(async () => {
@@ -260,6 +275,127 @@ test("approving a message for a client with no email is recorded as undelivered,
   const approved = audits.find((e) => e.action === "suggestion_approved" && /test no email/.test(e.description));
   assert.ok(approved, "approval must be audited");
   assert.match(approved!.description, /no email address on file/);
+});
+
+test("a successfully emailed message is recorded as sent with recipient, timestamp, and audit", async () => {
+  const job = await makeJob({ clientId: emailClient.id });
+  const [s] = await db
+    .insert(suggestedActionsTable)
+    .values({
+      source: "weather",
+      jobId: job.id,
+      clientId: emailClient.id,
+      actionType: "reschedule",
+      reason: "test gmail sent",
+      targetDate: TOMORROW,
+      newDate: TOMORROW,
+      customerMessage: "Rain tomorrow — we moved your service.",
+    })
+    .returning();
+
+  let captured: { path: string; mime: string } | null = null;
+  setCustomerMessageGmailProxyForTests(async (_connector, path, init) => {
+    const raw = JSON.parse(init.body).raw as string;
+    captured = {
+      path,
+      mime: Buffer.from(raw.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString(),
+    };
+    return new Response(JSON.stringify({ id: "gmail-suggestion-1" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  });
+
+  const before = Date.now();
+  const approve = await api(`/suggested-actions/${s.id}/approve`, admin.id, { method: "POST" });
+  setCustomerMessageGmailProxyForTests(null);
+
+  assert.equal(approve.status, 200);
+  assert.equal(approve.body.messageDeliveryState, "sent");
+  assert.equal(approve.body.messageSentToEmail, "customer@example.com");
+  assert.equal(approve.body.messageDeliveryError, null);
+  assert.ok(approve.body.messageSentAt, "a sent message must carry a timestamp");
+  assert.ok(new Date(approve.body.messageSentAt).getTime() >= before - 1000);
+
+  // the stub actually received the approved message addressed to the client
+  assert.ok(captured, "Gmail proxy must be called");
+  assert.equal(captured!.path, "/gmail/v1/users/me/messages/send");
+  assert.match(captured!.mime, /To: customer@example\.com/);
+  assert.match(captured!.mime, /Subject: Service rescheduled/);
+
+  const [stored] = await db
+    .select()
+    .from(suggestedActionsTable)
+    .where(eq(suggestedActionsTable.id, s.id));
+  assert.equal(stored.messageDeliveryState, "sent");
+  assert.equal(stored.messageSentToEmail, "customer@example.com");
+  assert.ok(stored.messageSentAt);
+  assert.equal(stored.messageGmailId, "gmail-suggestion-1");
+
+  const audits = await db
+    .select()
+    .from(auditEventsTable)
+    .where(eq(auditEventsTable.clientId, emailClient.id));
+  const sentAudit = audits.find(
+    (e) => e.action === "suggestion_message_sent" && e.description.includes(`#${s.id}`),
+  );
+  assert.ok(sentAudit, "a successful send must be audited");
+  assert.match(sentAudit!.description, /customer@example\.com/);
+});
+
+test("a provider failure is recorded as failed and never shown as delivered", async () => {
+  const job = await makeJob({ clientId: emailClient.id });
+  const [s] = await db
+    .insert(suggestedActionsTable)
+    .values({
+      source: "weather",
+      jobId: job.id,
+      clientId: emailClient.id,
+      actionType: "skip",
+      reason: "test gmail failure",
+      targetDate: TOMORROW,
+      customerMessage: "Storms tomorrow — we have to skip your service.",
+    })
+    .returning();
+
+  setCustomerMessageGmailProxyForTests(async () => new Response("mailbox unavailable", { status: 550 }));
+  const approve = await api(`/suggested-actions/${s.id}/approve`, admin.id, { method: "POST" });
+  setCustomerMessageGmailProxyForTests(null);
+
+  assert.equal(approve.status, 200);
+  assert.equal(approve.body.messageDeliveryState, "failed");
+  assert.equal(approve.body.messageSentAt, null, "a failed email must never look delivered");
+  assert.equal(approve.body.messageSentToEmail, "customer@example.com");
+  assert.match(approve.body.messageDeliveryError, /Gmail delivery failed \(550\)/);
+
+  const [stored] = await db
+    .select()
+    .from(suggestedActionsTable)
+    .where(eq(suggestedActionsTable.id, s.id));
+  assert.equal(stored.messageDeliveryState, "failed");
+  assert.equal(stored.messageSentAt, null);
+  assert.match(stored.messageDeliveryError!, /mailbox unavailable/);
+  assert.equal(stored.messageGmailId, null);
+
+  // the schedule change still applied — only the notification failed
+  assert.equal(stored.status, "approved");
+  const [jobAfter] = await db.select().from(jobsTable).where(eq(jobsTable.id, job.id));
+  assert.equal(jobAfter.dispatched, false);
+  assert.equal(jobAfter.scheduledDate, null);
+
+  const audits = await db
+    .select()
+    .from(auditEventsTable)
+    .where(eq(auditEventsTable.clientId, emailClient.id));
+  const failedAudit = audits.find(
+    (e) => e.action === "suggestion_message_failed" && e.description.includes(`#${s.id}`),
+  );
+  assert.ok(failedAudit, "a delivery failure must be audited");
+  assert.match(failedAudit!.description, /Gmail delivery failed \(550\)/);
+  assert.ok(
+    !audits.some((e) => e.action === "suggestion_message_sent" && e.description.includes(`#${s.id}`)),
+    "a failed send must not be audited as sent",
+  );
 });
 
 test("a suggestion without a customer message needs no delivery", async () => {

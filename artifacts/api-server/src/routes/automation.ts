@@ -21,8 +21,21 @@ import {
   customerMessageSubject,
   sendCustomerMessageViaGmail,
 } from "../lib/customerMessageDelivery";
+import { defaultGmailProxy, type GmailProxy } from "../lib/gmail";
 
 const router: IRouter = Router();
+
+// The mail provider used for approved customer messages. Tests replace it with
+// a stub so the sent/failed outcomes can be exercised without touching Gmail.
+let customerMessageGmailProxy: GmailProxy = defaultGmailProxy;
+
+/** Swap the Gmail proxy used for approved customer messages (tests only). */
+export function setCustomerMessageGmailProxyForTests(proxy: GmailProxy | null) {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("The customer message Gmail proxy can only be replaced in tests");
+  }
+  customerMessageGmailProxy = proxy ?? defaultGmailProxy;
+}
 
 // Every automation endpoint is admin-only: rules, checks, and the review queue.
 router.use(requireAuth, requireAdmin);
@@ -461,11 +474,14 @@ async function deliverCustomerMessage(
   req: Request,
 ): Promise<SuggestionRow> {
   try {
-    const sent = await sendCustomerMessageViaGmail({
-      toEmail,
-      subject: customerMessageSubject(suggestion.actionType, suggestion.targetDate),
-      html: createCustomerMessageEmailHtml(suggestion.customerMessage!, clientName),
-    });
+    const sent = await sendCustomerMessageViaGmail(
+      {
+        toEmail,
+        subject: customerMessageSubject(suggestion.actionType, suggestion.targetDate),
+        html: createCustomerMessageEmailHtml(suggestion.customerMessage!, clientName),
+      },
+      customerMessageGmailProxy,
+    );
     const [updated] = await db
       .update(suggestedActionsTable)
       .set({
