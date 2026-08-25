@@ -237,6 +237,8 @@ router.get("/estimates", async (req, res) => {
  * - Calculable fields: value / unitSize * pricePerUnit
  * - Services: pricing equations against a sqft value, falling back to rate * quantity
  * - Other field types are informational (no price)
+ * - Custom lines (no fieldId/serviceId): the submitted price is kept, but the
+ *   label and the price are validated because nothing else vouches for them
  */
 async function priceEstimateLines(lines: EstimateLine[]): Promise<EstimateLine[]> {
   const fieldIds = [...new Set(lines.map((l) => l.fieldId).filter((id): id is number => id != null))];
@@ -272,8 +274,17 @@ async function priceEstimateLines(lines: EstimateLine[]): Promise<EstimateLine[]
       }
       return { ...line, label: field.label, calculatedPrice: null };
     }
-    // Free-form line: keep the submitted price (manual add-on).
-    return { ...line, calculatedPrice: line.calculatedPrice ?? null };
+    // Custom line (one-off charge such as a haul-away fee or a discount): there
+    // is no definition to price it from, so the submitted amount is kept. Since
+    // that amount is trusted, it must at least be a real label and a real number.
+    const label = line.label.trim();
+    if (!label) {
+      throw Object.assign(new Error("A custom line needs a label"), { status: 400 });
+    }
+    if (line.calculatedPrice == null || !Number.isFinite(line.calculatedPrice)) {
+      throw Object.assign(new Error(`"${label}" needs a numeric price`), { status: 400 });
+    }
+    return { ...line, label, calculatedPrice: round(line.calculatedPrice) };
   });
 }
 
@@ -334,15 +345,28 @@ async function priceEstimateLinesPreservingHistory(
   return slots.map((preserved) => preserved ?? priced[next++]);
 }
 
+/**
+ * Turn a rejected estimate body into a message for the caller: our own pricing
+ * errors carry status 400, and a schema failure (for example a custom line whose
+ * price is not a number) would otherwise surface as an opaque 500.
+ */
+function estimateBadRequestMessage(error: unknown): string | null {
+  if (error instanceof Error && (error as { status?: number }).status === 400) return error.message;
+  if (error instanceof Error && error.name === "ZodError") {
+    return "This estimate could not be saved. Check that every line has a label and that custom lines have a numeric price.";
+  }
+  return null;
+}
+
 router.post("/estimates", async (req, res) => {
-  const body = CreateEstimateBody.parse(req.body);
+  let body: ReturnType<typeof CreateEstimateBody.parse>;
   let lines: EstimateLine[];
   try {
+    body = CreateEstimateBody.parse(req.body);
     lines = await priceEstimateLines(body.lines);
   } catch (error) {
-    if (error instanceof Error && (error as { status?: number }).status === 400) {
-      return res.status(400).json({ error: error.message });
-    }
+    const message = estimateBadRequestMessage(error);
+    if (message) return res.status(400).json({ error: message });
     throw error;
   }
   const total = lines.reduce((s, l) => s + (l.calculatedPrice ?? 0), 0);
@@ -378,7 +402,14 @@ router.get("/estimates/:id", async (req, res) => {
  * service has since been deleted are carried through exactly as stored.
  */
 router.patch("/estimates/:id", async (req, res) => {
-  const body = UpdateEstimateBody.parse(req.body);
+  let body: ReturnType<typeof UpdateEstimateBody.parse>;
+  try {
+    body = UpdateEstimateBody.parse(req.body);
+  } catch (error) {
+    const message = estimateBadRequestMessage(error);
+    if (message) return res.status(400).json({ error: message });
+    throw error;
+  }
   const id = Number(req.params.id);
   const [existing] = await db.select().from(estimatesTable).where(eq(estimatesTable.id, id));
   if (!existing) return res.status(404).json({ error: "Estimate not found" });
@@ -397,9 +428,8 @@ router.patch("/estimates/:id", async (req, res) => {
   try {
     lines = await priceEstimateLinesPreservingHistory(body.lines, existing.lines);
   } catch (error) {
-    if (error instanceof Error && (error as { status?: number }).status === 400) {
-      return res.status(400).json({ error: error.message });
-    }
+    const message = estimateBadRequestMessage(error);
+    if (message) return res.status(400).json({ error: message });
     throw error;
   }
   const total = Math.round(lines.reduce((s, l) => s + (l.calculatedPrice ?? 0), 0) * 100) / 100;

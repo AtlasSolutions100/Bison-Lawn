@@ -421,6 +421,81 @@ test("estimate PDF downloads and a secure customer response can be recorded only
   assert.equal(badToken.status, 404);
 });
 
+test("custom estimate lines keep their entered price through create and edit", async () => {
+  const created = await api("/estimates", admin.id, {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: clientWithCoords.id,
+      lines: [
+        { label: " Haul-away ", value: "2 loads", calculatedPrice: 75.456 },
+        { label: "Spring discount", value: "", calculatedPrice: -25 },
+      ],
+    }),
+  });
+  assert.equal(created.status, 201);
+  // trimmed label, rounded to cents, and both lines counted in the total
+  assert.deepEqual(
+    created.body.lines.map((l: any) => [l.label, l.value, l.calculatedPrice]),
+    [
+      ["Haul-away", "2 loads", 75.46],
+      ["Spring discount", "", -25],
+    ],
+  );
+  assert.equal(created.body.total, 50.46);
+
+  // An edit round-trip resubmits the saved custom lines unchanged.
+  const edited = await api(`/estimates/${created.body.id}`, admin.id, {
+    method: "PATCH",
+    body: JSON.stringify({ notes: "Includes dump fee", lines: created.body.lines }),
+  });
+  assert.equal(edited.status, 200);
+  assert.deepEqual(edited.body.lines, created.body.lines);
+  assert.equal(edited.body.total, 50.46);
+
+  const blankLabel = await api("/estimates", admin.id, {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: clientWithCoords.id,
+      lines: [{ label: "   ", value: "", calculatedPrice: 40 }],
+    }),
+  });
+  assert.equal(blankLabel.status, 400);
+  assert.match(blankLabel.body.error, /needs a label/);
+
+  const missingPrice = await api("/estimates", admin.id, {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: clientWithCoords.id,
+      lines: [{ label: "Dump fee", value: "", calculatedPrice: null }],
+    }),
+  });
+  assert.equal(missingPrice.status, 400);
+  assert.match(missingPrice.body.error, /numeric price/);
+
+  const textPrice = await api("/estimates", admin.id, {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: clientWithCoords.id,
+      lines: [{ label: "Dump fee", value: "", calculatedPrice: "forty" }],
+    }),
+  });
+  assert.equal(textPrice.status, 400);
+  assert.match(textPrice.body.error, /numeric price/);
+
+  // The same validation applies on edit, and a rejected edit changes nothing.
+  const badEdit = await api(`/estimates/${created.body.id}`, admin.id, {
+    method: "PATCH",
+    body: JSON.stringify({ lines: [{ label: "Haul-away", value: "", calculatedPrice: null }] }),
+  });
+  assert.equal(badEdit.status, 400);
+  const [stillStored] = await db
+    .select()
+    .from(estimatesTable)
+    .where(eq(estimatesTable.id, created.body.id));
+  assert.equal(stillStored.total, 50.46);
+  assert.equal(stillStored.lines.length, 2);
+});
+
 test("estimate delivery rejects concurrent sends and preserves final customer responses", async () => {
   const [sending, accepted] = await db
     .insert(estimatesTable)

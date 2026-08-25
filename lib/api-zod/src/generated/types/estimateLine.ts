@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * A line on an estimate. With a fieldId or serviceId the price is computed server-side from that definition; with neither it is a custom one-off charge (haul-away, dump fee, discount) whose label and submitted price are validated and kept as entered.
+ */
 export interface EstimateLine {
   /**
      * Reference to a reusable estimate field
@@ -18,9 +21,10 @@ export interface EstimateLine {
      */
   serviceId?: number | null;
   label: string;
+  /** Entered value for field/service lines, optional description for custom lines */
   value: string;
   /**
-     * Server-computed for field/service lines
+     * Server-computed for field/service lines; required and kept as submitted for custom lines
      * @nullable
      */
   calculatedPrice?: number | null;

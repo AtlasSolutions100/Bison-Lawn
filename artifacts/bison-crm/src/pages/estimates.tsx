@@ -267,6 +267,19 @@ function serviceLinePrice(service: Service, value: string): number {
   return Math.round(service.rate * service.quantity * 100) / 100;
 }
 
+type CustomLineDraft = { key: number; label: string; value: string; price: string };
+
+let customLineKeySeq = 0;
+const nextCustomLineKey = () => ++customLineKeySeq;
+
+/** Blank means "not entered yet"; anything non-numeric is rejected the same way. */
+function customLinePrice(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (trimmed === '') return null;
+  const numeric = Number(trimmed);
+  return Number.isFinite(numeric) ? Math.round(numeric * 100) / 100 : null;
+}
+
 function EstimateBuilder({ editEstimate, onFinished, onCancelEdit }: {
   editEstimate: Estimate | null;
   onFinished: () => void;
@@ -276,10 +289,11 @@ function EstimateBuilder({ editEstimate, onFinished, onCancelEdit }: {
   const [notes, setNotes] = useState(editEstimate?.notes ?? '');
   const [fieldValues, setFieldValues] = useState<Record<number, { selected: boolean; value: string }>>({});
   const [serviceValues, setServiceValues] = useState<Record<number, { selected: boolean; value: string }>>({});
-  // Saved lines whose field/service no longer exists (or free-form add-ons the
-  // builder cannot render). They are carried through an edit untouched so an
-  // edit never silently drops part of the estimate.
+  // Saved lines whose field/service no longer exists. They are carried through
+  // an edit untouched so an edit never silently drops part of the estimate.
   const [carriedLines, setCarriedLines] = useState<EstimateLine[]>([]);
+  // One-off charges (haul-away, dump fee, discount) entered by hand.
+  const [customLines, setCustomLines] = useState<CustomLineDraft[]>([]);
   const { data: clients } = useListClients();
   const { data: fields } = useListEstimateFields();
   const { data: services } = useListServices();
@@ -308,11 +322,20 @@ function EstimateBuilder({ editEstimate, onFinished, onCancelEdit }: {
     const nextFields: Record<number, { selected: boolean; value: string }> = {};
     const nextServices: Record<number, { selected: boolean; value: string }> = {};
     const carried: EstimateLine[] = [];
+    const custom: CustomLineDraft[] = [];
     for (const line of editEstimate.lines) {
       if (line.fieldId != null && fields.some(f => f.id === line.fieldId)) {
         nextFields[line.fieldId] = { selected: true, value: line.value };
       } else if (line.serviceId != null && services.some(s => s.id === line.serviceId)) {
         nextServices[line.serviceId] = { selected: true, value: line.value };
+      } else if (line.fieldId == null && line.serviceId == null) {
+        // A custom one-off charge — editable, unlike a line whose definition is gone.
+        custom.push({
+          key: nextCustomLineKey(),
+          label: line.label,
+          value: line.value,
+          price: line.calculatedPrice == null ? '' : String(line.calculatedPrice),
+        });
       } else {
         carried.push(line);
       }
@@ -320,6 +343,7 @@ function EstimateBuilder({ editEstimate, onFinished, onCancelEdit }: {
     setFieldValues(nextFields);
     setServiceValues(nextServices);
     setCarriedLines(carried);
+    setCustomLines(custom);
   }, [editEstimate, fieldsLoaded, servicesLoaded]);
 
   useEffect(() => {
@@ -356,14 +380,24 @@ function EstimateBuilder({ editEstimate, onFinished, onCancelEdit }: {
       if (!state?.selected) continue;
       result.push({ serviceId: s.id, label: s.name, value: state.value, calculatedPrice: serviceLinePrice(s, state.value) });
     }
+    for (const c of customLines) {
+      result.push({
+        fieldId: null,
+        serviceId: null,
+        label: c.label.trim(),
+        value: c.value.trim(),
+        calculatedPrice: customLinePrice(c.price),
+      });
+    }
     return result;
-  }, [fields, services, fieldValues, serviceValues, carriedLines]);
+  }, [fields, services, fieldValues, serviceValues, carriedLines, customLines]);
 
   const total = lines.reduce((sum, l) => sum + (l.calculatedPrice ?? 0), 0);
   const invalidCalculable = (fields ?? []).some(f => {
     const state = fieldValues[f.id];
     return state?.selected && f.fieldType === 'calculable' && (state.value.trim() === '' || !Number.isFinite(Number(state.value)));
   });
+  const invalidCustom = customLines.some(c => c.label.trim() === '' || customLinePrice(c.price) == null);
 
   const saving = createEstimate.isPending || updateEstimate.isPending;
 
@@ -399,6 +433,7 @@ function EstimateBuilder({ editEstimate, onFinished, onCancelEdit }: {
         setNotes('');
         setFieldValues({});
         setServiceValues({});
+        setCustomLines([]);
         alert('Estimate created');
       },
       onError,
@@ -528,6 +563,66 @@ function EstimateBuilder({ editEstimate, onFinished, onCancelEdit }: {
         </div>
 
         <div>
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <h3 className="text-sm font-semibold">Custom Lines</h3>
+              <p className="text-xs text-muted-foreground">One-off charges like a haul-away, dump fee, or a discount (use a negative price).</p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCustomLines(prev => [...prev, { key: nextCustomLineKey(), label: '', value: '', price: '' }])}
+            >
+              <Plus className="w-4 h-4 mr-2" /> Add custom line
+            </Button>
+          </div>
+          {!customLines.length ? (
+            <p className="text-sm text-muted-foreground">No custom lines.</p>
+          ) : (
+            <div className="space-y-2">
+              {customLines.map(c => {
+                const set = (patch: Partial<CustomLineDraft>) =>
+                  setCustomLines(prev => prev.map(line => (line.key === c.key ? { ...line, ...patch } : line)));
+                const priceInvalid = customLinePrice(c.price) == null;
+                return (
+                  <div key={c.key} className="flex items-center gap-3 p-3 rounded-md border bg-background">
+                    <Input
+                      className="w-56"
+                      value={c.label}
+                      onChange={e => set({ label: e.target.value })}
+                      placeholder="Label (e.g. Haul-away)"
+                    />
+                    <Input
+                      className="flex-1"
+                      value={c.value}
+                      onChange={e => set({ value: e.target.value })}
+                      placeholder="Description (optional)"
+                    />
+                    <Input
+                      type="number"
+                      step="0.01"
+                      className={`w-32 ${priceInvalid ? 'border-destructive' : ''}`}
+                      value={c.price}
+                      onChange={e => set({ price: e.target.value })}
+                      placeholder="Price"
+                    />
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      title="Remove this custom line"
+                      className="text-muted-foreground hover:text-destructive"
+                      onClick={() => setCustomLines(prev => prev.filter(line => line.key !== c.key))}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div>
           <label className="text-sm font-medium mb-1 block">Notes</label>
           <textarea
             className="flex min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -562,7 +657,8 @@ function EstimateBuilder({ editEstimate, onFinished, onCancelEdit }: {
           <span className="tabular-nums">{money(total)}</span>
         </div>
         {invalidCalculable && <p className="text-xs text-destructive">Enter numeric values for all selected calculable fields.</p>}
-        <Button className="w-full" disabled={!clientId || !lines.length || invalidCalculable || saving} onClick={handleSave}>
+        {invalidCustom && <p className="text-xs text-destructive">Give every custom line a label and a numeric price.</p>}
+        <Button className="w-full" disabled={!clientId || !lines.length || invalidCalculable || invalidCustom || saving} onClick={handleSave}>
           {saving ? 'Saving…' : editEstimate ? 'Save Changes' : 'Save Estimate'}
         </Button>
         {editEstimate && (

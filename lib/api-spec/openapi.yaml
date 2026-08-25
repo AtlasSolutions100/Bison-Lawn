@@ -1619,13 +1619,19 @@ components:
         sortOrder: { type: ["integer", "null"] }
     EstimateLine:
       type: object
+      description: >-
+        A line on an estimate. With a fieldId or serviceId the price is computed server-side from that
+        definition; with neither it is a custom one-off charge (haul-away, dump fee, discount) whose
+        label and submitted price are validated and kept as entered.
       required: [label, value]
       properties:
         fieldId: { type: ["integer", "null"], description: "Reference to a reusable estimate field" }
         serviceId: { type: ["integer", "null"], description: "Reference to a service priced by its equations" }
         label: { type: string }
-        value: { type: string }
-        calculatedPrice: { type: ["number", "null"], description: "Server-computed for field/service lines" }
+        value: { type: string, description: "Entered value for field/service lines, optional description for custom lines" }
+        calculatedPrice:
+          type: ["number", "null"]
+          description: "Server-computed for field/service lines; required and kept as submitted for custom lines"
     Estimate:
       type: object
       required: [id, clientId, status, total, lines, createdAt, deliveryAttempts, deliveryState]

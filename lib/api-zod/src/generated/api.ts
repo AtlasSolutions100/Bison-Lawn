@@ -106,9 +106,6 @@ export const ListClientsResponseItem = zod.object({
 export const ListClientsResponse = zod.array(ListClientsResponseItem)
 
 
-
-
-
 export const CreateClientBody = zod.object({
   "name": zod.string().min(1),
   "status": zod.enum(['lead', 'client', 'former_client']).optional(),
@@ -170,8 +167,6 @@ export const UpdateClientParams = zod.object({
 })
 
 
-
-
 export const UpdateClientBody = zod.object({
   "name": zod.string().min(1).optional(),
   "status": zod.enum(['lead', 'client', 'former_client']).optional(),
@@ -229,8 +224,6 @@ export const ListClientNotesResponse = zod.array(ListClientNotesResponseItem)
 export const CreateClientNoteParams = zod.object({
   "id": zod.coerce.number().int()
 })
-
-
 
 
 export const CreateClientNoteBody = zod.object({
@@ -405,9 +398,6 @@ export const ListServicesResponseItem = zod.object({
 export const ListServicesResponse = zod.array(ListServicesResponseItem)
 
 
-
-
-
 export const CreateServiceBody = zod.object({
   "name": zod.string().min(1),
   "description": zod.string().optional(),
@@ -485,8 +475,6 @@ export const GetServiceResponse = zod.object({
 export const UpdateServiceParams = zod.object({
   "id": zod.coerce.number().int()
 })
-
-
 
 
 export const UpdateServiceBody = zod.object({
@@ -591,9 +579,6 @@ export const ListPackagesResponseItem = zod.object({
 export const ListPackagesResponse = zod.array(ListPackagesResponseItem)
 
 
-
-
-
 export const CreatePackageBody = zod.object({
   "name": zod.string().min(1),
   "description": zod.string().optional(),
@@ -633,8 +618,6 @@ export const CreatePackageResponse = zod.object({
 export const UpdatePackageParams = zod.object({
   "id": zod.coerce.number().int()
 })
-
-
 
 
 export const UpdatePackageBody = zod.object({
@@ -691,9 +674,6 @@ export const ListEstimateFieldsResponseItem = zod.object({
 export const ListEstimateFieldsResponse = zod.array(ListEstimateFieldsResponseItem)
 
 
-
-
-
 export const CreateEstimateFieldBody = zod.object({
   "label": zod.string().min(1),
   "fieldType": zod.enum(['calculable', 'text', 'number', 'boolean']),
@@ -715,8 +695,6 @@ export const CreateEstimateFieldResponse = zod.object({
 export const UpdateEstimateFieldParams = zod.object({
   "id": zod.coerce.number().int()
 })
-
-
 
 
 export const UpdateEstimateFieldBody = zod.object({
@@ -759,9 +737,9 @@ export const ListEstimatesResponseItem = zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
   "label": zod.string(),
-  "value": zod.string(),
-  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines')
-})),
+  "value": zod.string().describe('Entered value for field\/service lines, optional description for custom lines'),
+  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines')
+}).describe('A line on an estimate. With a fieldId or serviceId the price is computed server-side from that definition; with neither it is a custom one-off charge (haul-away, dump fee, discount) whose label and submitted price are validated and kept as entered.')),
   "createdAt": zod.string(),
   "sentAt": zod.string().nullish(),
   "sentToEmail": zod.string().nullish(),
@@ -782,9 +760,9 @@ export const CreateEstimateBody = zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
   "label": zod.string(),
-  "value": zod.string(),
-  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines')
-}))
+  "value": zod.string().describe('Entered value for field\/service lines, optional description for custom lines'),
+  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines')
+}).describe('A line on an estimate. With a fieldId or serviceId the price is computed server-side from that definition; with neither it is a custom one-off charge (haul-away, dump fee, discount) whose label and submitted price are validated and kept as entered.'))
 })
 
 export const CreateEstimateResponse = zod.object({
@@ -798,9 +776,9 @@ export const CreateEstimateResponse = zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
   "label": zod.string(),
-  "value": zod.string(),
-  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines')
-})),
+  "value": zod.string().describe('Entered value for field\/service lines, optional description for custom lines'),
+  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines')
+}).describe('A line on an estimate. With a fieldId or serviceId the price is computed server-side from that definition; with neither it is a custom one-off charge (haul-away, dump fee, discount) whose label and submitted price are validated and kept as entered.')),
   "createdAt": zod.string(),
   "sentAt": zod.string().nullish(),
   "sentToEmail": zod.string().nullish(),
@@ -828,9 +806,9 @@ export const GetEstimateResponse = zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
   "label": zod.string(),
-  "value": zod.string(),
-  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines')
-})),
+  "value": zod.string().describe('Entered value for field\/service lines, optional description for custom lines'),
+  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines')
+}).describe('A line on an estimate. With a fieldId or serviceId the price is computed server-side from that definition; with neither it is a custom one-off charge (haul-away, dump fee, discount) whose label and submitted price are validated and kept as entered.')),
   "createdAt": zod.string(),
   "sentAt": zod.string().nullish(),
   "sentToEmail": zod.string().nullish(),
@@ -856,9 +834,9 @@ export const UpdateEstimateBody = zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
   "label": zod.string(),
-  "value": zod.string(),
-  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines')
-}))
+  "value": zod.string().describe('Entered value for field\/service lines, optional description for custom lines'),
+  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines')
+}).describe('A line on an estimate. With a fieldId or serviceId the price is computed server-side from that definition; with neither it is a custom one-off charge (haul-away, dump fee, discount) whose label and submitted price are validated and kept as entered.'))
 })
 
 export const UpdateEstimateResponse = zod.object({
@@ -872,9 +850,9 @@ export const UpdateEstimateResponse = zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
   "label": zod.string(),
-  "value": zod.string(),
-  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines')
-})),
+  "value": zod.string().describe('Entered value for field\/service lines, optional description for custom lines'),
+  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines')
+}).describe('A line on an estimate. With a fieldId or serviceId the price is computed server-side from that definition; with neither it is a custom one-off charge (haul-away, dump fee, discount) whose label and submitted price are validated and kept as entered.')),
   "createdAt": zod.string(),
   "sentAt": zod.string().nullish(),
   "sentToEmail": zod.string().nullish(),
@@ -927,9 +905,9 @@ export const SendEstimateResponse = zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
   "label": zod.string(),
-  "value": zod.string(),
-  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines')
-})),
+  "value": zod.string().describe('Entered value for field\/service lines, optional description for custom lines'),
+  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines')
+}).describe('A line on an estimate. With a fieldId or serviceId the price is computed server-side from that definition; with neither it is a custom one-off charge (haul-away, dump fee, discount) whose label and submitted price are validated and kept as entered.')),
   "createdAt": zod.string(),
   "sentAt": zod.string().nullish(),
   "sentToEmail": zod.string().nullish(),
@@ -960,9 +938,9 @@ export const ReconcileEstimateDeliveryResponse = zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
   "label": zod.string(),
-  "value": zod.string(),
-  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines')
-})),
+  "value": zod.string().describe('Entered value for field\/service lines, optional description for custom lines'),
+  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines')
+}).describe('A line on an estimate. With a fieldId or serviceId the price is computed server-side from that definition; with neither it is a custom one-off charge (haul-away, dump fee, discount) whose label and submitted price are validated and kept as entered.')),
   "createdAt": zod.string(),
   "sentAt": zod.string().nullish(),
   "sentToEmail": zod.string().nullish(),
@@ -1354,8 +1332,6 @@ export const AddJobProductParams = zod.object({
 })
 
 
-
-
 export const AddJobProductBody = zod.object({
   "name": zod.string().min(1),
   "price": zod.number(),
@@ -1451,7 +1427,6 @@ export const AddExtraWorkParams = zod.object({
 export const addExtraWorkBodyQuantityMin = 0.01;
 
 
-
 export const AddExtraWorkBody = zod.object({
   "serviceId": zod.int(),
   "quantity": zod.number().min(addExtraWorkBodyQuantityMin).optional()
@@ -1475,7 +1450,6 @@ export const RecordOnSitePaymentParams = zod.object({
 })
 
 export const recordOnSitePaymentBodyAmountMin = 0.01;
-
 
 
 export const RecordOnSitePaymentBody = zod.object({
@@ -1515,7 +1489,6 @@ export const GetBillingSettingsResponse = zod.object({
  */
 export const updateBillingSettingsBodyCardFeePercentMin = 0;
 export const updateBillingSettingsBodyCardFeePercentMax = 25;
-
 
 
 export const UpdateBillingSettingsBody = zod.object({
@@ -1713,9 +1686,6 @@ export const ListTicketsResponseItem = zod.object({
 export const ListTicketsResponse = zod.array(ListTicketsResponseItem)
 
 
-
-
-
 export const CreateTicketBody = zod.object({
   "clientId": zod.int().nullish(),
   "title": zod.string().min(1),
@@ -1741,8 +1711,6 @@ export const CreateTicketResponse = zod.object({
 export const UpdateTicketParams = zod.object({
   "id": zod.coerce.number().int()
 })
-
-
 
 
 export const UpdateTicketBody = zod.object({
@@ -1780,8 +1748,6 @@ export const DeleteTicketResponse = zod.void()
 export const CreateFieldNoteParams = zod.object({
   "id": zod.coerce.number().int()
 })
-
-
 
 
 export const CreateFieldNoteBody = zod.object({
@@ -1840,10 +1806,6 @@ export const ListWeatherRulesResponseItem = zod.object({
 export const ListWeatherRulesResponse = zod.array(ListWeatherRulesResponseItem)
 
 
-
-
-
-
 export const CreateWeatherRuleBody = zod.object({
   "name": zod.string().min(1),
   "conditionType": zod.enum(['rain', 'wind', 'heat', 'cold']),
@@ -1870,9 +1832,6 @@ export const CreateWeatherRuleResponse = zod.object({
 export const UpdateWeatherRuleParams = zod.object({
   "id": zod.coerce.number().int()
 })
-
-
-
 
 
 export const UpdateWeatherRuleBody = zod.object({
@@ -2164,5 +2123,4 @@ export const GetContractorEarningsResponseItem = zod.object({
   "completedCount": zod.int().optional()
 })
 export const GetContractorEarningsResponse = zod.array(GetContractorEarningsResponseItem)
-
 
