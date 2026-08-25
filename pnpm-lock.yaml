@@ -668,6 +668,27 @@ importers:
         specifier: ^0.31.10
         version: 0.31.10
 
+  lib/e2e:
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.9.5
+      '@workspace/api-server':
+        specifier: workspace:*
+        version: link:../../artifacts/api-server
+      '@workspace/db':
+        specifier: workspace:*
+        version: link:../db
+      drizzle-orm:
+        specifier: 'catalog:'
+        version: 0.45.2(@types/pg@8.20.0)(pg@8.22.0)
+      playwright-core:
+        specifier: 1.55.0
+        version: 1.55.0
+      tsx:
+        specifier: 'catalog:'
+        version: 4.23.1
+
   scripts:
     devDependencies:
       '@types/node':
@@ -2735,6 +2756,11 @@ packages:
 
   pino@9.14.0:
     resolution: {integrity: sha512-8OEwKp5juEvb/MjpIc4hjqfgCNysrS94RIOMXYvpYCdm/jglrKEiAYmiumbmGhCvs+IcInsphYDFwqrjr7398w==}
+    hasBin: true
+
+  playwright-core@1.55.0:
+    resolution: {integrity: sha512-GvZs4vU3U5ro2nZpeiwyb0zuFaqb9sUiAJuyrWpcGouD8y9/HLgGbNRjIph7zU9D3hnPaisMl9zG9CgFi/biIg==}
+    engines: {node: '>=18'}
     hasBin: true
 
   png-js@2.0.0:
@@ -5413,6 +5439,8 @@ snapshots:
       safe-stable-stringify: 2.5.0
       sonic-boom: 4.2.1
       thread-stream: 3.1.0
+
+  playwright-core@1.55.0: {}
 
   png-js@2.0.0:
     dependencies:

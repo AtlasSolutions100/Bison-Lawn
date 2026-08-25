@@ -6,6 +6,7 @@ import { shadcn } from '@clerk/themes';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 
 import { ErrorBoundary } from '@/components/error-boundary';
+import { e2eAuthBypass } from '@/lib/e2e-auth';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
@@ -135,11 +136,21 @@ function ClerkQueryClientCacheInvalidator() {
   return null;
 }
 
+/**
+ * Gate for routes that need a signed-in Clerk session. The dev-only e2e bypass
+ * (see `@/lib/e2e-auth`) renders the route directly; the API still enforces its
+ * own test-token auth, so nothing is exposed by skipping the client gate.
+ */
+function SignedIn({ children }: { children: ReactNode }) {
+  if (e2eAuthBypass) return <>{children}</>;
+  return <Show when="signed-in">{children}</Show>;
+}
+
 function useCurrentAppUser() {
   const { isLoaded, isSignedIn } = useAuth();
   const query = useGetCurrentUser({
     query: {
-      enabled: isLoaded && isSignedIn,
+      enabled: e2eAuthBypass || (isLoaded && isSignedIn),
       queryKey: ['me'],
       retry: false,
     },
@@ -205,7 +216,7 @@ function HomeRedirect() {
   if (!authIsLoaded) {
     return <div className="flex h-[100dvh] items-center justify-center text-muted-foreground">Loading...</div>;
   }
-  if (!isSignedIn) return <Home />;
+  if (!isSignedIn && !e2eAuthBypass) return <Home />;
   if (isError) {
     return (
       <SessionError
@@ -301,21 +312,21 @@ function ClerkProviderWithRoutes() {
               <Route path="/sign-up/*?" component={SignUpPage} />
 
               {/* Admin Routes */}
-              <Route path="/dashboard"><Show when="signed-in"><AdminRoute component={Dashboard} /></Show></Route>
-              <Route path="/clients"><Show when="signed-in"><AdminRoute component={Clients} /></Show></Route>
-              <Route path="/clients/:id"><Show when="signed-in"><AdminRoute component={ClientDetail} /></Show></Route>
-              <Route path="/services"><Show when="signed-in"><AdminRoute component={Services} /></Show></Route>
-              <Route path="/estimates"><Show when="signed-in"><AdminRoute component={Estimates} /></Show></Route>
-              <Route path="/waiting-list"><Show when="signed-in"><AdminRoute component={WaitingList} /></Show></Route>
-              <Route path="/dispatch"><Show when="signed-in"><AdminRoute component={Dispatch} /></Show></Route>
-              <Route path="/invoices"><Show when="signed-in"><AdminRoute component={Invoices} /></Show></Route>
-              <Route path="/tickets"><Show when="signed-in"><AdminRoute component={Tickets} /></Show></Route>
-              <Route path="/automation"><Show when="signed-in"><AdminRoute component={Automation} /></Show></Route>
-              <Route path="/team"><Show when="signed-in"><AdminRoute component={Team} /></Show></Route>
+              <Route path="/dashboard"><SignedIn><AdminRoute component={Dashboard} /></SignedIn></Route>
+              <Route path="/clients"><SignedIn><AdminRoute component={Clients} /></SignedIn></Route>
+              <Route path="/clients/:id"><SignedIn><AdminRoute component={ClientDetail} /></SignedIn></Route>
+              <Route path="/services"><SignedIn><AdminRoute component={Services} /></SignedIn></Route>
+              <Route path="/estimates"><SignedIn><AdminRoute component={Estimates} /></SignedIn></Route>
+              <Route path="/waiting-list"><SignedIn><AdminRoute component={WaitingList} /></SignedIn></Route>
+              <Route path="/dispatch"><SignedIn><AdminRoute component={Dispatch} /></SignedIn></Route>
+              <Route path="/invoices"><SignedIn><AdminRoute component={Invoices} /></SignedIn></Route>
+              <Route path="/tickets"><SignedIn><AdminRoute component={Tickets} /></SignedIn></Route>
+              <Route path="/automation"><SignedIn><AdminRoute component={Automation} /></SignedIn></Route>
+              <Route path="/team"><SignedIn><AdminRoute component={Team} /></SignedIn></Route>
 
               {/* Contractor Routes */}
-              <Route path="/my/jobs"><Show when="signed-in"><ContractorRoute component={MyJobs} /></Show></Route>
-              <Route path="/my/route"><Show when="signed-in"><ContractorRoute component={MyRoute} /></Show></Route>
+              <Route path="/my/jobs"><SignedIn><ContractorRoute component={MyJobs} /></SignedIn></Route>
+              <Route path="/my/route"><SignedIn><ContractorRoute component={MyRoute} /></SignedIn></Route>
 
               <Route component={NotFound} />
             </Switch>

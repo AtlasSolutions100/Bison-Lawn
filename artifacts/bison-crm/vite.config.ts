@@ -67,6 +67,12 @@ export default defineConfig({
     fs: {
       strict: true,
     },
+    // The browser e2e suite runs its own API process on a random port and
+    // needs it served same-origin. Unset in normal dev/preview, where the
+    // workspace proxy already routes /api.
+    ...(process.env.E2E_API_URL
+      ? { proxy: { '/api': { target: process.env.E2E_API_URL, changeOrigin: false } } }
+      : {}),
   },
   preview: {
     port,
