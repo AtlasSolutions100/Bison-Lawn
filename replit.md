@@ -41,7 +41,7 @@ Custom CRM + job management for Bison Lawn Care LLC — leads/clients, equation-
 
 ## Product
 
-- Admin: dashboard, clients (notes, property data, lazy audit trail), services & packages with live price calculator, estimates (custom fields, print-to-PDF, send), waiting list with multi-dispatch, dispatch board with 14 columns + filters, invoices/payments (check/Venmo/Zelle/card/cash + reference #), tickets, team management.
+- Admin: dashboard, clients (notes, property data, lazy audit trail), services & packages with live price calculator, estimates (custom fields, draft editing, print-to-PDF, send), waiting list with multi-dispatch, dispatch board with 14 columns + filters, invoices/payments (check/Venmo/Zelle/card/cash + reference #), tickets, team management.
 - Contractor: mobile job list with one-tap status updates and optimized route view.
 
 ## Gotchas

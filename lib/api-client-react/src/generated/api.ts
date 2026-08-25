@@ -42,6 +42,7 @@ import type {
   EstimateFieldUpdate,
   EstimateInput,
   EstimateSendInput,
+  EstimateUpdateInput,
   ExtraWorkInput,
   FieldNote,
   FieldNoteInput,
@@ -2424,6 +2425,78 @@ export function useGetEstimate<TData = Awaited<ReturnType<typeof getEstimate>>, 
 
 
 
+
+export const getUpdateEstimateUrl = (id: number,) => {
+
+
+
+
+  return `/api/estimates/${id}`
+}
+
+/**
+ * @summary Edit a draft estimate's lines and notes; sent/accepted/declined stay immutable
+ */
+export const updateEstimate = async (id: number,
+    estimateUpdateInput: EstimateUpdateInput, options?: Parameters<typeof customFetch>[1]): Promise<Estimate> => {
+
+  return customFetch<Estimate>(getUpdateEstimateUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(estimateUpdateInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateEstimateMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateEstimate>>, TError,{id: number;data: BodyType<EstimateUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateEstimate>>, TError,{id: number;data: BodyType<EstimateUpdateInput>}, TContext> => {
+
+const mutationKey = ['updateEstimate'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateEstimate>>, {id: number;data: BodyType<EstimateUpdateInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateEstimate(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateEstimateMutationResult = NonNullable<Awaited<ReturnType<typeof updateEstimate>>>
+    export type UpdateEstimateMutationBody = BodyType<EstimateUpdateInput>
+    export type UpdateEstimateMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Edit a draft estimate's lines and notes; sent/accepted/declined stay immutable
+ */
+export const useUpdateEstimate = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateEstimate>>, TError,{id: number;data: BodyType<EstimateUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateEstimate>>,
+        TError,
+        {id: number;data: BodyType<EstimateUpdateInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateEstimateMutationOptions(options));
+    }
 
 export const getDeleteEstimateUrl = (id: number,) => {
 

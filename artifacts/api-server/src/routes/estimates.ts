@@ -7,6 +7,7 @@ import {
   CreateEstimateFieldBody,
   UpdateEstimateFieldBody,
   CreateEstimateBody,
+  UpdateEstimateBody,
   SendEstimateBody,
 } from "@workspace/api-zod";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
@@ -276,6 +277,63 @@ async function priceEstimateLines(lines: EstimateLine[]): Promise<EstimateLine[]
   });
 }
 
+/**
+ * A saved line whose field or service has since been deleted can no longer be
+ * repriced. Such lines are historical: an edit carries them through byte-for-byte
+ * instead of failing, but only lines that exactly match what is already stored
+ * qualify — otherwise a dangling reference would be a way to submit any price.
+ */
+const historicalLineKey = (line: EstimateLine) =>
+  JSON.stringify([line.fieldId ?? null, line.serviceId ?? null, line.label, line.value, line.calculatedPrice ?? null]);
+
+async function danglingLineCounts(lines: EstimateLine[]): Promise<Map<string, number>> {
+  const fieldIds = [...new Set(lines.map((l) => l.fieldId).filter((id): id is number => id != null))];
+  const serviceIds = [...new Set(lines.map((l) => l.serviceId).filter((id): id is number => id != null))];
+  const fields = fieldIds.length
+    ? await db.select({ id: estimateFieldsTable.id }).from(estimateFieldsTable).where(inArray(estimateFieldsTable.id, fieldIds))
+    : [];
+  const services = serviceIds.length
+    ? await db.select({ id: servicesTable.id }).from(servicesTable).where(inArray(servicesTable.id, serviceIds))
+    : [];
+  const counts = new Map<string, number>();
+  for (const line of lines) {
+    const missing =
+      (line.fieldId != null && !fields.some((f) => f.id === line.fieldId)) ||
+      (line.serviceId != null && !services.some((s) => s.id === line.serviceId));
+    if (!missing) continue;
+    const key = historicalLineKey(line);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/**
+ * Price submitted lines, passing through the estimate's own historical lines
+ * (deleted field/service references) untouched and in their submitted order.
+ */
+async function priceEstimateLinesPreservingHistory(
+  submitted: EstimateLine[],
+  savedLines: EstimateLine[],
+): Promise<EstimateLine[]> {
+  const remaining = await danglingLineCounts(savedLines);
+  const slots: (EstimateLine | null)[] = [];
+  const repriceable: EstimateLine[] = [];
+  for (const line of submitted) {
+    const key = historicalLineKey(line);
+    const left = remaining.get(key) ?? 0;
+    if (left > 0) {
+      remaining.set(key, left - 1);
+      slots.push({ ...line, calculatedPrice: line.calculatedPrice ?? null });
+    } else {
+      slots.push(null);
+      repriceable.push(line);
+    }
+  }
+  const priced = await priceEstimateLines(repriceable);
+  let next = 0;
+  return slots.map((preserved) => preserved ?? priced[next++]);
+}
+
 router.post("/estimates", async (req, res) => {
   const body = CreateEstimateBody.parse(req.body);
   let lines: EstimateLine[];
@@ -310,6 +368,66 @@ router.get("/estimates/:id", async (req, res) => {
   const [est] = await db.select().from(estimatesTable).where(eq(estimatesTable.id, Number(req.params.id)));
   if (!est) return res.status(404).json({ error: "Estimate not found" });
   return res.json(await withClientName(est));
+});
+
+/**
+ * Edit a draft estimate in place. Only drafts are editable: once an estimate is
+ * sent, accepted, or declined the customer has seen (or answered) those exact
+ * numbers, so revisions must go out as a new estimate. Lines are repriced
+ * server-side from the current field/service definitions; lines whose field or
+ * service has since been deleted are carried through exactly as stored.
+ */
+router.patch("/estimates/:id", async (req, res) => {
+  const body = UpdateEstimateBody.parse(req.body);
+  const id = Number(req.params.id);
+  const [existing] = await db.select().from(estimatesTable).where(eq(estimatesTable.id, id));
+  if (!existing) return res.status(404).json({ error: "Estimate not found" });
+  if (existing.status !== "draft") {
+    return res.status(409).json({
+      error: `This estimate was already ${existing.status} and can no longer be edited. Create a new estimate for revised terms.`,
+    });
+  }
+  if (existing.deliveryState === "sending" || existing.deliveryState === "provider_accepted") {
+    return res.status(409).json({
+      error: "This estimate is being emailed right now. Finish or reconcile that delivery before editing.",
+    });
+  }
+
+  let lines: EstimateLine[];
+  try {
+    lines = await priceEstimateLinesPreservingHistory(body.lines, existing.lines);
+  } catch (error) {
+    if (error instanceof Error && (error as { status?: number }).status === 400) {
+      return res.status(400).json({ error: error.message });
+    }
+    throw error;
+  }
+  const total = Math.round(lines.reduce((s, l) => s + (l.calculatedPrice ?? 0), 0) * 100) / 100;
+
+  // Re-check the draft state inside the write so a send claimed between the read
+  // above and here cannot have its emailed numbers changed underneath it.
+  const [updated] = await db
+    .update(estimatesTable)
+    .set({ notes: body.notes ?? null, lines, total })
+    .where(
+      and(
+        eq(estimatesTable.id, id),
+        eq(estimatesTable.status, "draft"),
+        eq(estimatesTable.deliveryState, existing.deliveryState),
+      ),
+    )
+    .returning();
+  if (!updated) {
+    return res.status(409).json({ error: "This estimate changed while you were editing. Refresh and try again." });
+  }
+
+  await logAudit({
+    clientId: updated.clientId,
+    actorName: req.appUser?.name,
+    action: "estimate_updated",
+    description: `Edited draft estimate #${updated.id} — ${lines.length} line${lines.length === 1 ? "" : "s"}, total $${existing.total} → $${updated.total}`,
+  });
+  return res.json(await withClientName(updated));
 });
 
 router.get("/estimates/:id/pdf", async (req, res) => {

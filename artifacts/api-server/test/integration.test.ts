@@ -702,3 +702,167 @@ test("estimate lines are priced server-side from field and service definitions",
     await db.delete(estimateFieldsTable).where(inArray(estimateFieldsTable.id, [turf.id, gate.id]));
   }
 });
+
+test("draft estimates can be edited and repriced; final estimates stay immutable", async () => {
+  const { estimateFieldsTable, auditEventsTable } = await import("@workspace/db");
+  const [turf] = await db
+    .insert(estimateFieldsTable)
+    .values({ label: `Edit Turf ${Date.now()}`, fieldType: "calculable", pricePerUnit: 10, unitSize: 1000 })
+    .returning();
+
+  try {
+    const created = await api("/estimates", admin.id, {
+      method: "POST",
+      body: JSON.stringify({
+        clientId: clientWithCoords.id,
+        notes: "first pass",
+        lines: [{ fieldId: turf.id, label: "", value: "2000" }],
+      }),
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.total, 20);
+
+    // Editing reprices server-side and ignores submitted prices.
+    const edited = await api(`/estimates/${created.body.id}`, admin.id, {
+      method: "PATCH",
+      body: JSON.stringify({
+        notes: "corrected sqft",
+        lines: [{ fieldId: turf.id, label: "tampered", value: "5000", calculatedPrice: 1 }],
+      }),
+    });
+    assert.equal(edited.status, 200);
+    assert.equal(edited.body.total, 50); // 5000/1000 * 10
+    assert.equal(edited.body.lines[0].label, turf.label);
+    assert.equal(edited.body.notes, "corrected sqft");
+    assert.equal(edited.body.status, "draft");
+    assert.ok(edited.body.clientName);
+
+    const events = await db
+      .select()
+      .from(auditEventsTable)
+      .where(eq(auditEventsTable.clientId, clientWithCoords.id));
+    assert.ok(events.some((e) => e.action === "estimate_updated" && e.description.includes(`#${created.body.id}`)));
+
+    // Invalid references and non-numeric calculable values are rejected.
+    const badValue = await api(`/estimates/${created.body.id}`, admin.id, {
+      method: "PATCH",
+      body: JSON.stringify({ lines: [{ fieldId: turf.id, label: "x", value: "abc" }] }),
+    });
+    assert.equal(badValue.status, 400);
+    const missing = await api("/estimates/99999999", admin.id, {
+      method: "PATCH",
+      body: JSON.stringify({ lines: [] }),
+    });
+    assert.equal(missing.status, 404);
+
+    // Sent / accepted / declined estimates reject edits entirely.
+    for (const status of ["sent", "accepted", "declined"] as const) {
+      const [locked] = await db
+        .insert(estimatesTable)
+        .values({ clientId: clientWithCoords.id, status, total: 20, lines: [] })
+        .returning();
+      const rejected = await api(`/estimates/${locked.id}`, admin.id, {
+        method: "PATCH",
+        body: JSON.stringify({ lines: [{ fieldId: turf.id, label: "x", value: "1000" }] }),
+      });
+      assert.equal(rejected.status, 409);
+      const [unchanged] = await db.select().from(estimatesTable).where(eq(estimatesTable.id, locked.id));
+      assert.equal(unchanged.total, 20);
+      assert.deepEqual(unchanged.lines, []);
+    }
+
+    // An in-flight email delivery blocks edits until it is resolved.
+    const [sending] = await db
+      .insert(estimatesTable)
+      .values({ clientId: clientWithCoords.id, status: "draft", total: 20, lines: [], deliveryState: "sending" })
+      .returning();
+    const blocked = await api(`/estimates/${sending.id}`, admin.id, {
+      method: "PATCH",
+      body: JSON.stringify({ lines: [{ fieldId: turf.id, label: "x", value: "1000" }] }),
+    });
+    assert.equal(blocked.status, 409);
+  } finally {
+    await db.delete(estimateFieldsTable).where(eq(estimateFieldsTable.id, turf.id));
+  }
+});
+
+test("editing a draft preserves lines whose field or service was deleted", async () => {
+  const { estimateFieldsTable } = await import("@workspace/db");
+  const stamp = Date.now();
+  const [keeper] = await db
+    .insert(estimateFieldsTable)
+    .values({ label: `Keeper Turf ${stamp}`, fieldType: "calculable", pricePerUnit: 10, unitSize: 1000 })
+    .returning();
+  const [doomedField] = await db
+    .insert(estimateFieldsTable)
+    .values({ label: `Doomed Field ${stamp}`, fieldType: "calculable", pricePerUnit: 5, unitSize: 1000 })
+    .returning();
+  const [doomedService] = await db
+    .insert(servicesTable)
+    .values({ name: `Doomed Service ${stamp}`, rate: 30, quantity: 1 })
+    .returning();
+
+  try {
+    const created = await api("/estimates", admin.id, {
+      method: "POST",
+      body: JSON.stringify({
+        clientId: clientWithCoords.id,
+        lines: [
+          { fieldId: keeper.id, label: "", value: "2000" },
+          { fieldId: doomedField.id, label: "", value: "4000" },
+          { serviceId: doomedService.id, label: "", value: "" },
+        ],
+      }),
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.total, 70); // 20 + 20 + 30
+    const savedLines = created.body.lines;
+
+    // The catalog entries disappear after the estimate was drafted.
+    await db.delete(estimateFieldsTable).where(eq(estimateFieldsTable.id, doomedField.id));
+    await db.delete(servicesTable).where(eq(servicesTable.id, doomedService.id));
+
+    // Resubmitting the saved lines verbatim (as the builder does) still saves:
+    // the orphaned lines keep their stored price, the live one is repriced.
+    const edited = await api(`/estimates/${created.body.id}`, admin.id, {
+      method: "PATCH",
+      body: JSON.stringify({
+        lines: [
+          savedLines[1],
+          savedLines[2],
+          { fieldId: keeper.id, label: "", value: "3000" },
+        ],
+      }),
+    });
+    assert.equal(edited.status, 200);
+    assert.equal(edited.body.lines.length, 3);
+    assert.equal(edited.body.lines[0].calculatedPrice, 20); // orphaned field line untouched
+    assert.equal(edited.body.lines[0].label, savedLines[1].label);
+    assert.equal(edited.body.lines[1].calculatedPrice, 30); // orphaned service line untouched
+    assert.equal(edited.body.lines[2].calculatedPrice, 30); // 3000/1000 * 10
+    assert.equal(edited.body.total, 80);
+
+    // A dangling reference is only honored when it matches a stored line, so it
+    // cannot be used to smuggle in an arbitrary price.
+    const tampered = await api(`/estimates/${created.body.id}`, admin.id, {
+      method: "PATCH",
+      body: JSON.stringify({
+        lines: [{ ...savedLines[1], calculatedPrice: 9999 }],
+      }),
+    });
+    assert.equal(tampered.status, 400);
+
+    // Nor can the same orphaned line be duplicated to double its price.
+    const duplicated = await api(`/estimates/${created.body.id}`, admin.id, {
+      method: "PATCH",
+      body: JSON.stringify({ lines: [savedLines[1], savedLines[1]] }),
+    });
+    assert.equal(duplicated.status, 400);
+
+    const [stored] = await db.select().from(estimatesTable).where(eq(estimatesTable.id, created.body.id));
+    assert.equal(stored.total, 80); // rejected edits changed nothing
+  } finally {
+    await db.delete(estimateFieldsTable).where(inArray(estimateFieldsTable.id, [keeper.id, doomedField.id]));
+    await db.delete(servicesTable).where(eq(servicesTable.id, doomedService.id));
+  }
+});

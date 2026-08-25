@@ -1,21 +1,28 @@
 import { useEffect, useMemo, useState } from 'react';
 import { 
-  useListEstimates, useGetEstimate, useCreateEstimate, useDeleteEstimate, useSendEstimate,
+  useListEstimates, useGetEstimate, useCreateEstimate, useUpdateEstimate, useDeleteEstimate, useSendEstimate,
   useReconcileEstimateDelivery,
   useListEstimateFields, useCreateEstimateField, useUpdateEstimateField, useDeleteEstimateField,
   useListClients, useListServices
 } from '@workspace/api-client-react';
-import type { EstimateField, EstimateFieldInput, Service } from '@workspace/api-client-react';
+import type { Estimate, EstimateField, EstimateFieldInput, EstimateLine, Service } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
-import { Download, Send, Trash2, Plus, AlertCircle } from 'lucide-react';
+import { Download, Send, Trash2, Plus, AlertCircle, Pencil } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+
+const isEditableDraft = (estimate: Estimate) =>
+  estimate.status === 'draft' &&
+  estimate.deliveryState !== 'sending' &&
+  estimate.deliveryState !== 'provider_accepted';
 
 export default function Estimates() {
   const { data: estimates, isLoading } = useListEstimates();
+  const [tab, setTab] = useState('list');
+  const [editing, setEditing] = useState<Estimate | null>(null);
   const deleteEstimate = useDeleteEstimate();
   const sendEstimate = useSendEstimate();
   const reconcileDelivery = useReconcileEstimateDelivery();
@@ -60,11 +67,11 @@ export default function Estimates() {
         <p className="text-muted-foreground mt-1">Build and send estimates.</p>
       </div>
 
-      <Tabs defaultValue="list" className="flex-1 flex flex-col">
+      <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col">
         <div className="flex justify-between items-center mb-4">
           <TabsList>
             <TabsTrigger value="list">All Estimates</TabsTrigger>
-            <TabsTrigger value="builder">Builder</TabsTrigger>
+            <TabsTrigger value="builder">{editing ? `Editing #${editing.id}` : 'Builder'}</TabsTrigger>
             <TabsTrigger value="fields">Custom Fields</TabsTrigger>
           </TabsList>
         </div>
@@ -104,6 +111,16 @@ export default function Estimates() {
                         )}
                       </TableCell>
                       <TableCell className="text-right space-x-1 whitespace-nowrap">
+                        {isEditableDraft(e) && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            title="Edit this draft"
+                            onClick={() => { setEditing(e); setTab('builder'); }}
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                        )}
                         <Button
                           size="icon"
                           variant="ghost"
@@ -162,7 +179,12 @@ export default function Estimates() {
         </TabsContent>
 
         <TabsContent value="builder" className="flex-1 m-0">
-          <EstimateBuilder />
+          <EstimateBuilder
+            key={editing ? `edit-${editing.id}` : 'new'}
+            editEstimate={editing}
+            onFinished={() => { setEditing(null); setTab('list'); }}
+            onCancelEdit={() => { setEditing(null); setTab('list'); }}
+          />
         </TabsContent>
 
         <TabsContent value="fields" className="flex-1 m-0">
@@ -245,15 +267,24 @@ function serviceLinePrice(service: Service, value: string): number {
   return Math.round(service.rate * service.quantity * 100) / 100;
 }
 
-function EstimateBuilder() {
-  const [clientId, setClientId] = useState('');
-  const [notes, setNotes] = useState('');
+function EstimateBuilder({ editEstimate, onFinished, onCancelEdit }: {
+  editEstimate: Estimate | null;
+  onFinished: () => void;
+  onCancelEdit: () => void;
+}) {
+  const [clientId, setClientId] = useState(editEstimate ? String(editEstimate.clientId) : '');
+  const [notes, setNotes] = useState(editEstimate?.notes ?? '');
   const [fieldValues, setFieldValues] = useState<Record<number, { selected: boolean; value: string }>>({});
   const [serviceValues, setServiceValues] = useState<Record<number, { selected: boolean; value: string }>>({});
+  // Saved lines whose field/service no longer exists (or free-form add-ons the
+  // builder cannot render). They are carried through an edit untouched so an
+  // edit never silently drops part of the estimate.
+  const [carriedLines, setCarriedLines] = useState<EstimateLine[]>([]);
   const { data: clients } = useListClients();
   const { data: fields } = useListEstimateFields();
   const { data: services } = useListServices();
   const createEstimate = useCreateEstimate();
+  const updateEstimate = useUpdateEstimate();
   const queryClient = useQueryClient();
 
   // Satisfy useGetEstimate hook requirement
@@ -268,7 +299,31 @@ function EstimateBuilder() {
   // refetches wiping in-progress edits.
   const clientsLoaded = clients != null;
   const fieldsLoaded = fields != null;
+  const servicesLoaded = services != null;
+
+  // Editing: hydrate the selectors from the saved draft's lines once the field
+  // and service catalogs are available.
   useEffect(() => {
+    if (!editEstimate || !fieldsLoaded || !servicesLoaded) return;
+    const nextFields: Record<number, { selected: boolean; value: string }> = {};
+    const nextServices: Record<number, { selected: boolean; value: string }> = {};
+    const carried: EstimateLine[] = [];
+    for (const line of editEstimate.lines) {
+      if (line.fieldId != null && fields.some(f => f.id === line.fieldId)) {
+        nextFields[line.fieldId] = { selected: true, value: line.value };
+      } else if (line.serviceId != null && services.some(s => s.id === line.serviceId)) {
+        nextServices[line.serviceId] = { selected: true, value: line.value };
+      } else {
+        carried.push(line);
+      }
+    }
+    setFieldValues(nextFields);
+    setServiceValues(nextServices);
+    setCarriedLines(carried);
+  }, [editEstimate, fieldsLoaded, servicesLoaded]);
+
+  useEffect(() => {
+    if (editEstimate) return; // edit mode hydrates from the saved estimate instead
     if (!clientId) {
       setFieldValues({});
       setServiceValues({});
@@ -287,7 +342,10 @@ function EstimateBuilder() {
   }, [clientId, clientsLoaded, fieldsLoaded]);
 
   const lines = useMemo(() => {
-    const result: { fieldId?: number; serviceId?: number; label: string; value: string; calculatedPrice: number | null }[] = [];
+    const result: { fieldId?: number | null; serviceId?: number | null; label: string; value: string; calculatedPrice: number | null }[] = [];
+    for (const carried of carriedLines) {
+      result.push({ ...carried, calculatedPrice: carried.calculatedPrice ?? null });
+    }
     for (const f of fields ?? []) {
       const state = fieldValues[f.id];
       if (!state?.selected) continue;
@@ -299,7 +357,7 @@ function EstimateBuilder() {
       result.push({ serviceId: s.id, label: s.name, value: state.value, calculatedPrice: serviceLinePrice(s, state.value) });
     }
     return result;
-  }, [fields, services, fieldValues, serviceValues]);
+  }, [fields, services, fieldValues, serviceValues, carriedLines]);
 
   const total = lines.reduce((sum, l) => sum + (l.calculatedPrice ?? 0), 0);
   const invalidCalculable = (fields ?? []).some(f => {
@@ -307,12 +365,32 @@ function EstimateBuilder() {
     return state?.selected && f.fieldType === 'calculable' && (state.value.trim() === '' || !Number.isFinite(Number(state.value)));
   });
 
+  const saving = createEstimate.isPending || updateEstimate.isPending;
+
   const handleSave = () => {
+    const payload = lines.map(({ calculatedPrice, ...line }) => ({ ...line, calculatedPrice }));
+    const onError = (error: unknown) =>
+      alert(error instanceof Error ? error.message : 'Could not save estimate');
+
+    if (editEstimate) {
+      updateEstimate.mutate({
+        id: editEstimate.id,
+        data: { notes: notes.trim() || null, lines: payload },
+      }, {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: ['/api/estimates'] });
+          onFinished();
+        },
+        onError,
+      });
+      return;
+    }
+
     createEstimate.mutate({
       data: {
         clientId: parseInt(clientId),
         notes: notes.trim() || undefined,
-        lines: lines.map(({ calculatedPrice, ...line }) => ({ ...line, calculatedPrice })),
+        lines: payload,
       }
     }, {
       onSuccess: () => {
@@ -323,7 +401,7 @@ function EstimateBuilder() {
         setServiceValues({});
         alert('Estimate created');
       },
-      onError: (error) => alert(error instanceof Error ? error.message : 'Could not save estimate'),
+      onError,
     });
   };
 
@@ -372,16 +450,33 @@ function EstimateBuilder() {
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_320px] items-start">
       <div className="bg-card p-6 border rounded-lg shadow-sm space-y-5">
-        <h2 className="text-xl font-bold">New Estimate</h2>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-bold">{editEstimate ? `Edit Draft Estimate #${editEstimate.id}` : 'New Estimate'}</h2>
+            {editEstimate && (
+              <p className="text-sm text-muted-foreground mt-1">
+                Only drafts can be edited. Lines are repriced from the current field and service settings when you save.
+              </p>
+            )}
+          </div>
+          {editEstimate && <Button variant="outline" onClick={onCancelEdit}>Cancel edit</Button>}
+        </div>
         <div>
           <label className="text-sm font-medium mb-1 block">Client</label>
-          <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={clientId} onChange={e => setClientId(e.target.value)}>
+          <select
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-70"
+            value={clientId}
+            disabled={!!editEstimate}
+            onChange={e => setClientId(e.target.value)}
+          >
             <option value="">Select client...</option>
             {clients?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
-          {client && Object.keys(client.propertyData ?? {}).length > 0 && (
+          {editEstimate ? (
+            <p className="text-xs text-muted-foreground mt-1">The client cannot be changed on an existing estimate.</p>
+          ) : client && Object.keys(client.propertyData ?? {}).length > 0 ? (
             <p className="text-xs text-muted-foreground mt-1">Values prefilled from {client.name}'s saved property details.</p>
-          )}
+          ) : null}
         </div>
 
         <div>
@@ -457,14 +552,22 @@ function EstimateBuilder() {
             ))}
           </div>
         )}
+        {carriedLines.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            {carriedLines.length} saved line{carriedLines.length === 1 ? '' : 's'} came from a field or service that no longer exists. They are kept as-is.
+          </p>
+        )}
         <div className="flex justify-between border-t pt-2 font-bold">
           <span>Total</span>
           <span className="tabular-nums">{money(total)}</span>
         </div>
         {invalidCalculable && <p className="text-xs text-destructive">Enter numeric values for all selected calculable fields.</p>}
-        <Button className="w-full" disabled={!clientId || !lines.length || invalidCalculable || createEstimate.isPending} onClick={handleSave}>
-          {createEstimate.isPending ? 'Saving…' : 'Save Estimate'}
+        <Button className="w-full" disabled={!clientId || !lines.length || invalidCalculable || saving} onClick={handleSave}>
+          {saving ? 'Saving…' : editEstimate ? 'Save Changes' : 'Save Estimate'}
         </Button>
+        {editEstimate && (
+          <Button variant="outline" className="w-full" disabled={saving} onClick={onCancelEdit}>Cancel</Button>
+        )}
       </div>
     </div>
   );

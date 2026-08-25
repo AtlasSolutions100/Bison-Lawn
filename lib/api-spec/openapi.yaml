@@ -516,6 +516,25 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Estimate"
+    patch:
+      operationId: updateEstimate
+      tags: [estimates]
+      summary: Edit a draft estimate's lines and notes; sent/accepted/declined stay immutable
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EstimateUpdateInput"
+      responses:
+        "200":
+          description: Updated estimate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Estimate"
     delete:
       operationId: deleteEstimate
       tags: [estimates]
@@ -1622,6 +1641,15 @@ components:
       properties:
         clientId: { type: integer }
         notes: { type: string }
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/EstimateLine"
+    EstimateUpdateInput:
+      type: object
+      required: [lines]
+      properties:
+        notes: { type: ["string", "null"] }
         lines:
           type: array
           items:

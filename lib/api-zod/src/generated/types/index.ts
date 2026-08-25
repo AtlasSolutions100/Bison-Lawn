@@ -44,6 +44,7 @@ export * from './estimateInput';
 export * from './estimateLine';
 export * from './estimateSendInput';
 export * from './estimateStatus';
+export * from './estimateUpdateInput';
 export * from './extraWorkInput';
 export * from './fieldNote';
 export * from './fieldNoteInput';

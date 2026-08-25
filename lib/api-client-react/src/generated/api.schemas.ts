@@ -548,6 +548,12 @@ export interface EstimateInput {
   lines: EstimateLine[];
 }
 
+export interface EstimateUpdateInput {
+  /** @nullable */
+  notes?: string | null;
+  lines: EstimateLine[];
+}
+
 export interface EstimateSendInput {
   toEmail: string;
   message?: string;
@@ -1120,6 +1126,17 @@ export const SuggestedActionStatus = {
 } as const;
 
 export type SuggestedActionMessageDeliveryState = typeof SuggestedActionMessageDeliveryState[keyof typeof SuggestedActionMessageDeliveryState];
+
+
+export const SuggestedActionMessageDeliveryState = {
+  pending_review: 'pending_review',
+  not_applicable: 'not_applicable',
+  no_email: 'no_email',
+  sending: 'sending',
+  sent: 'sent',
+  failed: 'failed',
+} as const;
+
 export interface SuggestedAction {
   id: number;
   source: SuggestedActionSource;
@@ -1304,12 +1321,3 @@ export type GetContractorEarningsParams = {
 date: string;
 };
 
-
-export const SuggestedActionMessageDeliveryState = {
-  pending_review: 'pending_review',
-  not_applicable: 'not_applicable',
-  no_email: 'no_email',
-  sending: 'sending',
-  sent: 'sent',
-  failed: 'failed',
-} as const;
