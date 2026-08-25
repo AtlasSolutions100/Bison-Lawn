@@ -91,15 +91,20 @@ function responseConfirmationPage(token: string, action: "accept" | "decline", e
 // Public customer response routes. Tokens are random, only their SHA-256 hashes are stored.
 // GET is deliberately read-only because email security scanners commonly prefetch links.
 router.get("/public/estimates/:token/respond", async (req, res) => {
-  const action = req.query.action;
+  const action = req.body.action;
   if (action !== "accept" && action !== "decline") {
-    return res.status(400).send(responsePage("Invalid response", "This response link is not valid.", false));
+    return res.status(400).send(responsePage("Invalid response", "This response is not valid.", false));
   }
-  const data = await loadPublicEstimate(req.params.token);
-  if (!data) return res.status(404).send(responsePage("Link not found", "This estimate link is invalid or expired.", false));
+  const data = await loadEstimateDocument(Number(req.params.id));
+  if (!data) return res.status(404).json({ error: "Estimate not found" });
   const { estimate } = data;
   if (estimate.status === "accepted" || estimate.status === "declined") {
-    const accepted = estimate.status === "accepted";
+    const accepted = await recordEstimateProviderAccepted(
+      data.estimate.id,
+      hash,
+      body.toEmail,
+      sentMessage.id ?? null,
+    );
     return res.send(
       responsePage(
         `Estimate already ${estimate.status}`,
@@ -116,8 +121,8 @@ router.post("/public/estimates/:token/respond", async (req, res) => {
   if (action !== "accept" && action !== "decline") {
     return res.status(400).send(responsePage("Invalid response", "This response is not valid.", false));
   }
-  const data = await loadPublicEstimate(req.params.token);
-  if (!data) return res.status(404).send(responsePage("Link not found", "This estimate link is invalid or expired.", false));
+  const data = await loadEstimateDocument(Number(req.params.id));
+  if (!data) return res.status(404).json({ error: "Estimate not found" });
   const { estimate } = data;
   if (estimate.status === "accepted" || estimate.status === "declined") {
     return res.send(
@@ -129,32 +134,16 @@ router.post("/public/estimates/:token/respond", async (req, res) => {
     );
   }
   const status = action === "accept" ? "accepted" : "declined";
-  const providerAccepted = data.tokenSource === "provider_accepted";
+  let providerAccepted = false;
   const [updated] = await db
     .update(estimatesTable)
-    .set(
-      providerAccepted
-        ? {
-            status,
-            respondedAt: new Date(),
-            responseTokenHash: data.hash,
-            pendingResponseTokenHash: null,
-            deliveryState: "sent",
-          }
-        : { status, respondedAt: new Date() },
-    )
+    .set({ notes: body.notes ?? null, lines, total })
     .where(
-      providerAccepted
-        ? and(
-            eq(estimatesTable.id, estimate.id),
-            eq(estimatesTable.deliveryState, "provider_accepted"),
-            eq(estimatesTable.pendingResponseTokenHash, data.hash),
-          )
-        : and(
-            eq(estimatesTable.id, estimate.id),
-            eq(estimatesTable.status, "sent"),
-            eq(estimatesTable.responseTokenHash, data.hash),
-          ),
+      and(
+        eq(estimatesTable.id, id),
+        eq(estimatesTable.status, "draft"),
+        eq(estimatesTable.deliveryState, existing.deliveryState),
+      ),
     )
     .returning();
   if (!updated) {
@@ -193,13 +182,17 @@ router.get("/estimate-fields", async (_req, res) => {
 });
 
 router.post("/estimate-fields", async (req, res) => {
-  const body = CreateEstimateFieldBody.parse(req.body);
-  const [field] = await db.insert(estimateFieldsTable).values(body).returning();
+  const body = SendEstimateBody.parse(req.body);
+  const [field] = await db
+    .update(estimateFieldsTable)
+    .set(body)
+    .where(eq(estimateFieldsTable.id, Number(req.params.id)))
+    .returning();
   return res.status(201).json(field);
 });
 
 router.patch("/estimate-fields/:id", async (req, res) => {
-  const body = UpdateEstimateFieldBody.parse(req.body);
+  const body = SendEstimateBody.parse(req.body);
   const [field] = await db
     .update(estimateFieldsTable)
     .set(body)
@@ -358,34 +351,100 @@ function estimateBadRequestMessage(error: unknown): string | null {
   return null;
 }
 
+/**
+ * Merge the estimate's field values back into the client's saved property
+ * details. Matching is by field label — the same key the estimate builder uses
+ * when it prefills values — so a corrected Turf Sqft or Gate Code carries over
+ * to the next estimate. Only field lines participate: service and one-off
+ * charge lines describe work, not the property. Blank values are ignored so an
+ * empty box never wipes a saved value, and existing keys not on this estimate
+ * are left untouched.
+ *
+ * Runs inside the estimate-creation transaction on a client row already locked
+ * with SELECT ... FOR UPDATE, so two admins saving estimates for the same
+ * client cannot both read the old document and have the later write drop the
+ * earlier one's values. If the write-back fails the whole save fails, so the
+ * admin is never told property details were updated when they were not.
+ */
+async function mergePropertyDataFromLines(
+  tx: Pick<typeof db, "update">,
+  client: { id: number; propertyData: Record<string, string> | null },
+  lines: EstimateLine[],
+) {
+  const entries = lines
+    .filter((l) => l.fieldId != null && l.label.trim() !== "" && l.value.trim() !== "")
+    .map((l) => [l.label, l.value] as const);
+  if (!entries.length) return [];
+
+  const current = client.propertyData ?? {};
+  const merged = { ...current };
+  const changedLabels: string[] = [];
+  for (const [label, value] of entries) {
+    if (current[label] === value) continue;
+    merged[label] = value;
+    changedLabels.push(label);
+  }
+  if (!changedLabels.length) return [];
+
+  await tx.update(clientsTable).set({ propertyData: merged }).where(eq(clientsTable.id, client.id));
+  return changedLabels;
+}
+
 router.post("/estimates", async (req, res) => {
-  let body: ReturnType<typeof CreateEstimateBody.parse>;
+  const body = SendEstimateBody.parse(req.body);
   let lines: EstimateLine[];
   try {
-    body = CreateEstimateBody.parse(req.body);
-    lines = await priceEstimateLines(body.lines);
+    lines = await priceEstimateLinesPreservingHistory(body.lines, existing.lines);
   } catch (error) {
-    const message = estimateBadRequestMessage(error);
+    const message = error instanceof Error ? error.message : "Unknown delivery error";
     if (message) return res.status(400).json({ error: message });
     throw error;
   }
-  const total = lines.reduce((s, l) => s + (l.calculatedPrice ?? 0), 0);
-  const [est] = await db
-    .insert(estimatesTable)
-    .values({
-      clientId: body.clientId,
-      notes: body.notes ?? null,
-      lines,
-      total: Math.round(total * 100) / 100,
-    })
-    .returning();
+  const total = Math.round(lines.reduce((s, l) => s + (l.calculatedPrice ?? 0), 0) * 100) / 100;
+  // One transaction so the estimate and the client's refreshed property details
+  // either both land or neither does. The client row is locked first: property
+  // details are one JSON document, so concurrent saves must take turns reading
+  // and rewriting it or the later one silently drops the earlier one's values.
+  const saved = await db.transaction(async (tx) => {
+    const [client] = await tx
+      .select()
+      .from(clientsTable)
+      .where(eq(clientsTable.id, body.clientId))
+      .for("update");
+    if (!client) return null;
+    const [created] = await tx
+      .insert(estimatesTable)
+      .values({
+        clientId: body.clientId,
+        notes: body.notes ?? null,
+        lines,
+        total: Math.round(total * 100) / 100,
+      })
+      .returning();
+    const changed = body.savePropertyData
+      ? await mergePropertyDataFromLines(tx, client, lines)
+      : [];
+    return { est: created, changedLabels: changed };
+  });
+  if (!saved) return res.status(404).json({ error: "Client not found" });
+  const { est, changedLabels } = saved;
   await logAudit({
     clientId: body.clientId,
     actorName: req.appUser?.name,
     action: "estimate_created",
     description: `Created estimate #${est.id} for $${est.total}`,
   });
-  return res.status(201).json(await withClientName(est));
+  if (changedLabels.length) {
+    await logAudit({
+      clientId: body.clientId,
+      actorName: req.appUser?.name,
+      action: "property_data_updated",
+      description: `Updated property details from estimate #${est.id}: ${changedLabels.join(", ")}`,
+    });
+  }
+  // Report exactly which details were written so the UI never claims an update
+  // that did not happen (nothing selected, blanks only, or values unchanged).
+  return res.status(201).json({ ...(await withClientName(est)), propertyDataUpdated: changedLabels });
 });
 
 router.get("/estimates/:id", async (req, res) => {
@@ -402,11 +461,11 @@ router.get("/estimates/:id", async (req, res) => {
  * service has since been deleted are carried through exactly as stored.
  */
 router.patch("/estimates/:id", async (req, res) => {
-  let body: ReturnType<typeof UpdateEstimateBody.parse>;
+  const body = SendEstimateBody.parse(req.body);
   try {
     body = UpdateEstimateBody.parse(req.body);
   } catch (error) {
-    const message = estimateBadRequestMessage(error);
+    const message = error instanceof Error ? error.message : "Unknown delivery error";
     if (message) return res.status(400).json({ error: message });
     throw error;
   }
@@ -428,7 +487,7 @@ router.patch("/estimates/:id", async (req, res) => {
   try {
     lines = await priceEstimateLinesPreservingHistory(body.lines, existing.lines);
   } catch (error) {
-    const message = estimateBadRequestMessage(error);
+    const message = error instanceof Error ? error.message : "Unknown delivery error";
     if (message) return res.status(400).json({ error: message });
     throw error;
   }
@@ -463,7 +522,7 @@ router.patch("/estimates/:id", async (req, res) => {
 router.get("/estimates/:id/pdf", async (req, res) => {
   const data = await loadEstimateDocument(Number(req.params.id));
   if (!data) return res.status(404).json({ error: "Estimate not found" });
-  const pdf = await createEstimatePdf(data);
+    const pdf = await createEstimatePdf(data);
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `inline; filename="bison-estimate-${data.estimate.id}.pdf"`);
   return res.send(pdf);

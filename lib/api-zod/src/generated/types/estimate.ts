@@ -34,4 +34,6 @@ export interface Estimate {
   lastDeliveryError?: string | null;
   /** @nullable */
   gmailMessageId?: string | null;
+  /** Property detail labels written back to the client on create; empty when nothing changed */
+  propertyDataUpdated?: string[];
 }

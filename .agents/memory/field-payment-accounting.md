@@ -5,7 +5,7 @@ description: Rules for on-site payments, card surcharges, and payment/completion
 
 Any surcharge collected with a payment (e.g. card processing fee) must also be added to the invoice total; never record a payment larger than the sum of its charges.
 
-**Why:** Code review rejected a version where a $103 card payment against a $100 invoice produced an unexplained $3 customer credit — recalc helpers derive amountPaid and account balance purely from invoice totals vs payment sums.
+**Why:** Recalc helpers derive amountPaid and account balance purely from invoice totals vs payment sums, so a $103 card payment against a $100 invoice silently becomes an unexplained $3 customer credit.
 
 **How to apply:** Store the fee portion on the payment row; bump the invoice total in the same transaction when attaching, and have job completion fold pending payments' fees into the invoice it creates.
 

@@ -748,7 +748,8 @@ export const ListEstimatesResponseItem = zod.object({
   "deliveryState": zod.enum(['idle', 'sending', 'provider_accepted', 'sent', 'failed']),
   "providerAcceptedAt": zod.string().nullish(),
   "lastDeliveryError": zod.string().nullish(),
-  "gmailMessageId": zod.string().nullish()
+  "gmailMessageId": zod.string().nullish(),
+  "propertyDataUpdated": zod.array(zod.string()).optional().describe('Property detail labels written back to the client on create; empty when nothing changed')
 })
 export const ListEstimatesResponse = zod.array(ListEstimatesResponseItem)
 
@@ -756,6 +757,7 @@ export const ListEstimatesResponse = zod.array(ListEstimatesResponseItem)
 export const CreateEstimateBody = zod.object({
   "clientId": zod.int(),
   "notes": zod.string().optional(),
+  "savePropertyData": zod.boolean().optional().describe('Write the entered field values back to the client\'s saved property details, matched by field label'),
   "lines": zod.array(zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
@@ -787,7 +789,8 @@ export const CreateEstimateResponse = zod.object({
   "deliveryState": zod.enum(['idle', 'sending', 'provider_accepted', 'sent', 'failed']),
   "providerAcceptedAt": zod.string().nullish(),
   "lastDeliveryError": zod.string().nullish(),
-  "gmailMessageId": zod.string().nullish()
+  "gmailMessageId": zod.string().nullish(),
+  "propertyDataUpdated": zod.array(zod.string()).optional().describe('Property detail labels written back to the client on create; empty when nothing changed')
 })
 
 
@@ -817,7 +820,8 @@ export const GetEstimateResponse = zod.object({
   "deliveryState": zod.enum(['idle', 'sending', 'provider_accepted', 'sent', 'failed']),
   "providerAcceptedAt": zod.string().nullish(),
   "lastDeliveryError": zod.string().nullish(),
-  "gmailMessageId": zod.string().nullish()
+  "gmailMessageId": zod.string().nullish(),
+  "propertyDataUpdated": zod.array(zod.string()).optional().describe('Property detail labels written back to the client on create; empty when nothing changed')
 })
 
 
@@ -861,7 +865,8 @@ export const UpdateEstimateResponse = zod.object({
   "deliveryState": zod.enum(['idle', 'sending', 'provider_accepted', 'sent', 'failed']),
   "providerAcceptedAt": zod.string().nullish(),
   "lastDeliveryError": zod.string().nullish(),
-  "gmailMessageId": zod.string().nullish()
+  "gmailMessageId": zod.string().nullish(),
+  "propertyDataUpdated": zod.array(zod.string()).optional().describe('Property detail labels written back to the client on create; empty when nothing changed')
 })
 
 
@@ -916,7 +921,8 @@ export const SendEstimateResponse = zod.object({
   "deliveryState": zod.enum(['idle', 'sending', 'provider_accepted', 'sent', 'failed']),
   "providerAcceptedAt": zod.string().nullish(),
   "lastDeliveryError": zod.string().nullish(),
-  "gmailMessageId": zod.string().nullish()
+  "gmailMessageId": zod.string().nullish(),
+  "propertyDataUpdated": zod.array(zod.string()).optional().describe('Property detail labels written back to the client on create; empty when nothing changed')
 })
 
 
@@ -949,7 +955,8 @@ export const ReconcileEstimateDeliveryResponse = zod.object({
   "deliveryState": zod.enum(['idle', 'sending', 'provider_accepted', 'sent', 'failed']),
   "providerAcceptedAt": zod.string().nullish(),
   "lastDeliveryError": zod.string().nullish(),
-  "gmailMessageId": zod.string().nullish()
+  "gmailMessageId": zod.string().nullish(),
+  "propertyDataUpdated": zod.array(zod.string()).optional().describe('Property detail labels written back to the client on create; empty when nothing changed')
 })
 
 
@@ -2123,4 +2130,3 @@ export const GetContractorEarningsResponseItem = zod.object({
   "completedCount": zod.int().optional()
 })
 export const GetContractorEarningsResponse = zod.array(GetContractorEarningsResponseItem)
-

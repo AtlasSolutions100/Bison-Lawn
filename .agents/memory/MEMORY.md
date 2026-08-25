@@ -5,4 +5,5 @@
 - [Estimate delivery reliability](estimate-delivery-reliability.md) — email links require POST confirmation and log redaction; retries keep active and pending response tokens separate.
 - [esbuild bundling and pdfkit](esbuild-pdfkit.md) — packages that load assets via runtime subpath imports (pdfkit's #standard-fonts) must be externalized; tsx tests won't catch bundle-only failures.
 - [Parallel task rebases](parallel-task-rebases.md) — a marker-free auto-merge of a shared route file can still be broken; typecheck every round, reset to upstream and re-apply.
+- [JSONB document read-modify-write](jsonb-document-concurrency.md) — lock the row before merging a whole-document JSONB column, or concurrent writers drop each other's keys.
 - [Field payment accounting](field-payment-accounting.md) — surcharges must join the invoice total, and payment/completion handlers must serialize on the job row or payments detach.

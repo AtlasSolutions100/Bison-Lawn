@@ -544,11 +544,15 @@ export interface Estimate {
   lastDeliveryError?: string | null;
   /** @nullable */
   gmailMessageId?: string | null;
+  /** Property detail labels written back to the client on create; empty when nothing changed */
+  propertyDataUpdated?: string[];
 }
 
 export interface EstimateInput {
   clientId: number;
   notes?: string;
+  /** Write the entered field values back to the client's saved property details, matched by field label */
+  savePropertyData?: boolean;
   lines: EstimateLine[];
 }
 

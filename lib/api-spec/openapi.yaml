@@ -1655,12 +1655,19 @@ components:
         providerAcceptedAt: { type: ["string", "null"] }
         lastDeliveryError: { type: ["string", "null"] }
         gmailMessageId: { type: ["string", "null"] }
+        propertyDataUpdated:
+          type: array
+          description: "Property detail labels written back to the client on create; empty when nothing changed"
+          items: { type: string }
     EstimateInput:
       type: object
       required: [clientId, lines]
       properties:
         clientId: { type: integer }
         notes: { type: string }
+        savePropertyData:
+          type: boolean
+          description: "Write the entered field values back to the client's saved property details, matched by field label"
         lines:
           type: array
           items:

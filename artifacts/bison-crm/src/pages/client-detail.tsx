@@ -19,7 +19,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { 
   ArrowLeft, MapPin, Phone, Mail, DollarSign, Calendar, FileText, 
-  Settings, User, Plus, Edit2, MessageSquare, Clock, Trash2 
+  Settings, User, Plus, MessageSquare, Clock, Trash2 
 } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
@@ -135,18 +135,16 @@ function RecordPaymentDialog({ clientId }: { clientId: number }) {
 }
 
 function ClientProperties({ client }: { client: Client }) {
-  // In a real app this would parse custom properties JSON.
-  // For now we'll just mock a visual representation.
+  // Saved property details, keyed by estimate field label. Estimates prefill
+  // from these values and can write corrected values back on save.
+  const properties = Object.entries(client.propertyData ?? {});
   return (
     <Card className="shadow-sm border-border">
       <CardHeader className="pb-3 border-b bg-card/50">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-lg font-bold flex items-center gap-2">
-            <Settings className="w-5 h-5 text-muted-foreground" /> 
-            Property Details
-          </CardTitle>
-          <Button variant="ghost" size="icon" className="h-8 w-8"><Edit2 className="w-4 h-4" /></Button>
-        </div>
+        <CardTitle className="text-lg font-bold flex items-center gap-2">
+          <Settings className="w-5 h-5 text-muted-foreground" /> 
+          Property Details
+        </CardTitle>
       </CardHeader>
       <CardContent className="pt-4 space-y-4">
         {client.mapNote && (
@@ -157,18 +155,20 @@ function ClientProperties({ client }: { client: Client }) {
             </p>
           </div>
         )}
-        <div className="flex flex-wrap gap-2">
-          {/* Mock chips */}
-          <div className="bg-muted px-2.5 py-1 rounded-md text-xs border">
-            <span className="font-semibold text-muted-foreground mr-1">Gate:</span> 1234
+        {properties.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No property details saved yet. Build an estimate for this client and keep “Save these field values” checked to record them here.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {properties.map(([label, value]) => (
+              <div key={label} className="bg-muted px-2.5 py-1 rounded-md text-xs border">
+                <span className="font-semibold text-muted-foreground mr-1">{label}:</span>
+                {value}
+              </div>
+            ))}
           </div>
-          <div className="bg-muted px-2.5 py-1 rounded-md text-xs border">
-            <span className="font-semibold text-muted-foreground mr-1">Dog:</span> Yes (Friendly)
-          </div>
-          <div className="bg-muted px-2.5 py-1 rounded-md text-xs border">
-            <span className="font-semibold text-muted-foreground mr-1">Turf:</span> 4,500 sqft
-          </div>
-        </div>
+        )}
       </CardContent>
     </Card>
   );

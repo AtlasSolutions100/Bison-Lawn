@@ -10,5 +10,7 @@ import type { EstimateLine } from './estimateLine';
 export interface EstimateInput {
   clientId: number;
   notes?: string;
+  /** Write the entered field values back to the client's saved property details, matched by field label */
+  savePropertyData?: boolean;
   lines: EstimateLine[];
 }

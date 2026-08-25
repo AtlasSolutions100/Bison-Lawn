@@ -287,6 +287,7 @@ function EstimateBuilder({ editEstimate, onFinished, onCancelEdit }: {
 }) {
   const [clientId, setClientId] = useState(editEstimate ? String(editEstimate.clientId) : '');
   const [notes, setNotes] = useState(editEstimate?.notes ?? '');
+  const [savePropertyData, setSavePropertyData] = useState(true);
   const [fieldValues, setFieldValues] = useState<Record<number, { selected: boolean; value: string }>>({});
   const [serviceValues, setServiceValues] = useState<Record<number, { selected: boolean; value: string }>>({});
   // Saved lines whose field/service no longer exists. They are carried through
@@ -420,21 +421,33 @@ function EstimateBuilder({ editEstimate, onFinished, onCancelEdit }: {
       return;
     }
 
+    const savedClientId = parseInt(clientId);
     createEstimate.mutate({
       data: {
-        clientId: parseInt(clientId),
+        clientId: savedClientId,
         notes: notes.trim() || undefined,
+        savePropertyData,
         lines: payload,
       }
     }, {
-      onSuccess: () => {
+      onSuccess: (estimate) => {
         queryClient.invalidateQueries({ queryKey: ['/api/estimates'] });
+        // The server reports exactly which property details it wrote, so the
+        // confirmation never claims an update that did not happen.
+        const updated = estimate.propertyDataUpdated ?? [];
+        if (updated.length) {
+          queryClient.invalidateQueries({ queryKey: ['/api/clients'] });
+          queryClient.invalidateQueries({ queryKey: [`/api/clients/${savedClientId}`] });
+          queryClient.invalidateQueries({ queryKey: [`/api/clients/${savedClientId}/audit`] });
+        }
         setClientId('');
         setNotes('');
         setFieldValues({});
         setServiceValues({});
         setCustomLines([]);
-        alert('Estimate created');
+        alert(updated.length
+          ? `Estimate created — property details updated: ${updated.join(', ')}`
+          : 'Estimate created');
       },
       onError,
     });
@@ -631,6 +644,23 @@ function EstimateBuilder({ editEstimate, onFinished, onCancelEdit }: {
             placeholder="Optional notes shown on the estimate"
           />
         </div>
+
+        {!editEstimate && (
+          <label className="flex items-start gap-3 rounded-md border bg-muted/40 p-3 cursor-pointer">
+            <input
+              type="checkbox"
+              className="w-4 h-4 mt-0.5"
+              checked={savePropertyData}
+              onChange={e => setSavePropertyData(e.target.checked)}
+            />
+            <span className="text-sm">
+              <span className="font-medium">Save these field values to the client's property details</span>
+              <span className="block text-xs text-muted-foreground mt-0.5">
+                Selected fields with a value{client ? ` update ${client.name}'s` : ' update the client\'s'} saved property details, so the next estimate starts from the corrected numbers. Blank values and unselected fields leave existing details untouched.
+              </span>
+            </span>
+          </label>
+        )}
       </div>
 
       <div className="bg-card p-6 border rounded-lg shadow-sm space-y-3 sticky top-4">
