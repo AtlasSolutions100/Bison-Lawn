@@ -484,6 +484,83 @@ test("a claim stuck in 'sending' is aged out as never completed, not left in-fli
     .where(eq(suggestedActionsTable.id, fresh.id));
 });
 
+test("an interrupted message is flagged without a queue visit and counted on the dashboard", async () => {
+  const { startAbandonedMessageClaimSweeper, expireAbandonedMessageClaims } = await import(
+    "../src/lib/abandonedMessageClaims.ts"
+  );
+
+  const before = await api("/dashboard/summary", admin.id);
+  assert.equal(before.status, 200);
+  const baseline = before.body.interruptedMessageCount;
+  assert.equal(typeof baseline, "number");
+
+  const job = await makeJob({ clientId: emailClient.id });
+  const staleClaim = new Date(Date.now() - 30 * 60 * 1000);
+  const [stale] = await db
+    .insert(suggestedActionsTable)
+    .values({
+      source: "weather",
+      jobId: job.id,
+      clientId: emailClient.id,
+      actionType: "skip",
+      reason: "test unattended abandoned claim",
+      targetDate: TOMORROW,
+      customerMessage: "Storms tomorrow — we have to skip your service.",
+      status: "approved",
+      reviewedById: admin.id,
+      reviewedAt: staleClaim,
+      messageDeliveryState: "sending",
+      messageDeliveryClaimedAt: staleClaim,
+    })
+    .returning();
+
+  // Nobody opens the review queue: the background sweeper alone must flag it.
+  const stopSweeper = startAbandonedMessageClaimSweeper(60 * 60 * 1000);
+  try {
+    let state = "sending";
+    for (let i = 0; i < 40 && state === "sending"; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      const [row] = await db
+        .select()
+        .from(suggestedActionsTable)
+        .where(eq(suggestedActionsTable.id, stale.id));
+      state = row.messageDeliveryState;
+    }
+    assert.equal(state, "abandoned", "the sweeper must flag the claim on its own");
+  } finally {
+    stopSweeper();
+  }
+
+  const after = await api("/dashboard/summary", admin.id);
+  assert.equal(after.status, 200);
+  assert.equal(
+    after.body.interruptedMessageCount,
+    baseline + 1,
+    "the office must see the unfinished message on the dashboard",
+  );
+
+  // Sweeping again must not touch an already-abandoned row.
+  const secondSweep = await expireAbandonedMessageClaims();
+  assert.ok(
+    !secondSweep.some((r) => r.id === stale.id),
+    "an already-abandoned claim must not be re-flagged",
+  );
+  const audits = await db
+    .select()
+    .from(auditEventsTable)
+    .where(eq(auditEventsTable.clientId, emailClient.id));
+  assert.equal(
+    audits.filter(
+      (e) => e.action === "suggestion_message_abandoned" && e.description.includes(`#${stale.id}`),
+    ).length,
+    1,
+    "an abandoned claim must be audited exactly once",
+  );
+
+  const afterRepeat = await api("/dashboard/summary", admin.id);
+  assert.equal(afterRepeat.body.interruptedMessageCount, baseline + 1);
+});
+
 test("a suggestion without a customer message needs no delivery", async () => {
   const job = await makeJob();
   const [s] = await db

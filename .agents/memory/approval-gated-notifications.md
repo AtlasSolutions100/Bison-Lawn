@@ -39,6 +39,19 @@ abandoned states visually distinct. Scope every outcome write to its own claim (
 allowed prior states) so a late-finishing send can still correct its own abandoned row but can never
 overwrite a newer claim.
 
+
+## A sweep that only runs on a read is not a guarantee
+Aging out stalled work must happen on a timer (plus once at process start), not only when someone opens the
+page that displays it. Surface the unresolved count somewhere the office already looks daily.
+
+**Why:** Nobody is obliged to open the review queue. A read-triggered sweep means an interrupted customer
+notification can sit invisible for as long as that page goes unvisited.
+
+**How to apply:** Put the sweep in a shared module, keep it idempotent by guarding the update on the source
+state (so an already-aged row is neither rewritten nor re-audited), and start the timer from the server
+entrypoint rather than the Express app module — importing the app in tests must not spawn background
+timers. Keeping the read-path sweep as well is harmless once the sweep is idempotent.
+
 ## Missing contact details are a state, not a silent skip
 A customer with no email on file gets an explicit "no_email" delivery state rather than being skipped
 quietly.

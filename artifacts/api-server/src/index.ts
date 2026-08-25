@@ -1,5 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { startAbandonedMessageClaimSweeper } from "./lib/abandonedMessageClaims";
 
 const rawPort = process.env["PORT"];
 
@@ -22,4 +23,9 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
+
+  // Interrupted customer messages are flagged on a timer (and once at start,
+  // catching anything the previous process left stranded) so the office does
+  // not have to open the review queue for them to surface.
+  startAbandonedMessageClaimSweeper();
 });

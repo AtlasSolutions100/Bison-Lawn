@@ -2129,7 +2129,8 @@ export const GetDashboardSummaryResponse = zod.object({
   "openInvoiceTotal": zod.number(),
   "waitingListCount": zod.int(),
   "openTickets": zod.int(),
-  "revenueThisMonth": zod.number()
+  "revenueThisMonth": zod.number(),
+  "interruptedMessageCount": zod.int()
 })
 
 

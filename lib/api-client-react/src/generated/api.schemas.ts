@@ -1204,6 +1204,7 @@ export interface DashboardSummary {
   waitingListCount: number;
   openTickets: number;
   revenueThisMonth: number;
+  interruptedMessageCount: number;
 }
 
 export interface ContractorEarnings {

@@ -5,8 +5,9 @@ import {
   AuditEvent
 } from '@workspace/api-client-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Users, Briefcase, Receipt, Ticket, Leaf, CalendarClock } from 'lucide-react';
+import { Users, Briefcase, Receipt, Ticket, Leaf, CalendarClock, MailWarning } from 'lucide-react';
 import { format } from 'date-fns';
+import { Link } from 'wouter';
 
 export default function Dashboard() {
   const { data: summary, isLoading: isLoadingSummary } = useGetDashboardSummary();
@@ -29,6 +30,28 @@ export default function Dashboard() {
         <h1 className="text-3xl font-bold tracking-tight text-foreground">Operations Dashboard</h1>
         <p className="text-muted-foreground mt-1">Overview of your business for today, {format(new Date(), 'MMMM d, yyyy')}</p>
       </div>
+
+      {/* Customer messages whose delivery never completed — nobody knows if
+          these customers were told, so surface them without a queue visit. */}
+      {s.interruptedMessageCount > 0 && (
+        <Link
+          href="/automation"
+          className="block rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-destructive transition-colors hover:bg-destructive/15"
+          data-testid="link-interrupted-messages"
+        >
+          <div className="flex items-center gap-3">
+            <MailWarning className="w-5 h-5 shrink-0" />
+            <div>
+              <p className="font-bold">
+                {s.interruptedMessageCount} customer {s.interruptedMessageCount === 1 ? 'message' : 'messages'} never finished sending
+              </p>
+              <p className="text-sm mt-0.5">
+                Delivery was interrupted and no outcome was recorded. Assume these customers were not notified — review them in Automation Review.
+              </p>
+            </div>
+          </div>
+        </Link>
+      )}
 
       {/* Top Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

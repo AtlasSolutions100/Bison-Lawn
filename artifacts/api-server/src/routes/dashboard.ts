@@ -8,6 +8,7 @@ import {
   ticketsTable,
   auditEventsTable,
   usersTable,
+  suggestedActionsTable,
 } from "@workspace/db";
 import { and, count, desc, eq, gte, inArray, ne, sum } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
@@ -29,6 +30,7 @@ router.get("/dashboard/summary", async (_req, res) => {
     [waiting],
     [openTickets],
     [revenue],
+    [interruptedMessages],
   ] = await Promise.all([
     db.select({ n: count() }).from(clientsTable).where(eq(clientsTable.status, "lead")),
     db.select({ n: count() }).from(clientsTable).where(eq(clientsTable.status, "client")),
@@ -50,6 +52,12 @@ router.get("/dashboard/summary", async (_req, res) => {
       .select({ total: sum(paymentsTable.amount) })
       .from(paymentsTable)
       .where(gte(paymentsTable.createdAt, new Date(monthStart))),
+    // Approved customer messages whose delivery was interrupted: nobody knows
+    // whether the customer was told, so the office must chase them by hand.
+    db
+      .select({ n: count() })
+      .from(suggestedActionsTable)
+      .where(eq(suggestedActionsTable.messageDeliveryState, "abandoned")),
   ]);
 
   return res.json({
@@ -61,6 +69,7 @@ router.get("/dashboard/summary", async (_req, res) => {
     waitingListCount: waiting.n,
     openTickets: openTickets.n,
     revenueThisMonth: Number(revenue.total ?? 0),
+    interruptedMessageCount: interruptedMessages.n,
   });
 });
 

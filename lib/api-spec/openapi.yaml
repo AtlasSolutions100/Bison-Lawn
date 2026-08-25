@@ -2031,7 +2031,7 @@ components:
         customerMessage: { type: ["string", "null"] }
     DashboardSummary:
       type: object
-      required: [leadCount, clientCount, jobsToday, jobsCompletedToday, openInvoiceTotal, waitingListCount, openTickets, revenueThisMonth]
+      required: [leadCount, clientCount, jobsToday, jobsCompletedToday, openInvoiceTotal, waitingListCount, openTickets, revenueThisMonth, interruptedMessageCount]
       properties:
         leadCount: { type: integer }
         clientCount: { type: integer }
@@ -2041,6 +2041,9 @@ components:
         waitingListCount: { type: integer }
         openTickets: { type: integer }
         revenueThisMonth: { type: number }
+        # Approved customer messages whose delivery was interrupted and never
+        # reported an outcome — the customer may never have been contacted.
+        interruptedMessageCount: { type: integer }
     ContractorEarnings:
       type: object
       required: [contractorId, contractorName, jobCount, totalAmount]

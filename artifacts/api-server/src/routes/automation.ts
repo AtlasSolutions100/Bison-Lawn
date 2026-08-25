@@ -7,7 +7,7 @@ import {
   clientsTable,
   usersTable,
 } from "@workspace/db";
-import { and, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import {
   CreateWeatherRuleBody,
   UpdateWeatherRuleBody,
@@ -22,6 +22,7 @@ import {
   sendCustomerMessageViaGmail,
 } from "../lib/customerMessageDelivery";
 import { defaultGmailProxy, type GmailProxy } from "../lib/gmail";
+import { expireAbandonedMessageClaims } from "../lib/abandonedMessageClaims";
 
 const router: IRouter = Router();
 
@@ -315,50 +316,12 @@ async function hydrateSuggestions(rows: SuggestionRow[]) {
   }));
 }
 
-/**
- * How long a delivery claim may stay in "sending" before the office should stop
- * seeing it as in-flight. A Gmail send takes seconds; anything older than this
- * means the request or the server died between the claim and the outcome write.
- */
-export const ABANDONED_CLAIM_AGE_MS = 2 * 60 * 1000;
-
-const ABANDONED_CLAIM_MESSAGE =
-  "Delivery was interrupted before it completed — the server never recorded whether this email was sent. Assume the customer was not notified.";
-
-/**
- * Age out delivery claims that never reported an outcome. Rows claimed before
- * the cutoff (or with no claim timestamp at all, from before claims were
- * stamped) become "abandoned" so the office sees unfinished work instead of a
- * permanent "sending" badge. A send that is somehow still running can still
- * overwrite this with its real outcome.
- */
-async function expireAbandonedMessageClaims(): Promise<SuggestionRow[]> {
-  const cutoff = new Date(Date.now() - ABANDONED_CLAIM_AGE_MS);
-  return db
-    .update(suggestedActionsTable)
-    .set({ messageDeliveryState: "abandoned", messageDeliveryError: ABANDONED_CLAIM_MESSAGE })
-    .where(
-      and(
-        eq(suggestedActionsTable.messageDeliveryState, "sending"),
-        or(
-          isNull(suggestedActionsTable.messageDeliveryClaimedAt),
-          lt(suggestedActionsTable.messageDeliveryClaimedAt, cutoff),
-        ),
-      ),
-    )
-    .returning();
-}
-
 router.get("/suggested-actions", async (req, res) => {
-  const abandoned = await expireAbandonedMessageClaims();
-  for (const row of abandoned) {
-    await logAudit({
-      clientId: row.clientId,
-      actorName: "System",
-      action: "suggestion_message_abandoned",
-      description: `The approved ${row.actionType} message for suggestion #${row.id} never finished sending; delivery was interrupted and no outcome was recorded`,
-    });
-  }
+  // The background sweeper (see lib/abandonedMessageClaims) is what guarantees
+  // interrupted deliveries get flagged; sweeping here too keeps the queue
+  // accurate the instant it is opened. The sweep is idempotent, so the overlap
+  // costs nothing.
+  await expireAbandonedMessageClaims();
 
   const q = req.query as Record<string, string | undefined>;
   const conds = [];
