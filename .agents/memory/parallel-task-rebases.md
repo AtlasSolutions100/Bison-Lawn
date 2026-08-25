@@ -59,3 +59,8 @@ return), so non-overlapping hunks get grafted into the wrong function.
 - Repair by finding the last commit where the file was actually clean, then
   re-applying each later commit's *intent* by hand — the recorded diffs are the
   thing that broke it, so replaying them reproduces the damage.
+- Before rebuilding by hand, look for an intact twin: `git log --all --graph
+  --oneline` usually shows the same commit on its pre-merge side branch, where
+  the file is still clean. That copy is the base to re-apply the later commits'
+  intent onto, and checking it out temporarily is also the fastest way to get
+  the app running again for verification.

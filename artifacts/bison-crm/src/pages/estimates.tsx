@@ -16,6 +16,8 @@ import { Download, Send, Trash2, Plus, AlertCircle, Pencil, Bookmark } from 'luc
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useUnsavedChangesWarning } from '@/hooks/use-unsaved-changes-warning';
 import { cn } from '@/lib/utils';
+import { Download, Send, Trash2, Plus, AlertCircle, Pencil, RotateCcw } from 'lucide-react';
+import {
 
 const isEditableDraft = (estimate: Estimate) =>
   estimate.status === 'draft' &&
@@ -30,6 +32,18 @@ export default function Estimates() {
   // discarded by an action that replaces it (switching edit target, cancelling)
   // or by leaving the page. Both of those confirm first.
   const [builderDirty, setBuilderDirty] = useState(false);
+  // Local autosave of the in-progress builder, so a crash or a closed window is
+  // recoverable. Scoped to the signed-in admin.
+  const { data: currentUser } = useGetCurrentUser({ query: { queryKey: ['me'] } });
+  const storageKey = currentUser ? estimateDraftStorageKey(currentUser.id) : null;
+  // Whether the stored draft has been looked at yet this visit, and the draft
+  // waiting for the admin to restore or discard it.
+  const [draftChecked, setDraftChecked] = useState(false);
+  const [pendingDraft, setPendingDraft] = useState<EstimateDraft | null>(null);
+  // Draft handed to the builder on restore. The nonce remounts the builder so
+  // it initialises straight from the draft instead of re-deriving its state.
+  const [restoredDraft, setRestoredDraft] = useState<EstimateDraft | null>(null);
+  const [restoreNonce, setRestoreNonce] = useState(0);
   const deleteEstimate = useDeleteEstimate();
   const sendEstimate = useSendEstimate();
   const reconcileDelivery = useReconcileEstimateDelivery();
@@ -66,6 +80,61 @@ export default function Estimates() {
     'This estimate has unsaved changes. Leave the Estimates page and discard them?',
   );
 
+  // Look for a recoverable draft once per visit, after the data needed to
+  // validate it has loaded. A draft is only offered when what it refers to
+  // still exists — a deleted (or no longer editable) estimate, or a deleted
+  // client, drops it instead of resurrecting it somewhere it does not belong.
+  useEffect(() => {
+    if (draftChecked || !storageKey || isLoading || !clients) return;
+    setDraftChecked(true);
+    const stored = readEstimateDraft(storageKey);
+    if (!stored) return;
+    if (stored.estimateId != null) {
+      const target = estimates?.find(e => e.id === stored.estimateId);
+      if (!target || !isEditableDraft(target)) {
+        clearEstimateDraft(storageKey);
+        return;
+      }
+      if (String(target.clientId) !== stored.clientId) {
+        // The stored values were typed for a different client — never graft them on.
+        clearEstimateDraft(storageKey);
+        return;
+      }
+    } else if (stored.clientId !== '' && !clients.some(c => String(c.id) === stored.clientId)) {
+      clearEstimateDraft(storageKey);
+      return;
+    }
+    setPendingDraft(stored);
+  }, [draftChecked, storageKey, isLoading, estimates, clients]);
+
+  const restorePendingDraft = () => {
+    if (!pendingDraft) return;
+    const target = pendingDraft.estimateId == null
+      ? null
+      : estimates?.find(e => e.id === pendingDraft.estimateId) ?? null;
+    if (pendingDraft.estimateId != null && (!target || !isEditableDraft(target))) {
+      // Deleted or sent while the prompt was on screen.
+      if (storageKey) clearEstimateDraft(storageKey);
+      setPendingDraft(null);
+      alert('That estimate is no longer an editable draft, so the recovered work was discarded.');
+      return;
+    }
+    setEditing(target);
+    setRestoredDraft(pendingDraft);
+    setRestoreNonce(n => n + 1);
+    setPendingDraft(null);
+    setTab('builder');
+  };
+
+  const discardPendingDraft = () => {
+    if (storageKey) clearEstimateDraft(storageKey);
+    setPendingDraft(null);
+  };
+
+  const pendingDraftClientName = pendingDraft
+    ? clients?.find(c => String(c.id) === pendingDraft.clientId)?.name ?? null
+    : null;
+
   const startEdit = (estimate: Estimate) => {
     if (editing?.id === estimate.id) {
       setTab('builder');
@@ -82,12 +151,14 @@ export default function Estimates() {
       return;
     }
     setBuilderDirty(false);
+    setRestoredDraft(null);
     setEditing(estimate);
     setTab('builder');
   };
 
   const closeBuilder = () => {
     setBuilderDirty(false);
+    setRestoredDraft(null);
     setEditing(null);
     setTab('list');
   };
@@ -99,7 +170,15 @@ export default function Estimates() {
 
   const handleDelete = (id: number) => {
     if(confirm('Delete estimate?')) {
-      deleteEstimate.mutate({ id }, { onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/estimates'] }) });
+      deleteEstimate.mutate({ id }, {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: ['/api/estimates'] });
+          // A recovered draft must never bring a deleted estimate back.
+          if (storageKey && readEstimateDraft(storageKey)?.estimateId === id) clearEstimateDraft(storageKey);
+          if (pendingDraft?.estimateId === id) setPendingDraft(null);
+          if (editing?.id === id) closeBuilder();
+        },
+      });
     }
   };
 
@@ -109,6 +188,30 @@ export default function Estimates() {
         <h1 className="text-3xl font-bold tracking-tight">Estimates</h1>
         <p className="text-muted-foreground mt-1">Build and send estimates.</p>
       </div>
+
+      {pendingDraft && (
+        <div className="flex flex-wrap items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4">
+          <RotateCcw className="w-5 h-5 shrink-0 mt-0.5 text-amber-700" />
+          <div className="flex-1 min-w-64">
+            <p className="text-sm font-semibold text-amber-900">
+              Unfinished estimate recovered from this browser
+            </p>
+            <p className="text-sm text-amber-800 mt-0.5">
+              {pendingDraft.estimateId != null
+                ? `Unsaved changes to draft estimate #${pendingDraft.estimateId}`
+                : 'A new estimate you were building'}
+              {pendingDraftClientName ? ` for ${pendingDraftClientName}` : ''}, last edited {describeDraftAge(pendingDraft.savedAt)}.
+            </p>
+            <p className="text-xs text-amber-700 mt-1">
+              Autosave is paused until you restore or discard this.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={discardPendingDraft}>Discard</Button>
+            <Button onClick={restorePendingDraft}>Restore</Button>
+          </div>
+        </div>
+      )}
 
       <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col">
         <div className="flex justify-between items-center mb-4">
@@ -236,8 +339,13 @@ export default function Estimates() {
           className={cn('flex-1 m-0', tab !== 'builder' && 'hidden')}
         >
           <EstimateBuilder
-            key={editing ? `edit-${editing.id}` : 'new'}
+            key={`${editing ? `edit-${editing.id}` : 'new'}:${restoreNonce}`}
             editEstimate={editing}
+            initialDraft={restoredDraft}
+            storageKey={storageKey}
+            // Never touch the stored draft before the admin has answered the
+            // restore prompt, or a fresh builder would wipe the recovered work.
+            persistDraft={draftChecked && !pendingDraft}
             onDirtyChange={setBuilderDirty}
             onFinished={closeBuilder}
             onCancelEdit={cancelEdit}
@@ -364,24 +472,44 @@ function builderSnapshot(
   });
 }
 
+/** Selection maps travel to localStorage as arrays so their key order cannot drift. */
+function selectionToStored(state: SelectionState): StoredSelection[] {
+  return Object.entries(state)
+    .filter(([, v]) => v.selected || v.value !== '')
+    .map(([id, v]) => ({ id: Number(id), selected: v.selected, value: v.value }))
+    .sort((a, b) => a.id - b.id);
+}
 type VersionConflict = { message: string; current: Estimate | null };
-function EstimateBuilder({ editEstimate, onDirtyChange, onFinished, onCancelEdit, onReloadEdit }: {
+function EstimateBuilder({
+  editEstimate, initialDraft, storageKey, persistDraft,
+  onDirtyChange, onFinished, onCancelEdit, onReloadEdit,
+}: {
   editEstimate: Estimate | null;
+  /** Recovered local draft this builder was mounted to restore, if any. */
+  initialDraft: EstimateDraft | null;
+  storageKey: string | null;
+  persistDraft: boolean;
   onDirtyChange: (dirty: boolean) => void;
   onFinished: () => void;
   onCancelEdit: () => void;
   onReloadEdit: (estimate: Estimate) => void;
 }) {
-  const [clientId, setClientId] = useState(editEstimate ? String(editEstimate.clientId) : '');
-  const [notes, setNotes] = useState(editEstimate?.notes ?? '');
-  const [savePropertyData, setSavePropertyData] = useState(true);
-  const [fieldValues, setFieldValues] = useState<SelectionState>({});
-  const [serviceValues, setServiceValues] = useState<SelectionState>({});
+  // On an edit the client always comes from the saved estimate (it cannot be
+  // changed), so a restore can never attach one client's values to another's.
+  const [clientId, setClientId] = useState(
+    editEstimate ? String(editEstimate.clientId) : initialDraft?.clientId ?? '',
+  );
+  const [notes, setNotes] = useState(initialDraft ? initialDraft.notes : editEstimate?.notes ?? '');
+  const [savePropertyData, setSavePropertyData] = useState(initialDraft ? initialDraft.savePropertyData : true);
+  const [fieldValues, setFieldValues] = useState<SelectionState>(() => selectionFromStored(initialDraft?.fields));
+  const [serviceValues, setServiceValues] = useState<SelectionState>(() => selectionFromStored(initialDraft?.services));
   // Saved lines whose field/service no longer exists. They are carried through
   // an edit untouched so an edit never silently drops part of the estimate.
   const [carriedLines, setCarriedLines] = useState<EstimateLine[]>([]);
   // One-off charges (haul-away, dump fee, discount) entered by hand.
-  const [customLines, setCustomLines] = useState<CustomLineDraft[]>([]);
+  const [customLines, setCustomLines] = useState<CustomLineDraft[]>(
+    () => (initialDraft?.customLines ?? []).map(c => ({ key: nextCustomLineKey(), ...c })),
+  );
   const [conflict, setConflict] = useState<VersionConflict | null>(null);
   // Snapshot of the last saved state. For a draft edit that is the hydrated
   // draft; for a new estimate it stays empty, so picking a client already
@@ -418,6 +546,14 @@ function EstimateBuilder({ editEstimate, onDirtyChange, onFinished, onCancelEdit
   const fieldsLoaded = fields != null;
   const servicesLoaded = services != null;
 
+  // A restored draft supplies the values itself, so the effects below must not
+  // overwrite them the first time they run. Both guards are one-shot: any later
+  // hydrate (a reload after a version conflict) or client change behaves normally.
+  const pendingRestoredEditRef = useRef(initialDraft != null && editEstimate != null);
+  const pendingRestoredClientRef = useRef<string | null>(
+    initialDraft != null && editEstimate == null ? initialDraft.clientId : null,
+  );
+
   // Editing: hydrate the selectors from the saved draft's lines once the field
   // and service catalogs are available.
   useEffect(() => {
@@ -443,18 +579,33 @@ function EstimateBuilder({ editEstimate, onDirtyChange, onFinished, onCancelEdit
         carried.push(line);
       }
     }
-    setFieldValues(nextFields);
-    setServiceValues(nextServices);
+    // Lines whose field/service is gone are not editable, so they always come
+    // from the saved estimate rather than from a recovered draft.
     setCarriedLines(carried);
-    setCustomLines(custom);
+    // The baseline is the *saved* estimate either way, so restored edits still
+    // read as unsaved changes.
     baselineRef.current = builderSnapshot(
       String(editEstimate.clientId), editEstimate.notes ?? '', nextFields, nextServices, custom,
     );
     prefillRef.current = baselineRef.current;
+    if (pendingRestoredEditRef.current) {
+      pendingRestoredEditRef.current = false;
+      return;
+    }
+    setFieldValues(nextFields);
+    setServiceValues(nextServices);
+    setCustomLines(custom);
   }, [editEstimate, fieldsLoaded, servicesLoaded]);
 
   useEffect(() => {
     if (editEstimate) return; // edit mode hydrates from the saved estimate instead
+    if (pendingRestoredClientRef.current === clientId) {
+      // Keep the recovered values for this client instead of re-prefilling over
+      // them. Consumed only once the data that would clobber them has loaded.
+      if (clientsLoaded && fieldsLoaded) pendingRestoredClientRef.current = null;
+      return;
+    }
+    pendingRestoredClientRef.current = null;
     if (!clientId) {
       setFieldValues({});
       setServiceValues({});
@@ -484,6 +635,29 @@ function EstimateBuilder({ editEstimate, onDirtyChange, onFinished, onCancelEdit
   useEffect(() => {
     onDirtyChange(dirty);
   }, [dirty, onDirtyChange]);
+
+  // Mirror unsaved work into local storage as it changes so a crash, a closed
+  // window or a sleeping laptop stays recoverable. Once the builder matches
+  // what is saved there is nothing worth recovering, so the copy is removed.
+  useEffect(() => {
+    if (!persistDraft || !storageKey) return;
+    if (!dirty) {
+      clearEstimateDraft(storageKey);
+      return;
+    }
+    writeEstimateDraft(storageKey, {
+      estimateId: editEstimate?.id ?? null,
+      clientId,
+      notes,
+      savePropertyData,
+      fields: selectionToStored(fieldValues),
+      services: selectionToStored(serviceValues),
+      customLines: customLines.map(({ label, value, price }) => ({ label, value, price })),
+      savedAt: new Date().toISOString(),
+    });
+    // `current` is the snapshot of everything above, so it changes on every edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [persistDraft, storageKey, dirty, current, savePropertyData, editEstimate?.id]);
 
   // Changing the client rebuilds the whole form from the new client's saved
   // property values, so confirm first if that would throw away typing.
@@ -572,6 +746,7 @@ function EstimateBuilder({ editEstimate, onDirtyChange, onFinished, onCancelEdit
       }, {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: ['/api/estimates'] });
+          if (storageKey) clearEstimateDraft(storageKey);
           onFinished();
         },
         onError: (error) => {
@@ -597,6 +772,7 @@ function EstimateBuilder({ editEstimate, onDirtyChange, onFinished, onCancelEdit
     }, {
       onSuccess: (estimate) => {
         queryClient.invalidateQueries({ queryKey: ['/api/estimates'] });
+        if (storageKey) clearEstimateDraft(storageKey);
         // The server reports exactly which property details it wrote, so the
         // confirmation never claims an update that did not happen.
         const updated = estimate.propertyDataUpdated ?? [];
@@ -1226,4 +1402,10 @@ function readVersionConflict(error: unknown): VersionConflict | null {
     message: body.error ?? 'Someone else saved changes to this estimate while you were editing.',
     current: body.current ?? null,
   };
+}
+
+function selectionFromStored(stored: StoredSelection[] | undefined): SelectionState {
+  const state: SelectionState = {};
+  for (const entry of stored ?? []) state[entry.id] = { selected: entry.selected, value: entry.value };
+  return state;
 }
