@@ -65,6 +65,9 @@ import type {
   JobProduct,
   JobProductInput,
   JobUpdate,
+  LetterPreview,
+  LetterTemplate,
+  LetterTemplateInput,
   ListClientsParams,
   ListEstimatesParams,
   ListFieldNotesParams,
@@ -74,7 +77,9 @@ import type {
   ListPaymentsParams,
   ListSuggestedActionsParams,
   ListTicketsParams,
+  ListVendorRunsParams,
   ListWaitingListParams,
+  ListWebRequestsParams,
   OfferableService,
   OnSitePayment,
   OnSitePaymentInput,
@@ -89,17 +94,29 @@ import type {
   ServicePackageInput,
   ServicePackageUpdate,
   ServiceUpdate,
+  SpringLetterClient,
+  SpringLetterRenewInput,
+  SpringLetterRenewResult,
+  SpringLetterSendInput,
+  SpringLetterSendResult,
   SuggestedAction,
   SuggestedActionUpdate,
   Ticket,
   TicketInput,
   TicketUpdate,
+  VendorRunInput,
+  VendorRunResult,
+  VendorRunRow,
   WeatherCheckInput,
   WeatherCheckResult,
   WeatherCheckStatus,
   WeatherRule,
   WeatherRuleInput,
-  WeatherRuleUpdate
+  WeatherRuleUpdate,
+  WebRequest,
+  WebRequestInput,
+  WebRequestReceipt,
+  WebRequestUpdate
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -6411,4 +6428,901 @@ export function useGetContractorEarnings<TData = Awaited<ReturnType<typeof getCo
 
 
 
+
+export const getListVendorRunsUrl = (params: ListVendorRunsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/vendor-runs?${stringifiedParams}` : `/api/vendor-runs`
+}
+
+/**
+ * @summary Reconcile an outside company's service run against every customer who has that service
+ */
+export const listVendorRuns = async (params: ListVendorRunsParams, options?: Parameters<typeof customFetch>[1]): Promise<VendorRunRow[]> => {
+
+  return customFetch<VendorRunRow[]>(getListVendorRunsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListVendorRunsQueryKey = (params?: ListVendorRunsParams,) => {
+    return [
+    `/api/vendor-runs`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListVendorRunsQueryOptions = <TData = Awaited<ReturnType<typeof listVendorRuns>>, TError = ErrorType<unknown>>(params: ListVendorRunsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVendorRuns>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListVendorRunsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listVendorRuns>>> = ({ signal }) => listVendorRuns(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listVendorRuns>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListVendorRunsQueryResult = NonNullable<Awaited<ReturnType<typeof listVendorRuns>>>
+export type ListVendorRunsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Reconcile an outside company's service run against every customer who has that service
+ */
+
+export function useListVendorRuns<TData = Awaited<ReturnType<typeof listVendorRuns>>, TError = ErrorType<unknown>>(
+ params: ListVendorRunsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVendorRuns>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListVendorRunsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCompleteVendorRunUrl = () => {
+
+
+
+
+  return `/api/vendor-runs/complete`
+}
+
+/**
+ * @summary Mark the selected customers as serviced on a date and invoice them once
+ */
+export const completeVendorRun = async (vendorRunInput: VendorRunInput, options?: Parameters<typeof customFetch>[1]): Promise<VendorRunResult> => {
+
+  return customFetch<VendorRunResult>(getCompleteVendorRunUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(vendorRunInput)
+  }
+);}
+
+
+
+
+
+export const getCompleteVendorRunMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeVendorRun>>, TError,{data: BodyType<VendorRunInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof completeVendorRun>>, TError,{data: BodyType<VendorRunInput>}, TContext> => {
+
+const mutationKey = ['completeVendorRun'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof completeVendorRun>>, {data: BodyType<VendorRunInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  completeVendorRun(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CompleteVendorRunMutationResult = NonNullable<Awaited<ReturnType<typeof completeVendorRun>>>
+    export type CompleteVendorRunMutationBody = BodyType<VendorRunInput>
+    export type CompleteVendorRunMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Mark the selected customers as serviced on a date and invoice them once
+ */
+export const useCompleteVendorRun = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeVendorRun>>, TError,{data: BodyType<VendorRunInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof completeVendorRun>>,
+        TError,
+        {data: BodyType<VendorRunInput>},
+        TContext
+      > => {
+      return useMutation(getCompleteVendorRunMutationOptions(options));
+    }
+
+export const getGetLetterTemplateUrl = () => {
+
+
+
+
+  return `/api/letter-template`
+}
+
+/**
+ * @summary The seasonal letter template
+ */
+export const getLetterTemplate = async ( options?: Parameters<typeof customFetch>[1]): Promise<LetterTemplate> => {
+
+  return customFetch<LetterTemplate>(getGetLetterTemplateUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetLetterTemplateQueryKey = () => {
+    return [
+    `/api/letter-template`
+    ] as const;
+    }
+
+
+export const getGetLetterTemplateQueryOptions = <TData = Awaited<ReturnType<typeof getLetterTemplate>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLetterTemplate>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetLetterTemplateQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLetterTemplate>>> = ({ signal }) => getLetterTemplate({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLetterTemplate>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetLetterTemplateQueryResult = NonNullable<Awaited<ReturnType<typeof getLetterTemplate>>>
+export type GetLetterTemplateQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary The seasonal letter template
+ */
+
+export function useGetLetterTemplate<TData = Awaited<ReturnType<typeof getLetterTemplate>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLetterTemplate>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetLetterTemplateQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateLetterTemplateUrl = () => {
+
+
+
+
+  return `/api/letter-template`
+}
+
+/**
+ * @summary Save the seasonal letter template
+ */
+export const updateLetterTemplate = async (letterTemplateInput: LetterTemplateInput, options?: Parameters<typeof customFetch>[1]): Promise<LetterTemplate> => {
+
+  return customFetch<LetterTemplate>(getUpdateLetterTemplateUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(letterTemplateInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateLetterTemplateMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLetterTemplate>>, TError,{data: BodyType<LetterTemplateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateLetterTemplate>>, TError,{data: BodyType<LetterTemplateInput>}, TContext> => {
+
+const mutationKey = ['updateLetterTemplate'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateLetterTemplate>>, {data: BodyType<LetterTemplateInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateLetterTemplate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateLetterTemplateMutationResult = NonNullable<Awaited<ReturnType<typeof updateLetterTemplate>>>
+    export type UpdateLetterTemplateMutationBody = BodyType<LetterTemplateInput>
+    export type UpdateLetterTemplateMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Save the seasonal letter template
+ */
+export const useUpdateLetterTemplate = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLetterTemplate>>, TError,{data: BodyType<LetterTemplateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateLetterTemplate>>,
+        TError,
+        {data: BodyType<LetterTemplateInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateLetterTemplateMutationOptions(options));
+    }
+
+export const getListSpringLetterClientsUrl = () => {
+
+
+
+
+  return `/api/spring-letters/clients`
+}
+
+/**
+ * @summary Every customer with assigned services, priced at last year's rate and at today's rate
+ */
+export const listSpringLetterClients = async ( options?: Parameters<typeof customFetch>[1]): Promise<SpringLetterClient[]> => {
+
+  return customFetch<SpringLetterClient[]>(getListSpringLetterClientsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListSpringLetterClientsQueryKey = () => {
+    return [
+    `/api/spring-letters/clients`
+    ] as const;
+    }
+
+
+export const getListSpringLetterClientsQueryOptions = <TData = Awaited<ReturnType<typeof listSpringLetterClients>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listSpringLetterClients>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListSpringLetterClientsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listSpringLetterClients>>> = ({ signal }) => listSpringLetterClients({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listSpringLetterClients>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListSpringLetterClientsQueryResult = NonNullable<Awaited<ReturnType<typeof listSpringLetterClients>>>
+export type ListSpringLetterClientsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Every customer with assigned services, priced at last year's rate and at today's rate
+ */
+
+export function useListSpringLetterClients<TData = Awaited<ReturnType<typeof listSpringLetterClients>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listSpringLetterClients>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListSpringLetterClientsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getRenewSpringLetterClientsUrl = () => {
+
+
+
+
+  return `/api/spring-letters/renew`
+}
+
+/**
+ * @summary Carry the selected customers onto today's pricing for the new season
+ */
+export const renewSpringLetterClients = async (springLetterRenewInput: SpringLetterRenewInput, options?: Parameters<typeof customFetch>[1]): Promise<SpringLetterRenewResult> => {
+
+  return customFetch<SpringLetterRenewResult>(getRenewSpringLetterClientsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(springLetterRenewInput)
+  }
+);}
+
+
+
+
+
+export const getRenewSpringLetterClientsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof renewSpringLetterClients>>, TError,{data: BodyType<SpringLetterRenewInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof renewSpringLetterClients>>, TError,{data: BodyType<SpringLetterRenewInput>}, TContext> => {
+
+const mutationKey = ['renewSpringLetterClients'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof renewSpringLetterClients>>, {data: BodyType<SpringLetterRenewInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  renewSpringLetterClients(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RenewSpringLetterClientsMutationResult = NonNullable<Awaited<ReturnType<typeof renewSpringLetterClients>>>
+    export type RenewSpringLetterClientsMutationBody = BodyType<SpringLetterRenewInput>
+    export type RenewSpringLetterClientsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Carry the selected customers onto today's pricing for the new season
+ */
+export const useRenewSpringLetterClients = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof renewSpringLetterClients>>, TError,{data: BodyType<SpringLetterRenewInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof renewSpringLetterClients>>,
+        TError,
+        {data: BodyType<SpringLetterRenewInput>},
+        TContext
+      > => {
+      return useMutation(getRenewSpringLetterClientsMutationOptions(options));
+    }
+
+export const getPreviewSpringLetterUrl = (id: number,) => {
+
+
+
+
+  return `/api/spring-letters/preview/${id}`
+}
+
+/**
+ * @summary The letter as one customer will receive it
+ */
+export const previewSpringLetter = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<LetterPreview> => {
+
+  return customFetch<LetterPreview>(getPreviewSpringLetterUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getPreviewSpringLetterQueryKey = (id: number,) => {
+    return [
+    `/api/spring-letters/preview/${id}`
+    ] as const;
+    }
+
+
+export const getPreviewSpringLetterQueryOptions = <TData = Awaited<ReturnType<typeof previewSpringLetter>>, TError = ErrorType<unknown>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof previewSpringLetter>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getPreviewSpringLetterQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof previewSpringLetter>>> = ({ signal }) => previewSpringLetter(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof previewSpringLetter>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type PreviewSpringLetterQueryResult = NonNullable<Awaited<ReturnType<typeof previewSpringLetter>>>
+export type PreviewSpringLetterQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary The letter as one customer will receive it
+ */
+
+export function usePreviewSpringLetter<TData = Awaited<ReturnType<typeof previewSpringLetter>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof previewSpringLetter>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getPreviewSpringLetterQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSendSpringLettersUrl = () => {
+
+
+
+
+  return `/api/spring-letters/send`
+}
+
+/**
+ * @summary Email the letter to the selected customers, reporting each one separately
+ */
+export const sendSpringLetters = async (springLetterSendInput: SpringLetterSendInput, options?: Parameters<typeof customFetch>[1]): Promise<SpringLetterSendResult> => {
+
+  return customFetch<SpringLetterSendResult>(getSendSpringLettersUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(springLetterSendInput)
+  }
+);}
+
+
+
+
+
+export const getSendSpringLettersMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendSpringLetters>>, TError,{data: BodyType<SpringLetterSendInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendSpringLetters>>, TError,{data: BodyType<SpringLetterSendInput>}, TContext> => {
+
+const mutationKey = ['sendSpringLetters'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendSpringLetters>>, {data: BodyType<SpringLetterSendInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  sendSpringLetters(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendSpringLettersMutationResult = NonNullable<Awaited<ReturnType<typeof sendSpringLetters>>>
+    export type SendSpringLettersMutationBody = BodyType<SpringLetterSendInput>
+    export type SendSpringLettersMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Email the letter to the selected customers, reporting each one separately
+ */
+export const useSendSpringLetters = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendSpringLetters>>, TError,{data: BodyType<SpringLetterSendInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof sendSpringLetters>>,
+        TError,
+        {data: BodyType<SpringLetterSendInput>},
+        TContext
+      > => {
+      return useMutation(getSendSpringLettersMutationOptions(options));
+    }
+
+export const getListWebRequestsUrl = (params?: ListWebRequestsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/web-requests?${stringifiedParams}` : `/api/web-requests`
+}
+
+/**
+ * @summary Service requests that arrived from the website
+ */
+export const listWebRequests = async (params?: ListWebRequestsParams, options?: Parameters<typeof customFetch>[1]): Promise<WebRequest[]> => {
+
+  return customFetch<WebRequest[]>(getListWebRequestsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListWebRequestsQueryKey = (params?: ListWebRequestsParams,) => {
+    return [
+    `/api/web-requests`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListWebRequestsQueryOptions = <TData = Awaited<ReturnType<typeof listWebRequests>>, TError = ErrorType<unknown>>(params?: ListWebRequestsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWebRequests>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListWebRequestsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listWebRequests>>> = ({ signal }) => listWebRequests(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listWebRequests>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListWebRequestsQueryResult = NonNullable<Awaited<ReturnType<typeof listWebRequests>>>
+export type ListWebRequestsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Service requests that arrived from the website
+ */
+
+export function useListWebRequests<TData = Awaited<ReturnType<typeof listWebRequests>>, TError = ErrorType<unknown>>(
+ params?: ListWebRequestsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWebRequests>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListWebRequestsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateWebRequestUrl = () => {
+
+
+
+
+  return `/api/web-requests`
+}
+
+/**
+ * @summary Log a request the office received by hand (pasted from an email)
+ */
+export const createWebRequest = async (webRequestInput: WebRequestInput, options?: Parameters<typeof customFetch>[1]): Promise<WebRequest> => {
+
+  return customFetch<WebRequest>(getCreateWebRequestUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(webRequestInput)
+  }
+);}
+
+
+
+
+
+export const getCreateWebRequestMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWebRequest>>, TError,{data: BodyType<WebRequestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createWebRequest>>, TError,{data: BodyType<WebRequestInput>}, TContext> => {
+
+const mutationKey = ['createWebRequest'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createWebRequest>>, {data: BodyType<WebRequestInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createWebRequest(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateWebRequestMutationResult = NonNullable<Awaited<ReturnType<typeof createWebRequest>>>
+    export type CreateWebRequestMutationBody = BodyType<WebRequestInput>
+    export type CreateWebRequestMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Log a request the office received by hand (pasted from an email)
+ */
+export const useCreateWebRequest = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWebRequest>>, TError,{data: BodyType<WebRequestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createWebRequest>>,
+        TError,
+        {data: BodyType<WebRequestInput>},
+        TContext
+      > => {
+      return useMutation(getCreateWebRequestMutationOptions(options));
+    }
+
+export const getUpdateWebRequestUrl = (id: number,) => {
+
+
+
+
+  return `/api/web-requests/${id}`
+}
+
+/**
+ * @summary Convert a request into a client and ticket, or dismiss it
+ */
+export const updateWebRequest = async (id: number,
+    webRequestUpdate: WebRequestUpdate, options?: Parameters<typeof customFetch>[1]): Promise<WebRequest> => {
+
+  return customFetch<WebRequest>(getUpdateWebRequestUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(webRequestUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateWebRequestMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateWebRequest>>, TError,{id: number;data: BodyType<WebRequestUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateWebRequest>>, TError,{id: number;data: BodyType<WebRequestUpdate>}, TContext> => {
+
+const mutationKey = ['updateWebRequest'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateWebRequest>>, {id: number;data: BodyType<WebRequestUpdate>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateWebRequest(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateWebRequestMutationResult = NonNullable<Awaited<ReturnType<typeof updateWebRequest>>>
+    export type UpdateWebRequestMutationBody = BodyType<WebRequestUpdate>
+    export type UpdateWebRequestMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Convert a request into a client and ticket, or dismiss it
+ */
+export const useUpdateWebRequest = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateWebRequest>>, TError,{id: number;data: BodyType<WebRequestUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateWebRequest>>,
+        TError,
+        {id: number;data: BodyType<WebRequestUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateWebRequestMutationOptions(options));
+    }
+
+export const getReceiveWebRequestUrl = () => {
+
+
+
+
+  return `/api/inbound/web-request`
+}
+
+/**
+ * @summary Public webhook the website posts form submissions to; authenticated by a shared secret header
+ */
+export const receiveWebRequest = async (webRequestInput: WebRequestInput, options?: Parameters<typeof customFetch>[1]): Promise<WebRequestReceipt> => {
+
+  return customFetch<WebRequestReceipt>(getReceiveWebRequestUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(webRequestInput)
+  }
+);}
+
+
+
+
+
+export const getReceiveWebRequestMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof receiveWebRequest>>, TError,{data: BodyType<WebRequestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof receiveWebRequest>>, TError,{data: BodyType<WebRequestInput>}, TContext> => {
+
+const mutationKey = ['receiveWebRequest'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof receiveWebRequest>>, {data: BodyType<WebRequestInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  receiveWebRequest(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReceiveWebRequestMutationResult = NonNullable<Awaited<ReturnType<typeof receiveWebRequest>>>
+    export type ReceiveWebRequestMutationBody = BodyType<WebRequestInput>
+    export type ReceiveWebRequestMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Public webhook the website posts form submissions to; authenticated by a shared secret header
+ */
+export const useReceiveWebRequest = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof receiveWebRequest>>, TError,{data: BodyType<WebRequestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof receiveWebRequest>>,
+        TError,
+        {data: BodyType<WebRequestInput>},
+        TContext
+      > => {
+      return useMutation(getReceiveWebRequestMutationOptions(options));
+    }
 

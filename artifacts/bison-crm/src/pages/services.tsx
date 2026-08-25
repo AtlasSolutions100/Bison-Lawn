@@ -41,6 +41,7 @@ const serviceSchema = z.object({
   pricingEquations: z.array(equationSchema),
   contractorOfferable: z.boolean().default(false),
   contractorPrice: z.union([z.literal(''), z.coerce.number().finite()]).optional(),
+  vendorName: z.string().optional(),
 });
 
 const packageSchema = z.object({
@@ -178,6 +179,7 @@ function ServicesList() {
             <TableHead>Description</TableHead>
             <TableHead>Pricing Model</TableHead>
             <TableHead>Field Offer</TableHead>
+            <TableHead>Performed By</TableHead>
             <TableHead className="w-24"></TableHead>
           </TableRow>
         </TableHeader>
@@ -196,6 +198,13 @@ function ServicesList() {
                     </div>
                   ))}
                 </div>
+              </TableCell>
+              <TableCell className="text-sm">
+                {s.vendorName ? (
+                  <span className="font-semibold">{s.vendorName}</span>
+                ) : (
+                  <span className="text-muted-foreground">Our crew</span>
+                )}
               </TableCell>
               <TableCell>
                 {s.contractorOfferable ? (
@@ -219,7 +228,7 @@ function ServicesList() {
             </TableRow>
           ))}
           {!services?.length && (
-            <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No services found.</TableCell></TableRow>
+            <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No services found.</TableCell></TableRow>
           )}
         </TableBody>
       </Table>
@@ -302,6 +311,7 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
       })) || [{ baseSqft: 0, basePrice: 0, incrementSqft: 0, incrementPrice: 0, upToSqft: '' }],
       contractorOfferable: serviceToEdit?.contractorOfferable ?? false,
       contractorPrice: serviceToEdit?.contractorPrice ?? '',
+      vendorName: serviceToEdit?.vendorName ?? '',
     }
   });
 
@@ -323,6 +333,7 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
         upToSqft: equation.upToSqft === '' ? null : equation.upToSqft,
       })),
       contractorPrice: raw.contractorPrice === '' || raw.contractorPrice == null ? null : Number(raw.contractorPrice),
+      vendorName: raw.vendorName?.trim() || null,
     };
     if (serviceToEdit) {
       updateService.mutate({ id: serviceToEdit.id, data }, {
@@ -377,6 +388,15 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
                 )} />
                 <FormField control={form.control} name="description" render={({ field }) => (
                   <FormItem><FormLabel>Description</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage/></FormItem>
+                )} />
+
+                <FormField control={form.control} name="vendorName" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Outside company that performs this service</FormLabel>
+                    <FormControl><Input placeholder="Leave empty when our own crew does the work" {...field} /></FormControl>
+                    <p className="text-xs text-muted-foreground">Enter the vendor name only when an outside company performs and invoices you for this service.</p>
+                    <FormMessage/>
+                  </FormItem>
                 )} />
 
                 <div className="p-4 bg-muted/30 border rounded-lg space-y-3">

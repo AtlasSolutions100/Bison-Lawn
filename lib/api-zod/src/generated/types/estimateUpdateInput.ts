@@ -12,5 +12,8 @@ export interface EstimateUpdateInput {
   version: number;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  coverNote?: string | null;
+  includeServiceDescriptions?: boolean;
   lines: EstimateLine[];
 }

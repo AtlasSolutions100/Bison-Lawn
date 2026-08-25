@@ -10,6 +10,13 @@ import type { EstimateLine } from './estimateLine';
 export interface EstimateInput {
   clientId: number;
   notes?: string;
+  /**
+     * Optional letter shown above the quoted work in the estimate document
+     * @nullable
+     */
+  coverNote?: string | null;
+  /** Spell out what each quoted service includes, using the service descriptions at send time */
+  includeServiceDescriptions?: boolean;
   /** Write the entered field values back to the client's saved property details, matched by field label */
   savePropertyData?: boolean;
   lines: EstimateLine[];

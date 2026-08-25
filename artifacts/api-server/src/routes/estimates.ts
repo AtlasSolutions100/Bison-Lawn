@@ -38,7 +38,21 @@ async function loadEstimateDocument(id: number) {
   const [estimate] = await db.select().from(estimatesTable).where(eq(estimatesTable.id, id));
   if (!estimate) return null;
   const [client] = await db.select().from(clientsTable).where(eq(clientsTable.id, estimate.clientId));
-  return client ? { estimate, client } : null;
+  if (!client) return null;
+  const serviceIds = [
+    ...new Set(
+      (estimate.lines as EstimateLine[])
+        .map((line) => line.serviceId)
+        .filter((serviceId): serviceId is number => serviceId != null),
+    ),
+  ];
+  const quotedServices = serviceIds.length
+    ? await db
+        .select({ id: servicesTable.id, name: servicesTable.name, description: servicesTable.description })
+        .from(servicesTable)
+        .where(inArray(servicesTable.id, serviceIds))
+    : [];
+  return { estimate, client, quotedServices };
 }
 
 async function loadPublicEstimate(token: string) {
@@ -540,6 +554,8 @@ router.post("/estimates", async (req, res) => {
       .values({
         clientId: body.clientId,
         notes: body.notes ?? null,
+        coverNote: body.coverNote ?? null,
+        includeServiceDescriptions: body.includeServiceDescriptions ?? false,
         lines,
         total,
       })
@@ -634,7 +650,17 @@ router.patch("/estimates/:id", async (req, res) => {
   // its numbers changed underneath it.
   const [updated] = await db
     .update(estimatesTable)
-    .set({ notes: body.notes ?? null, lines, total, version: existing.version + 1 })
+    .set({
+      notes: body.notes ?? null,
+      coverNote: body.coverNote === undefined ? existing.coverNote : body.coverNote,
+      includeServiceDescriptions:
+        body.includeServiceDescriptions === undefined
+          ? existing.includeServiceDescriptions
+          : body.includeServiceDescriptions,
+      lines,
+      total,
+      version: existing.version + 1,
+    })
     .where(
       and(
         eq(estimatesTable.id, id),

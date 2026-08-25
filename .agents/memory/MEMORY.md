@@ -15,3 +15,5 @@
 - [Local draft recovery](local-draft-recovery.md) — restore by remount, give every hydrate effect a one-shot skip, and don't persist until the restore prompt is answered.
 - [Radix Tabs forceMount visibility](radix-tabs-forcemount.md) — force-mounted tab panels stay visible; hide with CSS, and guard the remaining discard paths with a dirty check.
 - [Unsaved-work navigation guard](history-navigation-guard.md) — a duplicate "guard" history entry makes Back cancellable; never traverse synchronously inside popstate.
+- [Parallel subagent file ownership](parallel-file-ownership.md) — split delegated work by file, not by feature; do every shared file yourself first, then fan out.
+- [Blank page diagnosis](blank-page-diagnosis.md) — empty body with a silent console is usually a signed-out Clerk gate or a stale Vite module graph, not a crash.

@@ -20,6 +20,9 @@ export interface Estimate {
   total: number;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  coverNote?: string | null;
+  includeServiceDescriptions?: boolean;
   lines: EstimateLine[];
   createdAt: string;
   /** @nullable */

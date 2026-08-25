@@ -30,4 +30,9 @@ export interface Service {
   contractorOfferable?: boolean;
   /** @nullable */
   contractorPrice?: number | null;
+  /**
+     * Outside company that performs this work and invoices us; null means our own crew
+     * @nullable
+     */
+  vendorName?: string | null;
 }

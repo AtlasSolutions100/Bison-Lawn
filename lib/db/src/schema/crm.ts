@@ -106,6 +106,10 @@ export const servicesTable = pgTable("services", {
   // office-controlled: contractors may offer this as one-time extra work on site
   contractorOfferable: boolean("contractor_offerable").notNull().default(false),
   contractorPrice: doublePrecision("contractor_price"),
+  // Set when an outside company performs this work (e.g. a spray contractor) and
+  // invoices the office. Those jobs are never worked by our own crew, so they are
+  // completed in bulk from the vendor's own invoice rather than from a phone.
+  vendorName: text("vendor_name"),
 });
 export type Service = typeof servicesTable.$inferSelect;
 
@@ -168,6 +172,11 @@ export const estimatesTable = pgTable("estimates", {
   status: text("status").notNull().default("draft"), // draft | sent | accepted | declined
   total: doublePrecision("total").notNull().default(0),
   notes: text("notes"),
+  // Optional letter that leads the estimate document (introduction, meet-and-greet).
+  coverNote: text("cover_note"),
+  // When true the estimate document spells out what each quoted service includes,
+  // using the service descriptions as they read at send time.
+  includeServiceDescriptions: boolean("include_service_descriptions").notNull().default(false),
   lines: jsonb("lines").$type<EstimateLine[]>().notNull().default([]),
   // Optimistic-concurrency counter for admin edits: every accepted edit of the
   // draft's contents bumps it, so a PATCH built from an older snapshot fails.
@@ -202,6 +211,10 @@ export const clientServicesTable = pgTable("client_services", {
   seasonEndDate: text("season_end_date"),
   renewDate: text("renew_date"),
   budgetedHours: doublePrecision("budgeted_hours"),
+  // Stamped when the season rollover repriced this row, so the office can see at a
+  // glance who has already been carried into the new year and who still has last
+  // year's price.
+  lastRenewedAt: timestamp("last_renewed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 export type ClientService = typeof clientServicesTable.$inferSelect;
@@ -378,6 +391,54 @@ export const ticketsTable = pgTable("tickets", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 export type Ticket = typeof ticketsTable.$inferSelect;
+
+// ---------- letter templates ----------
+// The seasonal letter the office mails every customer. Body is plain text holding
+// merge tokens ({{clientName}}, {{servicesTable}}, {{total}}) that are filled per
+// customer at send time. Kept as a single editable row rather than a library,
+// because the office writes one letter a year.
+export const letterTemplatesTable = pgTable("letter_templates", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export type LetterTemplate = typeof letterTemplatesTable.$inferSelect;
+
+// One row per customer per send attempt. A failed letter has to stay visible —
+// the whole point of the run is knowing nobody was missed.
+export const letterSendsTable = pgTable("letter_sends", {
+  id: serial("id").primaryKey(),
+  clientId: integer("client_id").notNull().references(() => clientsTable.id, { onDelete: "cascade" }),
+  subject: text("subject").notNull(),
+  status: text("status").notNull(), // sent | failed
+  error: text("error"),
+  sentToEmail: text("sent_to_email"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type LetterSend = typeof letterSendsTable.$inferSelect;
+
+// ---------- inbound web requests ----------
+// Service requests arriving from the public website. Stored raw first and matched
+// to a client second, so a request is never lost because the sender could not be
+// identified. externalId de-duplicates repeated webhook deliveries.
+export const webRequestsTable = pgTable("web_requests", {
+  id: serial("id").primaryKey(),
+  source: text("source").notNull().default("squarespace"),
+  externalId: text("external_id").unique(),
+  name: text("name"),
+  email: text("email"),
+  phone: text("phone"),
+  address: text("address"),
+  message: text("message"),
+  rawPayload: jsonb("raw_payload").$type<Record<string, unknown>>().notNull().default({}),
+  status: text("status").notNull().default("new"), // new | converted | dismissed
+  clientId: integer("client_id").references(() => clientsTable.id, { onDelete: "set null" }),
+  ticketId: integer("ticket_id").references(() => ticketsTable.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type WebRequest = typeof webRequestsTable.$inferSelect;
 
 export type BillingSettings = typeof billingSettingsTable.$inferSelect;
 

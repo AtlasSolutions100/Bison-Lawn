@@ -29,4 +29,6 @@ export interface ServiceInput {
   contractorOfferable?: boolean;
   /** @nullable */
   contractorPrice?: number | null;
+  /** @nullable */
+  vendorName?: string | null;
 }

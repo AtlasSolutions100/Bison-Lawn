@@ -428,7 +428,8 @@ export const ListServicesResponseItem = zod.object({
   "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
 })).optional(),
   "contractorOfferable": zod.boolean().optional(),
-  "contractorPrice": zod.number().nullish()
+  "contractorPrice": zod.number().nullish(),
+  "vendorName": zod.string().nullish().describe('Outside company that performs this work and invoices us; null means our own crew')
 })
 export const ListServicesResponse = zod.array(ListServicesResponseItem)
 
@@ -455,7 +456,8 @@ export const CreateServiceBody = zod.object({
   "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
 })).optional(),
   "contractorOfferable": zod.boolean().optional(),
-  "contractorPrice": zod.number().nullish()
+  "contractorPrice": zod.number().nullish(),
+  "vendorName": zod.string().nullish()
 })
 
 export const CreateServiceResponse = zod.object({
@@ -478,7 +480,8 @@ export const CreateServiceResponse = zod.object({
   "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
 })).optional(),
   "contractorOfferable": zod.boolean().optional(),
-  "contractorPrice": zod.number().nullish()
+  "contractorPrice": zod.number().nullish(),
+  "vendorName": zod.string().nullish().describe('Outside company that performs this work and invoices us; null means our own crew')
 })
 
 
@@ -506,7 +509,8 @@ export const GetServiceResponse = zod.object({
   "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
 })).optional(),
   "contractorOfferable": zod.boolean().optional(),
-  "contractorPrice": zod.number().nullish()
+  "contractorPrice": zod.number().nullish(),
+  "vendorName": zod.string().nullish().describe('Outside company that performs this work and invoices us; null means our own crew')
 })
 
 
@@ -536,7 +540,8 @@ export const UpdateServiceBody = zod.object({
   "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
 })).optional(),
   "contractorOfferable": zod.boolean().optional(),
-  "contractorPrice": zod.number().nullish()
+  "contractorPrice": zod.number().nullish(),
+  "vendorName": zod.string().nullish()
 })
 
 export const UpdateServiceResponse = zod.object({
@@ -559,7 +564,8 @@ export const UpdateServiceResponse = zod.object({
   "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
 })).optional(),
   "contractorOfferable": zod.boolean().optional(),
-  "contractorPrice": zod.number().nullish()
+  "contractorPrice": zod.number().nullish(),
+  "vendorName": zod.string().nullish().describe('Outside company that performs this work and invoices us; null means our own crew')
 })
 
 
@@ -619,7 +625,8 @@ export const ListPackagesResponseItem = zod.object({
   "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
 })).optional(),
   "contractorOfferable": zod.boolean().optional(),
-  "contractorPrice": zod.number().nullish()
+  "contractorPrice": zod.number().nullish(),
+  "vendorName": zod.string().nullish().describe('Outside company that performs this work and invoices us; null means our own crew')
 })).optional()
 }).describe('A collection of services plus the scheduling defaults its members inherit. Assigning the package copies these onto each client service by value, so editing the package later never rewrites work already scheduled.')
 export const ListPackagesResponse = zod.array(ListPackagesResponseItem)
@@ -671,7 +678,8 @@ export const CreatePackageResponse = zod.object({
   "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
 })).optional(),
   "contractorOfferable": zod.boolean().optional(),
-  "contractorPrice": zod.number().nullish()
+  "contractorPrice": zod.number().nullish(),
+  "vendorName": zod.string().nullish().describe('Outside company that performs this work and invoices us; null means our own crew')
 })).optional()
 }).describe('A collection of services plus the scheduling defaults its members inherit. Assigning the package copies these onto each client service by value, so editing the package later never rewrites work already scheduled.')
 
@@ -726,7 +734,8 @@ export const UpdatePackageResponse = zod.object({
   "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
 })).optional(),
   "contractorOfferable": zod.boolean().optional(),
-  "contractorPrice": zod.number().nullish()
+  "contractorPrice": zod.number().nullish(),
+  "vendorName": zod.string().nullish().describe('Outside company that performs this work and invoices us; null means our own crew')
 })).optional()
 }).describe('A collection of services plus the scheduling defaults its members inherit. Assigning the package copies these onto each client service by value, so editing the package later never rewrites work already scheduled.')
 
@@ -866,6 +875,8 @@ export const ListEstimatesResponseItem = zod.object({
   "status": zod.enum(['draft', 'sent', 'accepted', 'declined']),
   "total": zod.number(),
   "notes": zod.string().nullish(),
+  "coverNote": zod.string().nullish(),
+  "includeServiceDescriptions": zod.boolean().optional(),
   "lines": zod.array(zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
@@ -890,6 +901,8 @@ export const ListEstimatesResponse = zod.array(ListEstimatesResponseItem)
 export const CreateEstimateBody = zod.object({
   "clientId": zod.int(),
   "notes": zod.string().optional(),
+  "coverNote": zod.string().nullish().describe('Optional letter shown above the quoted work in the estimate document'),
+  "includeServiceDescriptions": zod.boolean().optional().describe('Spell out what each quoted service includes, using the service descriptions at send time'),
   "savePropertyData": zod.boolean().optional().describe('Write the entered field values back to the client\'s saved property details, matched by field label'),
   "lines": zod.array(zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
@@ -908,6 +921,8 @@ export const CreateEstimateResponse = zod.object({
   "status": zod.enum(['draft', 'sent', 'accepted', 'declined']),
   "total": zod.number(),
   "notes": zod.string().nullish(),
+  "coverNote": zod.string().nullish(),
+  "includeServiceDescriptions": zod.boolean().optional(),
   "lines": zod.array(zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
@@ -940,6 +955,8 @@ export const GetEstimateResponse = zod.object({
   "status": zod.enum(['draft', 'sent', 'accepted', 'declined']),
   "total": zod.number(),
   "notes": zod.string().nullish(),
+  "coverNote": zod.string().nullish(),
+  "includeServiceDescriptions": zod.boolean().optional(),
   "lines": zod.array(zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
@@ -970,6 +987,8 @@ export const UpdateEstimateParams = zod.object({
 export const UpdateEstimateBody = zod.object({
   "version": zod.int().describe('Version the edit was built from; a stale value is rejected with 409'),
   "notes": zod.string().nullish(),
+  "coverNote": zod.string().nullish(),
+  "includeServiceDescriptions": zod.boolean().optional(),
   "lines": zod.array(zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
@@ -987,6 +1006,8 @@ export const UpdateEstimateResponse = zod.object({
   "status": zod.enum(['draft', 'sent', 'accepted', 'declined']),
   "total": zod.number(),
   "notes": zod.string().nullish(),
+  "coverNote": zod.string().nullish(),
+  "includeServiceDescriptions": zod.boolean().optional(),
   "lines": zod.array(zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
@@ -1044,6 +1065,8 @@ export const SendEstimateResponse = zod.object({
   "status": zod.enum(['draft', 'sent', 'accepted', 'declined']),
   "total": zod.number(),
   "notes": zod.string().nullish(),
+  "coverNote": zod.string().nullish(),
+  "includeServiceDescriptions": zod.boolean().optional(),
   "lines": zod.array(zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
@@ -1079,6 +1102,8 @@ export const ReconcileEstimateDeliveryResponse = zod.object({
   "status": zod.enum(['draft', 'sent', 'accepted', 'declined']),
   "total": zod.number(),
   "notes": zod.string().nullish(),
+  "coverNote": zod.string().nullish(),
+  "includeServiceDescriptions": zod.boolean().optional(),
   "lines": zod.array(zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
@@ -2344,5 +2369,270 @@ export const GetContractorEarningsResponseItem = zod.object({
   "completedCount": zod.int().optional()
 })
 export const GetContractorEarningsResponse = zod.array(GetContractorEarningsResponseItem)
+
+
+/**
+ * @summary Reconcile an outside company's service run against every customer who has that service
+ */
+export const ListVendorRunsQueryParams = zod.object({
+  "serviceId": zod.coerce.number().int(),
+  "from": zod.coerce.string().optional(),
+  "to": zod.coerce.string().optional()
+})
+
+export const ListVendorRunsResponseItem = zod.object({
+  "clientId": zod.int(),
+  "clientName": zod.string(),
+  "city": zod.string().nullish(),
+  "clientServiceId": zod.int(),
+  "amount": zod.number(),
+  "status": zod.enum(['not_scheduled', 'scheduled', 'completed', 'invoiced']).describe('not_scheduled means this customer has the service but no job in the window — the ones most easily missed'),
+  "jobId": zod.int().nullish(),
+  "invoiceId": zod.int().nullish(),
+  "lastCompletedDate": zod.string().nullish()
+})
+export const ListVendorRunsResponse = zod.array(ListVendorRunsResponseItem)
+
+
+/**
+ * @summary Mark the selected customers as serviced on a date and invoice them once
+ */
+export const CompleteVendorRunBody = zod.object({
+  "serviceId": zod.int(),
+  "serviceDate": zod.string().describe('yyyy-mm-dd the outside company performed the work'),
+  "clientIds": zod.array(zod.int())
+})
+
+export const CompleteVendorRunResponse = zod.object({
+  "completed": zod.int(),
+  "skipped": zod.int(),
+  "failed": zod.int(),
+  "outcomes": zod.array(zod.object({
+  "clientId": zod.int(),
+  "clientName": zod.string(),
+  "status": zod.enum(['completed', 'skipped', 'failed']),
+  "invoiceId": zod.int().nullish(),
+  "reason": zod.string().nullish()
+}))
+})
+
+
+/**
+ * @summary The seasonal letter template
+ */
+export const GetLetterTemplateResponse = zod.object({
+  "id": zod.int(),
+  "name": zod.string(),
+  "subject": zod.string(),
+  "body": zod.string().describe('Plain text with merge tokens {{clientName}}, {{servicesTable}}, {{total}}'),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Save the seasonal letter template
+ */
+
+
+
+
+export const UpdateLetterTemplateBody = zod.object({
+  "name": zod.string().optional(),
+  "subject": zod.string().min(1),
+  "body": zod.string().min(1)
+})
+
+export const UpdateLetterTemplateResponse = zod.object({
+  "id": zod.int(),
+  "name": zod.string(),
+  "subject": zod.string(),
+  "body": zod.string().describe('Plain text with merge tokens {{clientName}}, {{servicesTable}}, {{total}}'),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Every customer with assigned services, priced at last year's rate and at today's rate
+ */
+export const ListSpringLetterClientsResponseItem = zod.object({
+  "clientId": zod.int(),
+  "clientName": zod.string(),
+  "email": zod.string().nullish(),
+  "services": zod.array(zod.object({
+  "clientServiceId": zod.int(),
+  "serviceName": zod.string(),
+  "currentAmount": zod.number(),
+  "newAmount": zod.number()
+})),
+  "currentTotal": zod.number(),
+  "newTotal": zod.number(),
+  "lastRenewedAt": zod.string().nullish(),
+  "lastSendStatus": zod.string().nullish(),
+  "lastSendError": zod.string().nullish(),
+  "lastSentAt": zod.string().nullish()
+})
+export const ListSpringLetterClientsResponse = zod.array(ListSpringLetterClientsResponseItem)
+
+
+/**
+ * @summary Carry the selected customers onto today's pricing for the new season
+ */
+export const RenewSpringLetterClientsBody = zod.object({
+  "clientIds": zod.array(zod.int())
+})
+
+export const RenewSpringLetterClientsResponse = zod.object({
+  "renewed": zod.int(),
+  "outcomes": zod.array(zod.object({
+  "clientId": zod.int(),
+  "clientName": zod.string(),
+  "ok": zod.boolean(),
+  "error": zod.string().nullish(),
+  "previousTotal": zod.number().optional(),
+  "newTotal": zod.number().optional()
+}))
+})
+
+
+/**
+ * @summary The letter as one customer will receive it
+ */
+export const PreviewSpringLetterParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const PreviewSpringLetterResponse = zod.object({
+  "clientId": zod.int(),
+  "clientName": zod.string(),
+  "email": zod.string().nullish(),
+  "subject": zod.string(),
+  "body": zod.string()
+})
+
+
+/**
+ * @summary Email the letter to the selected customers, reporting each one separately
+ */
+export const SendSpringLettersBody = zod.object({
+  "clientIds": zod.array(zod.int())
+})
+
+export const SendSpringLettersResponse = zod.object({
+  "sent": zod.int(),
+  "failed": zod.int(),
+  "outcomes": zod.array(zod.object({
+  "clientId": zod.int(),
+  "clientName": zod.string(),
+  "ok": zod.boolean(),
+  "error": zod.string().nullish()
+}))
+})
+
+
+/**
+ * @summary Service requests that arrived from the website
+ */
+export const ListWebRequestsQueryParams = zod.object({
+  "status": zod.enum(['new', 'converted', 'dismissed']).optional()
+})
+
+export const ListWebRequestsResponseItem = zod.object({
+  "id": zod.int(),
+  "source": zod.string(),
+  "externalId": zod.string().nullish(),
+  "name": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "address": zod.string().nullish(),
+  "message": zod.string().nullish(),
+  "status": zod.enum(['new', 'converted', 'dismissed']),
+  "clientId": zod.int().nullish(),
+  "clientName": zod.string().nullish(),
+  "ticketId": zod.int().nullish(),
+  "createdAt": zod.string()
+})
+export const ListWebRequestsResponse = zod.array(ListWebRequestsResponseItem)
+
+
+/**
+ * @summary Log a request the office received by hand (pasted from an email)
+ */
+export const CreateWebRequestBody = zod.object({
+  "source": zod.string().optional(),
+  "externalId": zod.string().optional().describe('Sender\'s own id for this submission; a repeat delivery of the same id is ignored'),
+  "name": zod.string().optional(),
+  "email": zod.string().optional(),
+  "phone": zod.string().optional(),
+  "address": zod.string().optional(),
+  "message": zod.string().optional(),
+  "raw": zod.record(zod.string(), zod.unknown()).optional().describe('The submission exactly as received, kept so nothing is lost when field names change')
+})
+
+export const CreateWebRequestResponse = zod.object({
+  "id": zod.int(),
+  "source": zod.string(),
+  "externalId": zod.string().nullish(),
+  "name": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "address": zod.string().nullish(),
+  "message": zod.string().nullish(),
+  "status": zod.enum(['new', 'converted', 'dismissed']),
+  "clientId": zod.int().nullish(),
+  "clientName": zod.string().nullish(),
+  "ticketId": zod.int().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Convert a request into a client and ticket, or dismiss it
+ */
+export const UpdateWebRequestParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const UpdateWebRequestBody = zod.object({
+  "status": zod.enum(['new', 'converted', 'dismissed']).optional(),
+  "convertToClient": zod.boolean().optional().describe('Create (or link) a lead client from this request'),
+  "createTicket": zod.boolean().optional().describe('Open a ticket on the task board for this request')
+})
+
+export const UpdateWebRequestResponse = zod.object({
+  "id": zod.int(),
+  "source": zod.string(),
+  "externalId": zod.string().nullish(),
+  "name": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "address": zod.string().nullish(),
+  "message": zod.string().nullish(),
+  "status": zod.enum(['new', 'converted', 'dismissed']),
+  "clientId": zod.int().nullish(),
+  "clientName": zod.string().nullish(),
+  "ticketId": zod.int().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Public webhook the website posts form submissions to; authenticated by a shared secret header
+ */
+export const ReceiveWebRequestBody = zod.object({
+  "source": zod.string().optional(),
+  "externalId": zod.string().optional().describe('Sender\'s own id for this submission; a repeat delivery of the same id is ignored'),
+  "name": zod.string().optional(),
+  "email": zod.string().optional(),
+  "phone": zod.string().optional(),
+  "address": zod.string().optional(),
+  "message": zod.string().optional(),
+  "raw": zod.record(zod.string(), zod.unknown()).optional().describe('The submission exactly as received, kept so nothing is lost when field names change')
+})
+
+export const ReceiveWebRequestResponse = zod.object({
+  "id": zod.int(),
+  "status": zod.string(),
+  "duplicate": zod.boolean()
+})
 
 

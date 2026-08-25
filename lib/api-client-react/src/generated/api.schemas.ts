@@ -219,6 +219,11 @@ export interface Service {
   contractorOfferable?: boolean;
   /** @nullable */
   contractorPrice?: number | null;
+  /**
+     * Outside company that performs this work and invoices us; null means our own crew
+     * @nullable
+     */
+  vendorName?: string | null;
 }
 
 export interface ServiceInput {
@@ -243,6 +248,8 @@ export interface ServiceInput {
   contractorOfferable?: boolean;
   /** @nullable */
   contractorPrice?: number | null;
+  /** @nullable */
+  vendorName?: string | null;
 }
 
 export interface ServiceUpdate {
@@ -268,6 +275,8 @@ export interface ServiceUpdate {
   contractorOfferable?: boolean;
   /** @nullable */
   contractorPrice?: number | null;
+  /** @nullable */
+  vendorName?: string | null;
 }
 
 export interface PriceQueryInput {
@@ -633,6 +642,9 @@ export interface Estimate {
   total: number;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  coverNote?: string | null;
+  includeServiceDescriptions?: boolean;
   lines: EstimateLine[];
   createdAt: string;
   /** @nullable */
@@ -656,6 +668,13 @@ export interface Estimate {
 export interface EstimateInput {
   clientId: number;
   notes?: string;
+  /**
+     * Optional letter shown above the quoted work in the estimate document
+     * @nullable
+     */
+  coverNote?: string | null;
+  /** Spell out what each quoted service includes, using the service descriptions at send time */
+  includeServiceDescriptions?: boolean;
   /** Write the entered field values back to the client's saved property details, matched by field label */
   savePropertyData?: boolean;
   lines: EstimateLine[];
@@ -666,6 +685,9 @@ export interface EstimateUpdateInput {
   version: number;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  coverNote?: string | null;
+  includeServiceDescriptions?: boolean;
   lines: EstimateLine[];
 }
 
@@ -1065,6 +1087,232 @@ export interface OnSitePayment {
   /** @nullable */
   notes?: string | null;
   createdAt: string;
+}
+
+/**
+ * not_scheduled means this customer has the service but no job in the window — the ones most easily missed
+ */
+export type VendorRunRowStatus = typeof VendorRunRowStatus[keyof typeof VendorRunRowStatus];
+
+
+export const VendorRunRowStatus = {
+  not_scheduled: 'not_scheduled',
+  scheduled: 'scheduled',
+  completed: 'completed',
+  invoiced: 'invoiced',
+} as const;
+
+export interface VendorRunRow {
+  clientId: number;
+  clientName: string;
+  /** @nullable */
+  city?: string | null;
+  clientServiceId: number;
+  amount: number;
+  /** not_scheduled means this customer has the service but no job in the window — the ones most easily missed */
+  status: VendorRunRowStatus;
+  /** @nullable */
+  jobId?: number | null;
+  /** @nullable */
+  invoiceId?: number | null;
+  /** @nullable */
+  lastCompletedDate?: string | null;
+}
+
+export interface VendorRunInput {
+  serviceId: number;
+  /** yyyy-mm-dd the outside company performed the work */
+  serviceDate: string;
+  clientIds: number[];
+}
+
+export type VendorRunOutcomeStatus = typeof VendorRunOutcomeStatus[keyof typeof VendorRunOutcomeStatus];
+
+
+export const VendorRunOutcomeStatus = {
+  completed: 'completed',
+  skipped: 'skipped',
+  failed: 'failed',
+} as const;
+
+export interface VendorRunOutcome {
+  clientId: number;
+  clientName: string;
+  status: VendorRunOutcomeStatus;
+  /** @nullable */
+  invoiceId?: number | null;
+  /** @nullable */
+  reason?: string | null;
+}
+
+export interface VendorRunResult {
+  completed: number;
+  skipped: number;
+  failed: number;
+  outcomes: VendorRunOutcome[];
+}
+
+export interface LetterTemplate {
+  id: number;
+  name: string;
+  subject: string;
+  /** Plain text with merge tokens {{clientName}}, {{servicesTable}}, {{total}} */
+  body: string;
+  updatedAt: string;
+}
+
+export interface LetterTemplateInput {
+  name?: string;
+  /** @minLength 1 */
+  subject: string;
+  /** @minLength 1 */
+  body: string;
+}
+
+export interface SpringLetterService {
+  clientServiceId: number;
+  serviceName: string;
+  currentAmount: number;
+  newAmount: number;
+}
+
+export interface SpringLetterClient {
+  clientId: number;
+  clientName: string;
+  /** @nullable */
+  email?: string | null;
+  services: SpringLetterService[];
+  currentTotal: number;
+  newTotal: number;
+  /** @nullable */
+  lastRenewedAt?: string | null;
+  /** @nullable */
+  lastSendStatus?: string | null;
+  /** @nullable */
+  lastSendError?: string | null;
+  /** @nullable */
+  lastSentAt?: string | null;
+}
+
+export interface SpringLetterRenewInput {
+  clientIds: number[];
+}
+
+export interface SpringLetterRenewOutcome {
+  clientId: number;
+  clientName: string;
+  ok: boolean;
+  /** @nullable */
+  error?: string | null;
+  previousTotal?: number;
+  newTotal?: number;
+}
+
+export interface SpringLetterRenewResult {
+  renewed: number;
+  outcomes: SpringLetterRenewOutcome[];
+}
+
+export interface LetterPreview {
+  clientId: number;
+  clientName: string;
+  /** @nullable */
+  email?: string | null;
+  subject: string;
+  body: string;
+}
+
+export interface SpringLetterSendInput {
+  clientIds: number[];
+}
+
+export interface SpringLetterSendOutcome {
+  clientId: number;
+  clientName: string;
+  ok: boolean;
+  /** @nullable */
+  error?: string | null;
+}
+
+export interface SpringLetterSendResult {
+  sent: number;
+  failed: number;
+  outcomes: SpringLetterSendOutcome[];
+}
+
+export type WebRequestStatus = typeof WebRequestStatus[keyof typeof WebRequestStatus];
+
+
+export const WebRequestStatus = {
+  new: 'new',
+  converted: 'converted',
+  dismissed: 'dismissed',
+} as const;
+
+export interface WebRequest {
+  id: number;
+  source: string;
+  /** @nullable */
+  externalId?: string | null;
+  /** @nullable */
+  name?: string | null;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  address?: string | null;
+  /** @nullable */
+  message?: string | null;
+  status: WebRequestStatus;
+  /** @nullable */
+  clientId?: number | null;
+  /** @nullable */
+  clientName?: string | null;
+  /** @nullable */
+  ticketId?: number | null;
+  createdAt: string;
+}
+
+/**
+ * The submission exactly as received, kept so nothing is lost when field names change
+ */
+export type WebRequestInputRaw = { [key: string]: unknown };
+
+export interface WebRequestInput {
+  source?: string;
+  /** Sender's own id for this submission; a repeat delivery of the same id is ignored */
+  externalId?: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  message?: string;
+  /** The submission exactly as received, kept so nothing is lost when field names change */
+  raw?: WebRequestInputRaw;
+}
+
+export type WebRequestUpdateStatus = typeof WebRequestUpdateStatus[keyof typeof WebRequestUpdateStatus];
+
+
+export const WebRequestUpdateStatus = {
+  new: 'new',
+  converted: 'converted',
+  dismissed: 'dismissed',
+} as const;
+
+export interface WebRequestUpdate {
+  status?: WebRequestUpdateStatus;
+  /** Create (or link) a lead client from this request */
+  convertToClient?: boolean;
+  /** Open a ticket on the task board for this request */
+  createTicket?: boolean;
+}
+
+export interface WebRequestReceipt {
+  id: number;
+  status: string;
+  duplicate: boolean;
 }
 
 export type TicketStatus = typeof TicketStatus[keyof typeof TicketStatus];
@@ -1535,4 +1783,23 @@ export const ListSuggestedActionsStatus = {
 export type GetContractorEarningsParams = {
 date: string;
 };
+
+export type ListVendorRunsParams = {
+serviceId: number;
+from?: string;
+to?: string;
+};
+
+export type ListWebRequestsParams = {
+status?: ListWebRequestsStatus;
+};
+
+export type ListWebRequestsStatus = typeof ListWebRequestsStatus[keyof typeof ListWebRequestsStatus];
+
+
+export const ListWebRequestsStatus = {
+  new: 'new',
+  converted: 'converted',
+  dismissed: 'dismissed',
+} as const;
 

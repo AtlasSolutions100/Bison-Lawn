@@ -21,7 +21,10 @@ router.get("/services", async (_req, res) => {
 
 router.post("/services", async (req, res) => {
   const body = CreateServiceBody.parse(req.body);
-  const [svc] = await db.insert(servicesTable).values(body).returning();
+  const [svc] = await db
+    .insert(servicesTable)
+    .values({ ...body, vendorName: body.vendorName?.trim() || null })
+    .returning();
   return res.status(201).json(svc);
 });
 
@@ -33,9 +36,13 @@ router.get("/services/:id", async (req, res) => {
 
 router.patch("/services/:id", async (req, res) => {
   const body = UpdateServiceBody.parse(req.body);
+  const values = {
+    ...body,
+    ...(body.vendorName !== undefined ? { vendorName: body.vendorName?.trim() || null } : {}),
+  };
   const [svc] = await db
     .update(servicesTable)
-    .set(body)
+    .set(values)
     .where(eq(servicesTable.id, Number(req.params.id)))
     .returning();
   if (!svc) return res.status(404).json({ error: "Service not found" });

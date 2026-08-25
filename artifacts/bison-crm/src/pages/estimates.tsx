@@ -4,7 +4,7 @@ import {
   useReconcileEstimateDelivery,
   useListEstimateFields, useCreateEstimateField, useUpdateEstimateField, useDeleteEstimateField,
   useListChargePresets, useCreateChargePreset, useUpdateChargePreset, useDeleteChargePreset,
-  useListClients, useListServices, useGetCurrentUser
+  useListClients, useListServices, useListPackages, useCreateClient, useGetCurrentUser
 } from '@workspace/api-client-react';
 import type { ChargePreset, Estimate, EstimateField, EstimateFieldInput, EstimateLine, Service } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -31,6 +31,47 @@ const isEditableDraft = (estimate: Estimate) =>
   estimate.status === 'draft' &&
   estimate.deliveryState !== 'sending' &&
   estimate.deliveryState !== 'provider_accepted';
+
+const NEW_PROSPECT = '__new_prospect__';
+type ProspectDraft = { name: string; address: string; city: string; email: string; phone: string };
+type BuilderDraftExtras = {
+  estimateId: number | null;
+  clientId: string;
+  coverNote: string;
+  includeServiceDescriptions: boolean;
+  prospect: ProspectDraft;
+  createdProspectId: number | null;
+};
+const emptyProspect = (): ProspectDraft => ({ name: '', address: '', city: '', email: '', phone: '' });
+const extrasKey = (key: string) => `${key}:builder-extras-v1`;
+function readDraftExtras(key: string): BuilderDraftExtras | null {
+  try {
+    const value = JSON.parse(localStorage.getItem(extrasKey(key)) ?? 'null') as Partial<BuilderDraftExtras> | null;
+    if (!value || typeof value.coverNote !== 'string' || typeof value.includeServiceDescriptions !== 'boolean') return null;
+    const prospect = value.prospect;
+    if (
+      !prospect ||
+      !['name', 'address', 'city', 'email', 'phone'].every(field => typeof prospect[field as keyof ProspectDraft] === 'string')
+    ) return null;
+    return {
+      estimateId: typeof value.estimateId === 'number' ? value.estimateId : null,
+      clientId: typeof value.clientId === 'string' ? value.clientId : '',
+      coverNote: value.coverNote,
+      includeServiceDescriptions: value.includeServiceDescriptions,
+      prospect,
+      createdProspectId: typeof value.createdProspectId === 'number' ? value.createdProspectId : null,
+    };
+  } catch {
+    return null;
+  }
+}
+function writeDraftExtras(key: string, value: BuilderDraftExtras) {
+  try { localStorage.setItem(extrasKey(key), JSON.stringify(value)); } catch { /* best effort */ }
+}
+function clearBuilderDraft(key: string) {
+  clearEstimateDraft(key);
+  try { localStorage.removeItem(extrasKey(key)); } catch { /* best effort */ }
+}
 
 export default function Estimates() {
   const { data: estimates, isLoading } = useListEstimates();
@@ -102,16 +143,16 @@ export default function Estimates() {
     if (stored.estimateId != null) {
       const target = estimates?.find(e => e.id === stored.estimateId);
       if (!target || !isEditableDraft(target)) {
-        clearEstimateDraft(storageKey);
+        clearBuilderDraft(storageKey);
         return;
       }
       if (String(target.clientId) !== stored.clientId) {
         // The stored values were typed for a different client — never graft them on.
-        clearEstimateDraft(storageKey);
+        clearBuilderDraft(storageKey);
         return;
       }
-    } else if (stored.clientId !== '' && !clients.some(c => String(c.id) === stored.clientId)) {
-      clearEstimateDraft(storageKey);
+    } else if (stored.clientId !== '' && stored.clientId !== NEW_PROSPECT && !clients.some(c => String(c.id) === stored.clientId)) {
+      clearBuilderDraft(storageKey);
       return;
     }
     setPendingDraft(stored);
@@ -124,7 +165,7 @@ export default function Estimates() {
       : estimates?.find(e => e.id === pendingDraft.estimateId) ?? null;
     if (pendingDraft.estimateId != null && (!target || !isEditableDraft(target))) {
       // Deleted or sent while the prompt was on screen.
-      if (storageKey) clearEstimateDraft(storageKey);
+      if (storageKey) clearBuilderDraft(storageKey);
       setPendingDraft(null);
       alert('That estimate is no longer an editable draft, so the recovered work was discarded.');
       return;
@@ -137,7 +178,7 @@ export default function Estimates() {
   };
 
   const discardPendingDraft = () => {
-    if (storageKey) clearEstimateDraft(storageKey);
+    if (storageKey) clearBuilderDraft(storageKey);
     setPendingDraft(null);
   };
 
@@ -220,7 +261,7 @@ export default function Estimates() {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: ['/api/estimates'] });
           // A recovered draft must never bring a deleted estimate back.
-          if (storageKey && readEstimateDraft(storageKey)?.estimateId === id) clearEstimateDraft(storageKey);
+          if (storageKey && readEstimateDraft(storageKey)?.estimateId === id) clearBuilderDraft(storageKey);
           if (pendingDraft?.estimateId === id) setPendingDraft(null);
           if (editing?.id === id) closeBuilder();
         },
@@ -504,6 +545,10 @@ function builderSnapshot(
   fields: SelectionState,
   services: SelectionState,
   customLines: CustomLineDraft[],
+  coverNote = '',
+  includeServiceDescriptions = false,
+  prospect: ProspectDraft = emptyProspect(),
+  savePropertyData = true,
 ) {
   const normalize = (state: SelectionState) =>
     Object.entries(state)
@@ -513,6 +558,10 @@ function builderSnapshot(
   return JSON.stringify({
     clientId,
     notes,
+    coverNote,
+    includeServiceDescriptions,
+    prospect,
+    savePropertyData,
     fields: normalize(fields),
     services: normalize(services),
     custom: customLines.map(c => [c.label, c.value, c.price]),
@@ -543,12 +592,29 @@ function EstimateBuilder({
   onCancelEdit: () => void;
   onReloadEdit: (estimate: Estimate) => void;
 }) {
+  const recoveredExtras = initialDraft && storageKey ? readDraftExtras(storageKey) : null;
+  const usableExtras =
+    recoveredExtras &&
+    recoveredExtras.estimateId === (editEstimate?.id ?? null) &&
+    recoveredExtras.clientId === initialDraft?.clientId
+      ? recoveredExtras
+      : null;
   // On an edit the client always comes from the saved estimate (it cannot be
   // changed), so a restore can never attach one client's values to another's.
   const [clientId, setClientId] = useState(
     editEstimate ? String(editEstimate.clientId) : initialDraft?.clientId ?? initialClientId ?? '',
   );
   const [notes, setNotes] = useState(initialDraft ? initialDraft.notes : editEstimate?.notes ?? '');
+  const [coverNote, setCoverNote] = useState(
+    usableExtras?.coverNote ?? editEstimate?.coverNote ?? '',
+  );
+  const [includeServiceDescriptions, setIncludeServiceDescriptions] = useState(
+    usableExtras?.includeServiceDescriptions ?? editEstimate?.includeServiceDescriptions ?? false,
+  );
+  const [prospect, setProspect] = useState<ProspectDraft>(usableExtras?.prospect ?? emptyProspect());
+  const [createdProspectId, setCreatedProspectId] = useState<number | null>(
+    usableExtras?.createdProspectId ?? null,
+  );
   const [savePropertyData, setSavePropertyData] = useState(initialDraft ? initialDraft.savePropertyData : true);
   const [fieldValues, setFieldValues] = useState<SelectionState>(() => selectionFromStored(initialDraft?.fields));
   const [serviceValues, setServiceValues] = useState<SelectionState>(() => selectionFromStored(initialDraft?.services));
@@ -560,11 +626,22 @@ function EstimateBuilder({
     () => (initialDraft?.customLines ?? []).map(c => ({ key: nextCustomLineKey(), ...c })),
   );
   const [conflict, setConflict] = useState<VersionConflict | null>(null);
+  const [saveError, setSaveError] = useState('');
   // Snapshot of the last saved state. For a draft edit that is the hydrated
   // draft; for a new estimate it stays empty, so picking a client already
   // counts as unsaved work worth warning about before leaving the page.
   const baselineRef = useRef(
-    builderSnapshot(editEstimate ? String(editEstimate.clientId) : '', editEstimate?.notes ?? '', {}, {}, []),
+    builderSnapshot(
+      editEstimate ? String(editEstimate.clientId) : '',
+      editEstimate?.notes ?? '',
+      {},
+      {},
+      [],
+      editEstimate?.coverNote ?? '',
+      editEstimate?.includeServiceDescriptions ?? false,
+      emptyProspect(),
+      true,
+    ),
   );
   // Snapshot taken right after a client's saved property values are prefilled.
   // Used only to decide whether switching clients would throw away typing —
@@ -573,7 +650,9 @@ function EstimateBuilder({
   const { data: clients } = useListClients();
   const { data: fields } = useListEstimateFields();
   const { data: services } = useListServices();
+  const { data: packages } = useListPackages();
   const { data: chargePresets } = useListChargePresets();
+  const createClient = useCreateClient();
   const createPreset = useCreateChargePreset();
   const createEstimate = useCreateEstimate();
   const updateEstimate = useUpdateEstimate();
@@ -634,7 +713,13 @@ function EstimateBuilder({
     // The baseline is the *saved* estimate either way, so restored edits still
     // read as unsaved changes.
     baselineRef.current = builderSnapshot(
-      String(editEstimate.clientId), editEstimate.notes ?? '', nextFields, nextServices, custom,
+      String(editEstimate.clientId),
+      editEstimate.notes ?? '',
+      nextFields,
+      nextServices,
+      custom,
+      editEstimate.coverNote ?? '',
+      editEstimate.includeServiceDescriptions ?? false,
     );
     prefillRef.current = baselineRef.current;
     if (pendingRestoredEditRef.current) {
@@ -677,7 +762,17 @@ function EstimateBuilder({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId, clientsLoaded, fieldsLoaded]);
 
-  const current = builderSnapshot(clientId, notes, fieldValues, serviceValues, customLines);
+  const current = builderSnapshot(
+    clientId,
+    notes,
+    fieldValues,
+    serviceValues,
+    customLines,
+    coverNote,
+    includeServiceDescriptions,
+    prospect,
+    savePropertyData,
+  );
   const dirty = current !== baselineRef.current;
   // Values the admin typed on top of the current client's prefill.
   const hasTypedValues = current !== prefillRef.current;
@@ -691,7 +786,7 @@ function EstimateBuilder({
   useEffect(() => {
     if (!persistDraft || !storageKey) return;
     if (!dirty) {
-      clearEstimateDraft(storageKey);
+      clearBuilderDraft(storageKey);
       return;
     }
     writeEstimateDraft(storageKey, {
@@ -704,9 +799,17 @@ function EstimateBuilder({
       customLines: customLines.map(({ label, value, price }) => ({ label, value, price })),
       savedAt: new Date().toISOString(),
     });
+    writeDraftExtras(storageKey, {
+      estimateId: editEstimate?.id ?? null,
+      clientId,
+      coverNote,
+      includeServiceDescriptions,
+      prospect,
+      createdProspectId,
+    });
     // `current` is the snapshot of everything above, so it changes on every edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [persistDraft, storageKey, dirty, current, savePropertyData, editEstimate?.id]);
+  }, [persistDraft, storageKey, dirty, current, savePropertyData, editEstimate?.id, createdProspectId]);
 
   // Changing the client rebuilds the whole form from the new client's saved
   // property values, so confirm first if that would throw away typing.
@@ -725,8 +828,12 @@ function EstimateBuilder({
     }
     if (replacingAClient) {
       setNotes('');
+      setCoverNote('');
+      setIncludeServiceDescriptions(false);
+      setProspect(emptyProspect());
       setCustomLines([]);
     }
+    setCreatedProspectId(null);
     setClientId(nextClientId);
   };
 
@@ -767,7 +874,7 @@ function EstimateBuilder({
   // money; the server rejects it, so flag it here before the save round-trip.
   const negativeTotal = lines.length > 0 && !invalidCustom && !invalidCalculable && Math.round(total * 100) / 100 < 0;
 
-  const saving = createEstimate.isPending || updateEstimate.isPending;
+  const saving = createClient.isPending || createEstimate.isPending || updateEstimate.isPending;
 
   // Pull the newest saved copy of this draft into the builder, discarding the
   // rejected edit so the admin reapplies their changes on top of the current one.
@@ -778,24 +885,33 @@ function EstimateBuilder({
     if (!fresh) return;
     queryClient.invalidateQueries({ queryKey: ['/api/estimates'] });
     setNotes(fresh.notes ?? '');
+    setCoverNote(fresh.coverNote ?? '');
+    setIncludeServiceDescriptions(fresh.includeServiceDescriptions ?? false);
     setConflict(null);
     onReloadEdit(fresh);
   };
 
   const handleSave = () => {
+    setSaveError('');
     const payload = lines.map(({ calculatedPrice, ...line }) => ({ ...line, calculatedPrice }));
     const onError = (error: unknown) =>
-      alert(error instanceof Error ? error.message : 'Could not save estimate');
+      setSaveError(error instanceof Error ? error.message : 'Could not save estimate');
 
     if (editEstimate) {
       setConflict(null);
       updateEstimate.mutate({
         id: editEstimate.id,
-        data: { version: editEstimate.version, notes: notes.trim() || null, lines: payload },
+        data: {
+          version: editEstimate.version,
+          notes: notes.trim() || null,
+          coverNote: coverNote.trim() || null,
+          includeServiceDescriptions,
+          lines: payload,
+        },
       }, {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: ['/api/estimates'] });
-          if (storageKey) clearEstimateDraft(storageKey);
+          if (storageKey) clearBuilderDraft(storageKey);
           onFinished();
         },
         onError: (error) => {
@@ -810,18 +926,20 @@ function EstimateBuilder({
       return;
     }
 
-    const savedClientId = parseInt(clientId);
-    createEstimate.mutate({
-      data: {
-        clientId: savedClientId,
-        notes: notes.trim() || undefined,
-        savePropertyData,
-        lines: payload,
-      }
-    }, {
-      onSuccess: (estimate) => {
+    const saveEstimateForClient = (savedClientId: number) => {
+      createEstimate.mutate({
+        data: {
+          clientId: savedClientId,
+          notes: notes.trim() || undefined,
+          coverNote: coverNote.trim() || null,
+          includeServiceDescriptions,
+          savePropertyData,
+          lines: payload,
+        }
+      }, {
+        onSuccess: (estimate) => {
         queryClient.invalidateQueries({ queryKey: ['/api/estimates'] });
-        if (storageKey) clearEstimateDraft(storageKey);
+        if (storageKey) clearBuilderDraft(storageKey);
         // The server reports exactly which property details it wrote, so the
         // confirmation never claims an update that did not happen.
         const updated = estimate.propertyDataUpdated ?? [];
@@ -832,15 +950,52 @@ function EstimateBuilder({
         }
         setClientId('');
         setNotes('');
+        setCoverNote('');
+        setIncludeServiceDescriptions(false);
+        setProspect(emptyProspect());
         setFieldValues({});
         setServiceValues({});
         setCustomLines([]);
         alert(updated.length
           ? `Estimate created — property details updated: ${updated.join(', ')}`
           : 'Estimate created');
-      },
-      onError,
-    });
+        },
+        onError,
+      });
+    };
+
+    if (clientId === NEW_PROSPECT) {
+      if (!prospect.name.trim()) {
+        setSaveError('Name is required for a new prospect.');
+        return;
+      }
+      if (createdProspectId != null) {
+        saveEstimateForClient(createdProspectId);
+        return;
+      }
+      createClient.mutate({
+        data: {
+          name: prospect.name.trim(),
+          status: 'lead',
+          serviceAddress: prospect.address.trim(),
+          city: prospect.city.trim(),
+          email: prospect.email.trim(),
+          phone: prospect.phone.trim(),
+        },
+      }, {
+        onSuccess: (created) => {
+          queryClient.invalidateQueries({ queryKey: ['/api/clients'] });
+          setCreatedProspectId(created.id);
+          saveEstimateForClient(created.id);
+        },
+        onError: (error) => {
+          onError(error);
+          // The prospect state and all estimate work intentionally remain intact.
+        },
+      });
+      return;
+    }
+    saveEstimateForClient(parseInt(clientId));
   };
 
   const fieldInput = (f: EstimateField) => {
@@ -908,6 +1063,7 @@ function EstimateBuilder({
             onChange={handleClientChange}
           >
             <option value="">Select client...</option>
+            <option value={NEW_PROSPECT}>New prospect...</option>
             {clients?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
           {editEstimate ? (
@@ -916,6 +1072,58 @@ function EstimateBuilder({
             <p className="text-xs text-muted-foreground mt-1">Values prefilled from {client.name}'s saved property details.</p>
           ) : null}
         </div>
+        {!editEstimate && clientId === NEW_PROSPECT && (
+          <div className="rounded-md border bg-muted/40 p-4 space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold">New prospect details</h3>
+              <p className="text-xs text-muted-foreground">The prospect is saved as a lead immediately before the estimate.</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="text-sm font-medium mb-1 block">Name <span className="text-destructive">*</span></label>
+                <Input
+                  value={prospect.name}
+                  onChange={e => setProspect(p => ({ ...p, name: e.target.value }))}
+                  placeholder="Full name"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Phone</label>
+                <Input
+                  type="tel"
+                  value={prospect.phone}
+                  onChange={e => setProspect(p => ({ ...p, phone: e.target.value }))}
+                  placeholder="Phone number"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="text-sm font-medium mb-1 block">Address</label>
+                <Input
+                  value={prospect.address}
+                  onChange={e => setProspect(p => ({ ...p, address: e.target.value }))}
+                  placeholder="Service address"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">City</label>
+                <Input
+                  value={prospect.city}
+                  onChange={e => setProspect(p => ({ ...p, city: e.target.value }))}
+                  placeholder="City"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Email</label>
+                <Input
+                  type="email"
+                  value={prospect.email}
+                  onChange={e => setProspect(p => ({ ...p, email: e.target.value }))}
+                  placeholder="customer@example.com"
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         <div>
           <h3 className="text-sm font-semibold mb-2">Property Fields</h3>
@@ -928,6 +1136,35 @@ function EstimateBuilder({
 
         <div>
           <h3 className="text-sm font-semibold mb-2">Services</h3>
+          {!!packages?.length && (
+            <div className="flex items-center gap-3 rounded-md border bg-muted/40 p-3 mb-3">
+              <label className="text-sm font-medium shrink-0">Add package</label>
+              <select
+                className="flex h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm"
+                defaultValue=""
+                onChange={event => {
+                  const packageId = Number(event.target.value);
+                  const selectedPackage = packages.find(pkg => pkg.id === packageId);
+                  if (selectedPackage) {
+                    const packageServices = selectedPackage.services?.length
+                      ? selectedPackage.services
+                      : (services ?? []).filter(service => selectedPackage.serviceIds.includes(service.id));
+                    setServiceValues(previous => {
+                      const next = { ...previous };
+                      for (const service of packageServices) {
+                        next[service.id] = { selected: true, value: previous[service.id]?.value ?? '' };
+                      }
+                      return next;
+                    });
+                  }
+                  event.target.value = '';
+                }}
+              >
+                <option value="">Choose a package...</option>
+                {packages.map(pkg => <option key={pkg.id} value={pkg.id}>{pkg.name}</option>)}
+              </select>
+            </div>
+          )}
           {!services?.length ? (
             <p className="text-sm text-muted-foreground">No services configured.</p>
           ) : (
@@ -1070,6 +1307,31 @@ function EstimateBuilder({
         </div>
 
         <div>
+          <label className="text-sm font-medium mb-1 block">Cover note</label>
+          <textarea
+            className="flex min-h-28 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            value={coverNote}
+            onChange={e => setCoverNote(e.target.value)}
+            placeholder="Optional letter shown above the quoted work"
+          />
+        </div>
+
+        <label className="flex items-start gap-3 rounded-md border bg-muted/40 p-3 cursor-pointer">
+          <input
+            type="checkbox"
+            className="w-4 h-4 mt-0.5"
+            checked={includeServiceDescriptions}
+            onChange={e => setIncludeServiceDescriptions(e.target.checked)}
+          />
+          <span className="text-sm">
+            <span className="font-medium">Include service descriptions</span>
+            <span className="block text-xs text-muted-foreground mt-0.5">
+              The PDF will explain each quoted service using its current catalog description when the estimate is sent.
+            </span>
+          </span>
+        </label>
+
+        <div>
           <label className="text-sm font-medium mb-1 block">Notes</label>
           <textarea
             className="flex min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -1147,7 +1409,25 @@ function EstimateBuilder({
             This total would owe the customer money. Check the discount amount — the total must be zero or more.
           </p>
         )}
-        <Button className="w-full" disabled={!clientId || !lines.length || invalidCalculable || invalidCustom || negativeTotal || saving} onClick={handleSave}>
+        {saveError && (
+          <div className="flex gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{saveError}</span>
+          </div>
+        )}
+        <Button
+          className="w-full"
+          disabled={
+            !clientId ||
+            (clientId === NEW_PROSPECT && !prospect.name.trim()) ||
+            !lines.length ||
+            invalidCalculable ||
+            invalidCustom ||
+            negativeTotal ||
+            saving
+          }
+          onClick={handleSave}
+        >
           {saving ? 'Saving…' : editEstimate ? 'Save Changes' : 'Save Estimate'}
         </Button>
         {editEstimate && (

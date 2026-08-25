@@ -4,12 +4,13 @@ import type { Estimate, EstimateLine, Client } from "@workspace/db";
 export type EstimateDocumentData = {
   estimate: Estimate;
   client: Client;
+  quotedServices: { id: number; name: string; description: string | null }[];
 };
 
 const money = (value: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
 
-export async function createEstimatePdf({ estimate, client }: EstimateDocumentData): Promise<Buffer> {
+export async function createEstimatePdf({ estimate, client, quotedServices }: EstimateDocumentData): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: "LETTER", margin: 54, info: { Title: `Estimate ${estimate.id}` } });
     const chunks: Buffer[] = [];
@@ -39,6 +40,19 @@ export async function createEstimatePdf({ estimate, client }: EstimateDocumentDa
     doc.text(`Status: ${estimate.status.toUpperCase()}`, { width: 198 });
 
     let y = 235;
+    if (estimate.coverNote?.trim()) {
+      doc.fillColor(dark).font("Helvetica-Bold").fontSize(11).text("A NOTE FROM BISON LAWN CARE", 54, y);
+      doc
+        .fillColor(muted)
+        .font("Helvetica")
+        .fontSize(10)
+        .text(estimate.coverNote.trim(), 54, y + 18, { width: 504, lineGap: 3 });
+      y = doc.y + 24;
+      if (y > 650) {
+        doc.addPage();
+        y = 54;
+      }
+    }
     doc.rect(54, y, 504, 30).fill("#EAF3EE");
     doc.fillColor(dark).font("Helvetica-Bold").fontSize(10);
     doc.text("DESCRIPTION", 66, y + 10, { width: 270 });
@@ -73,8 +87,48 @@ export async function createEstimatePdf({ estimate, client }: EstimateDocumentDa
 
     if (estimate.notes) {
       y += 55;
+      if (y > 680) {
+        doc.addPage();
+        y = 54;
+      }
       doc.fillColor(dark).font("Helvetica-Bold").fontSize(11).text("NOTES", 54, y);
       doc.fillColor(muted).font("Helvetica").fontSize(10).text(estimate.notes, 54, y + 18, { width: 504 });
+      y = doc.y + 24;
+    } else {
+      y += 55;
+    }
+
+    if (estimate.includeServiceDescriptions) {
+      const descriptions = (estimate.lines as EstimateLine[])
+        .map((line) => {
+          if (line.serviceId == null) return null;
+          const service = quotedServices.find((candidate) => candidate.id === line.serviceId);
+          if (!service?.description?.trim()) return null;
+          return { name: line.label || service.name, description: service.description.trim() };
+        })
+        .filter((entry): entry is { name: string; description: string } => entry != null);
+      if (descriptions.length) {
+        if (y > 640) {
+          doc.addPage();
+          y = 54;
+        }
+        doc.fillColor(dark).font("Helvetica-Bold").fontSize(12).text("SERVICE DESCRIPTIONS", 54, y);
+        y = doc.y + 12;
+        for (const service of descriptions) {
+          const needed = doc.heightOfString(service.description, { width: 504, lineGap: 2 }) + 38;
+          if (y + needed > 700) {
+            doc.addPage();
+            y = 54;
+          }
+          doc.fillColor(dark).font("Helvetica-Bold").fontSize(10).text(service.name, 54, y, { width: 504 });
+          doc
+            .fillColor(muted)
+            .font("Helvetica")
+            .fontSize(10)
+            .text(service.description, 54, doc.y + 4, { width: 504, lineGap: 2 });
+          y = doc.y + 14;
+        }
+      }
     }
 
     doc

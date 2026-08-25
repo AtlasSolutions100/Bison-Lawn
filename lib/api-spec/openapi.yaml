@@ -1435,6 +1435,218 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ContractorEarnings"
+  /vendor-runs:
+    get:
+      operationId: listVendorRuns
+      tags: [vendor-runs]
+      summary: Reconcile an outside company's service run against every customer who has that service
+      parameters:
+        - name: serviceId
+          in: query
+          required: true
+          schema: { type: integer }
+        - name: from
+          in: query
+          required: false
+          schema: { type: string }
+        - name: to
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: One row per customer assigned this service
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VendorRunRow"
+  /vendor-runs/complete:
+    post:
+      operationId: completeVendorRun
+      tags: [vendor-runs]
+      summary: Mark the selected customers as serviced on a date and invoice them once
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VendorRunInput"
+      responses:
+        "200":
+          description: Per-customer outcome
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VendorRunResult"
+  /letter-template:
+    get:
+      operationId: getLetterTemplate
+      tags: [letters]
+      summary: The seasonal letter template
+      responses:
+        "200":
+          description: Template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LetterTemplate"
+    put:
+      operationId: updateLetterTemplate
+      tags: [letters]
+      summary: Save the seasonal letter template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LetterTemplateInput"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LetterTemplate"
+  /spring-letters/clients:
+    get:
+      operationId: listSpringLetterClients
+      tags: [letters]
+      summary: Every customer with assigned services, priced at last year's rate and at today's rate
+      responses:
+        "200":
+          description: Customers with old and new pricing
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SpringLetterClient"
+  /spring-letters/renew:
+    post:
+      operationId: renewSpringLetterClients
+      tags: [letters]
+      summary: Carry the selected customers onto today's pricing for the new season
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SpringLetterRenewInput"
+      responses:
+        "200":
+          description: Per-customer outcome
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpringLetterRenewResult"
+  /spring-letters/preview/{id}:
+    get:
+      operationId: previewSpringLetter
+      tags: [letters]
+      summary: The letter as one customer will receive it
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Rendered letter
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LetterPreview"
+  /spring-letters/send:
+    post:
+      operationId: sendSpringLetters
+      tags: [letters]
+      summary: Email the letter to the selected customers, reporting each one separately
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SpringLetterSendInput"
+      responses:
+        "200":
+          description: Per-customer send outcome
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpringLetterSendResult"
+  /web-requests:
+    get:
+      operationId: listWebRequests
+      tags: [web-requests]
+      summary: Service requests that arrived from the website
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [new, converted, dismissed] }
+      responses:
+        "200":
+          description: Requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WebRequest"
+    post:
+      operationId: createWebRequest
+      tags: [web-requests]
+      summary: Log a request the office received by hand (pasted from an email)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebRequestInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebRequest"
+  /web-requests/{id}:
+    patch:
+      operationId: updateWebRequest
+      tags: [web-requests]
+      summary: Convert a request into a client and ticket, or dismiss it
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebRequestUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebRequest"
+  /inbound/web-request:
+    post:
+      operationId: receiveWebRequest
+      tags: [web-requests]
+      summary: Public webhook the website posts form submissions to; authenticated by a shared secret header
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebRequestInput"
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebRequestReceipt"
 components:
   parameters:
     IdParam:
@@ -1585,6 +1797,9 @@ components:
             $ref: "#/components/schemas/PricingEquation"
         contractorOfferable: { type: boolean }
         contractorPrice: { type: ["number", "null"] }
+        vendorName:
+          type: ["string", "null"]
+          description: "Outside company that performs this work and invoices us; null means our own crew"
     ServiceInput:
       type: object
       required: [name]
@@ -1605,6 +1820,7 @@ components:
             $ref: "#/components/schemas/PricingEquation"
         contractorOfferable: { type: boolean }
         contractorPrice: { type: ["number", "null"] }
+        vendorName: { type: ["string", "null"] }
     ServiceUpdate:
       type: object
       properties:
@@ -1624,6 +1840,7 @@ components:
             $ref: "#/components/schemas/PricingEquation"
         contractorOfferable: { type: boolean }
         contractorPrice: { type: ["number", "null"] }
+        vendorName: { type: ["string", "null"] }
     PriceQueryInput:
       type: object
       required: [sqft]
@@ -1814,6 +2031,8 @@ components:
         status: { type: string, enum: [draft, sent, accepted, declined] }
         total: { type: number }
         notes: { type: ["string", "null"] }
+        coverNote: { type: ["string", "null"] }
+        includeServiceDescriptions: { type: boolean }
         lines:
           type: array
           items:
@@ -1837,6 +2056,12 @@ components:
       properties:
         clientId: { type: integer }
         notes: { type: string }
+        coverNote:
+          type: ["string", "null"]
+          description: "Optional letter shown above the quoted work in the estimate document"
+        includeServiceDescriptions:
+          type: boolean
+          description: "Spell out what each quoted service includes, using the service descriptions at send time"
         savePropertyData:
           type: boolean
           description: "Write the entered field values back to the client's saved property details, matched by field label"
@@ -1852,6 +2077,8 @@ components:
           type: integer
           description: "Version the edit was built from; a stale value is rejected with 409"
         notes: { type: ["string", "null"] }
+        coverNote: { type: ["string", "null"] }
+        includeServiceDescriptions: { type: boolean }
         lines:
           type: array
           items:
@@ -2114,6 +2341,204 @@ components:
         reference: { type: ["string", "null"] }
         notes: { type: ["string", "null"] }
         createdAt: { type: string }
+    VendorRunRow:
+      type: object
+      required: [clientId, clientName, clientServiceId, amount, status]
+      properties:
+        clientId: { type: integer }
+        clientName: { type: string }
+        city: { type: ["string", "null"] }
+        clientServiceId: { type: integer }
+        amount: { type: number }
+        status:
+          type: string
+          enum: [not_scheduled, scheduled, completed, invoiced]
+          description: "not_scheduled means this customer has the service but no job in the window — the ones most easily missed"
+        jobId: { type: ["integer", "null"] }
+        invoiceId: { type: ["integer", "null"] }
+        lastCompletedDate: { type: ["string", "null"] }
+    VendorRunInput:
+      type: object
+      required: [serviceId, serviceDate, clientIds]
+      properties:
+        serviceId: { type: integer }
+        serviceDate: { type: string, description: "yyyy-mm-dd the outside company performed the work" }
+        clientIds:
+          type: array
+          items: { type: integer }
+    VendorRunOutcome:
+      type: object
+      required: [clientId, clientName, status]
+      properties:
+        clientId: { type: integer }
+        clientName: { type: string }
+        status: { type: string, enum: [completed, skipped, failed] }
+        invoiceId: { type: ["integer", "null"] }
+        reason: { type: ["string", "null"] }
+    VendorRunResult:
+      type: object
+      required: [completed, skipped, failed, outcomes]
+      properties:
+        completed: { type: integer }
+        skipped: { type: integer }
+        failed: { type: integer }
+        outcomes:
+          type: array
+          items:
+            $ref: "#/components/schemas/VendorRunOutcome"
+    LetterTemplate:
+      type: object
+      required: [id, name, subject, body, updatedAt]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        subject: { type: string }
+        body:
+          type: string
+          description: "Plain text with merge tokens {{clientName}}, {{servicesTable}}, {{total}}"
+        updatedAt: { type: string }
+    LetterTemplateInput:
+      type: object
+      required: [subject, body]
+      properties:
+        name: { type: string }
+        subject: { type: string, minLength: 1 }
+        body: { type: string, minLength: 1 }
+    SpringLetterService:
+      type: object
+      required: [clientServiceId, serviceName, currentAmount, newAmount]
+      properties:
+        clientServiceId: { type: integer }
+        serviceName: { type: string }
+        currentAmount: { type: number }
+        newAmount: { type: number }
+    SpringLetterClient:
+      type: object
+      required: [clientId, clientName, services, currentTotal, newTotal]
+      properties:
+        clientId: { type: integer }
+        clientName: { type: string }
+        email: { type: ["string", "null"] }
+        services:
+          type: array
+          items:
+            $ref: "#/components/schemas/SpringLetterService"
+        currentTotal: { type: number }
+        newTotal: { type: number }
+        lastRenewedAt: { type: ["string", "null"] }
+        lastSendStatus: { type: ["string", "null"] }
+        lastSendError: { type: ["string", "null"] }
+        lastSentAt: { type: ["string", "null"] }
+    SpringLetterRenewInput:
+      type: object
+      required: [clientIds]
+      properties:
+        clientIds:
+          type: array
+          items: { type: integer }
+    SpringLetterRenewOutcome:
+      type: object
+      required: [clientId, clientName, ok]
+      properties:
+        clientId: { type: integer }
+        clientName: { type: string }
+        ok: { type: boolean }
+        error: { type: ["string", "null"] }
+        previousTotal: { type: number }
+        newTotal: { type: number }
+    SpringLetterRenewResult:
+      type: object
+      required: [renewed, outcomes]
+      properties:
+        renewed: { type: integer }
+        outcomes:
+          type: array
+          items:
+            $ref: "#/components/schemas/SpringLetterRenewOutcome"
+    LetterPreview:
+      type: object
+      required: [clientId, clientName, subject, body]
+      properties:
+        clientId: { type: integer }
+        clientName: { type: string }
+        email: { type: ["string", "null"] }
+        subject: { type: string }
+        body: { type: string }
+    SpringLetterSendInput:
+      type: object
+      required: [clientIds]
+      properties:
+        clientIds:
+          type: array
+          items: { type: integer }
+    SpringLetterSendOutcome:
+      type: object
+      required: [clientId, clientName, ok]
+      properties:
+        clientId: { type: integer }
+        clientName: { type: string }
+        ok: { type: boolean }
+        error: { type: ["string", "null"] }
+    SpringLetterSendResult:
+      type: object
+      required: [sent, failed, outcomes]
+      properties:
+        sent: { type: integer }
+        failed: { type: integer }
+        outcomes:
+          type: array
+          items:
+            $ref: "#/components/schemas/SpringLetterSendOutcome"
+    WebRequest:
+      type: object
+      required: [id, source, status, createdAt]
+      properties:
+        id: { type: integer }
+        source: { type: string }
+        externalId: { type: ["string", "null"] }
+        name: { type: ["string", "null"] }
+        email: { type: ["string", "null"] }
+        phone: { type: ["string", "null"] }
+        address: { type: ["string", "null"] }
+        message: { type: ["string", "null"] }
+        status: { type: string, enum: [new, converted, dismissed] }
+        clientId: { type: ["integer", "null"] }
+        clientName: { type: ["string", "null"] }
+        ticketId: { type: ["integer", "null"] }
+        createdAt: { type: string }
+    WebRequestInput:
+      type: object
+      properties:
+        source: { type: string }
+        externalId:
+          type: string
+          description: "Sender's own id for this submission; a repeat delivery of the same id is ignored"
+        name: { type: string }
+        email: { type: string }
+        phone: { type: string }
+        address: { type: string }
+        message: { type: string }
+        raw:
+          type: object
+          additionalProperties: true
+          description: "The submission exactly as received, kept so nothing is lost when field names change"
+    WebRequestUpdate:
+      type: object
+      properties:
+        status: { type: string, enum: [new, converted, dismissed] }
+        convertToClient:
+          type: boolean
+          description: "Create (or link) a lead client from this request"
+        createTicket:
+          type: boolean
+          description: "Open a ticket on the task board for this request"
+    WebRequestReceipt:
+      type: object
+      required: [id, status, duplicate]
+      properties:
+        id: { type: integer }
+        status: { type: string }
+        duplicate: { type: boolean }
     Ticket:
       type: object
       required: [id, title, status, createdAt]

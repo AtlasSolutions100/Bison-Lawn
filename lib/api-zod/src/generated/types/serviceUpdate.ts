@@ -30,4 +30,6 @@ export interface ServiceUpdate {
   contractorOfferable?: boolean;
   /** @nullable */
   contractorPrice?: number | null;
+  /** @nullable */
+  vendorName?: string | null;
 }

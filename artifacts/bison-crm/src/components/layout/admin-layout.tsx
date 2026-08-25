@@ -12,7 +12,10 @@ import {
   CloudSun,
   UserCog,
   LogOut,
-  Menu
+  Menu,
+  SprayCan,
+  Mail,
+  Globe
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
@@ -24,8 +27,11 @@ const ADMIN_NAV = [
   { name: 'Clients', href: '/clients', icon: Users },
   { name: 'Estimates', href: '/estimates', icon: FileText },
   { name: 'Invoices', href: '/invoices', icon: Receipt },
+  { name: 'Spray Runs', href: '/spray-runs', icon: SprayCan },
   { name: 'Services', href: '/services', icon: Settings },
+  { name: 'Spring Letters', href: '/spring-letters', icon: Mail },
   { name: 'Tickets', href: '/tickets', icon: Ticket },
+  { name: 'Web Requests', href: '/web-requests', icon: Globe },
   { name: 'Automation', href: '/automation', icon: CloudSun },
   { name: 'Team', href: '/team', icon: UserCog },
 ];

@@ -10,6 +10,9 @@ import ticketsRouter from "./tickets";
 import fieldNotesRouter from "./field-notes";
 import automationRouter from "./automation";
 import dashboardRouter from "./dashboard";
+import vendorRunsRouter from "./vendor-runs";
+import lettersRouter from "./letters";
+import webRequestsRouter from "./web-requests";
 
 const router: IRouter = Router();
 
@@ -24,5 +27,8 @@ router.use(ticketsRouter);
 router.use(fieldNotesRouter);
 router.use(automationRouter);
 router.use(dashboardRouter);
+router.use(vendorRunsRouter);
+router.use(lettersRouter);
+router.use(webRequestsRouter);
 
 export default router;
