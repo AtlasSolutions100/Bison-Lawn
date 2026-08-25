@@ -37,6 +37,7 @@ import type {
   DashboardSummary,
   DispatchInput,
   Estimate,
+  EstimateConflict,
   EstimateField,
   EstimateFieldInput,
   EstimateFieldUpdate,
@@ -2453,7 +2454,7 @@ export const updateEstimate = async (id: number,
 
 
 
-export const getUpdateEstimateMutationOptions = <TError = ErrorType<unknown>,
+export const getUpdateEstimateMutationOptions = <TError = ErrorType<EstimateConflict>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateEstimate>>, TError,{id: number;data: BodyType<EstimateUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof updateEstimate>>, TError,{id: number;data: BodyType<EstimateUpdateInput>}, TContext> => {
 
@@ -2482,12 +2483,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type UpdateEstimateMutationResult = NonNullable<Awaited<ReturnType<typeof updateEstimate>>>
     export type UpdateEstimateMutationBody = BodyType<EstimateUpdateInput>
-    export type UpdateEstimateMutationError = ErrorType<unknown>
+    export type UpdateEstimateMutationError = ErrorType<EstimateConflict>
 
     /**
  * @summary Edit a draft estimate's lines and notes; sent/accepted/declined stay immutable
  */
-export const useUpdateEstimate = <TError = ErrorType<unknown>,
+export const useUpdateEstimate = <TError = ErrorType<EstimateConflict>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateEstimate>>, TError,{id: number;data: BodyType<EstimateUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof updateEstimate>>,

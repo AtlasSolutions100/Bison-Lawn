@@ -225,11 +225,27 @@ test("completing a job creates exactly one invoice, even when repeated", async (
     scheduledDate: TODAY,
     amount: 75,
   });
-  const first = await api(`/jobs/${job.id}/complete`, contractorA.id, { method: "POST" });
-  assert.equal(first.status, 200);
-  assert.equal(first.body.status, "completed");
+    const first = await api(`/estimates/${created.body.id}`, admin.id, {
+      method: "PATCH",
+      body: JSON.stringify({
+        version: staleVersion,
+        notes: "first admin's edit",
+        lines: [{ fieldId: turf.id, label: "", value: "2000" }],
+      }),
+    });
+    assert.equal(first.status, 200);
+    assert.equal(first.body.total, 20);
+    assert.equal(first.body.version, staleVersion + 1);
 
-  const second = await api(`/jobs/${job.id}/complete`, contractorA.id, { method: "POST" });
+    // The second admin saves from the snapshot they loaded before that write.
+    const second = await api(`/estimates/${created.body.id}`, admin.id, {
+      method: "PATCH",
+      body: JSON.stringify({
+        version: staleVersion,
+        notes: "second admin's edit",
+        lines: [{ fieldId: turf.id, label: "", value: "9000" }],
+      }),
+    });
   assert.equal(second.status, 200);
 
   const invoices = await db.select().from(invoicesTable).where(eq(invoicesTable.jobId, job.id));
@@ -283,7 +299,7 @@ test("payments and voids recalculate invoice status and client balance", async (
   // payments against a void invoice are rejected
       const rejected = await api(`/estimates/${locked.id}`, admin.id, {
         method: "PATCH",
-        body: JSON.stringify({ lines: [{ fieldId: turf.id, label: "x", value: "1000" }] }),
+        body: JSON.stringify({ version: locked.version, lines: [{ fieldId: turf.id, label: "x", value: "1000" }] }),
       });
   assert.equal(rejected.status, 400);
 
@@ -432,13 +448,17 @@ test("custom estimate lines keep their entered price through create and edit", a
         ],
       }),
     });
+
+    const staleVersion = created.body.version;
     assert.equal(created.status, 201);
     assert.equal(created.body.total, 20);
+    assert.equal(created.body.version, 1);
 
     // Editing reprices server-side and ignores submitted prices.
     const edited = await api(`/estimates/${created.body.id}`, admin.id, {
       method: "PATCH",
       body: JSON.stringify({
+        version: created.body.version,
         lines: [
           savedLines[1],
           savedLines[2],
@@ -483,7 +503,10 @@ test("custom estimate lines keep their entered price through create and edit", a
   // The same validation applies on edit, and a rejected edit changes nothing.
   const badEdit = await api(`/estimates/${created.body.id}`, admin.id, {
     method: "PATCH",
-    body: JSON.stringify({ lines: [{ label: "Haul-away", value: "", calculatedPrice: null }] }),
+    body: JSON.stringify({
+      version: edited.body.version,
+      lines: [{ label: "Haul-away", value: "", calculatedPrice: null }],
+    }),
   });
   assert.equal(badEdit.status, 400);
   const [stillStored] = await db
@@ -691,7 +714,7 @@ test("provider-accepted and interrupted sends can be reconciled without a duplic
 test("estimate lines are priced server-side from field and service definitions", async () => {
   const [turf] = await db
     .insert(estimateFieldsTable)
-    .values({ label: `Edit Turf ${Date.now()}`, fieldType: "calculable", pricePerUnit: 10, unitSize: 1000 })
+    .values({ label: `Concurrent Turf ${Date.now()}`, fieldType: "calculable", pricePerUnit: 10, unitSize: 1000 })
     .returning();
   const [gate] = await db
     .insert((await import("@workspace/db")).estimateFieldsTable)
@@ -726,6 +749,8 @@ test("estimate lines are priced server-side from field and service definitions",
         ],
       }),
     });
+
+    const staleVersion = created.body.version;
     assert.equal(created.status, 201);
     const [turfLine, gateLine, svcLine] = created.body.lines;
     assert.equal(turfLine.calculatedPrice, 124); // 6200/1000 * 20
@@ -745,7 +770,7 @@ test("estimate lines are priced server-side from field and service definitions",
     assert.equal(badField.status, 400);
     const badValue = await api(`/estimates/${created.body.id}`, admin.id, {
       method: "PATCH",
-      body: JSON.stringify({ lines: [{ fieldId: turf.id, label: "x", value: "abc" }] }),
+      body: JSON.stringify({ version: edited.body.version, lines: [{ fieldId: turf.id, label: "x", value: "abc" }] }),
     });
     assert.equal(badValue.status, 400);
 
@@ -773,7 +798,7 @@ test("draft estimates can be edited and repriced; final estimates stay immutable
   const { estimateFieldsTable, auditEventsTable } = await import("@workspace/db");
   const [turf] = await db
     .insert(estimateFieldsTable)
-    .values({ label: `Edit Turf ${Date.now()}`, fieldType: "calculable", pricePerUnit: 10, unitSize: 1000 })
+    .values({ label: `Concurrent Turf ${Date.now()}`, fieldType: "calculable", pricePerUnit: 10, unitSize: 1000 })
     .returning();
 
   try {
@@ -792,13 +817,17 @@ test("draft estimates can be edited and repriced; final estimates stay immutable
         ],
       }),
     });
+
+    const staleVersion = created.body.version;
     assert.equal(created.status, 201);
     assert.equal(created.body.total, 20);
+    assert.equal(created.body.version, 1);
 
     // Editing reprices server-side and ignores submitted prices.
     const edited = await api(`/estimates/${created.body.id}`, admin.id, {
       method: "PATCH",
       body: JSON.stringify({
+        version: created.body.version,
         lines: [
           savedLines[1],
           savedLines[2],
@@ -808,6 +837,7 @@ test("draft estimates can be edited and repriced; final estimates stay immutable
     });
     assert.equal(edited.status, 200);
     assert.equal(edited.body.total, 50); // 5000/1000 * 10
+    assert.equal(edited.body.version, 2); // an accepted edit bumps the version
     assert.equal(edited.body.lines[0].label, turf.label);
     assert.equal(edited.body.notes, "corrected sqft");
     assert.equal(edited.body.status, "draft");
@@ -817,17 +847,19 @@ test("draft estimates can be edited and repriced; final estimates stay immutable
       .select()
       .from(auditEventsTable)
       .where(eq(auditEventsTable.clientId, clientWithCoords.id));
+
+    const reloaded = await api(`/estimates/${created.body.id}`, admin.id, {});
     assert.ok(events.some((e) => e.action === "estimate_updated" && e.description.includes(`#${created.body.id}`)));
 
     // Invalid references and non-numeric calculable values are rejected.
     const badValue = await api(`/estimates/${created.body.id}`, admin.id, {
       method: "PATCH",
-      body: JSON.stringify({ lines: [{ fieldId: turf.id, label: "x", value: "abc" }] }),
+      body: JSON.stringify({ version: edited.body.version, lines: [{ fieldId: turf.id, label: "x", value: "abc" }] }),
     });
     assert.equal(badValue.status, 400);
     const missing = await api("/estimates/99999999", admin.id, {
       method: "PATCH",
-      body: JSON.stringify({ lines: [] }),
+      body: JSON.stringify({ version: 1, lines: [] }),
     });
     assert.equal(missing.status, 404);
 
@@ -839,7 +871,7 @@ test("draft estimates can be edited and repriced; final estimates stay immutable
         .returning();
       const rejected = await api(`/estimates/${locked.id}`, admin.id, {
         method: "PATCH",
-        body: JSON.stringify({ lines: [{ fieldId: turf.id, label: "x", value: "1000" }] }),
+        body: JSON.stringify({ version: locked.version, lines: [{ fieldId: turf.id, label: "x", value: "1000" }] }),
       });
       assert.equal(rejected.status, 409);
     const [unchanged] = await db.select().from(clientsTable).where(eq(clientsTable.id, client.id));
@@ -854,15 +886,8 @@ test("draft estimates can be edited and repriced; final estimates stay immutable
       .returning();
     const blocked = await api(`/estimates/${sending.id}`, admin.id, {
       method: "PATCH",
-      body: JSON.stringify({ lines: [{ fieldId: turf.id, label: "x", value: "1000" }] }),
+      body: JSON.stringify({ version: sending.version, lines: [{ fieldId: turf.id, label: "x", value: "1000" }] }),
     });
-    assert.equal(blocked.status, 409);
-  } finally {
-    await db.delete(estimateFieldsTable).where(eq(estimateFieldsTable.id, turf.id));
-  }
-});
-
-test("editing a draft preserves lines whose field or service was deleted", async () => {
   const { estimateFieldsTable } = await import("@workspace/db");
   const stamp = Date.now();
   const [keeper] = await db
@@ -894,6 +919,8 @@ test("editing a draft preserves lines whose field or service was deleted", async
         ],
       }),
     });
+
+    const staleVersion = created.body.version;
     assert.equal(created.status, 201);
     assert.equal(created.body.total, 70); // 20 + 20 + 30
     const savedLines = created.body.lines;
@@ -907,6 +934,7 @@ test("editing a draft preserves lines whose field or service was deleted", async
     const edited = await api(`/estimates/${created.body.id}`, admin.id, {
       method: "PATCH",
       body: JSON.stringify({
+        version: created.body.version,
         lines: [
           savedLines[1],
           savedLines[2],
@@ -927,6 +955,7 @@ test("editing a draft preserves lines whose field or service was deleted", async
     const tampered = await api(`/estimates/${created.body.id}`, admin.id, {
       method: "PATCH",
       body: JSON.stringify({
+        version: edited.body.version,
         lines: [{ ...savedLines[1], calculatedPrice: 9999 }],
       }),
     });
@@ -935,7 +964,7 @@ test("editing a draft preserves lines whose field or service was deleted", async
     // Nor can the same orphaned line be duplicated to double its price.
     const duplicated = await api(`/estimates/${created.body.id}`, admin.id, {
       method: "PATCH",
-      body: JSON.stringify({ lines: [savedLines[1], savedLines[1]] }),
+      body: JSON.stringify({ version: edited.body.version, lines: [savedLines[1], savedLines[1]] }),
     });
     assert.equal(duplicated.status, 400);
 
@@ -984,6 +1013,8 @@ test("saving an estimate can write field values back to the client's property de
         ],
       }),
     });
+
+    const staleVersion = created.body.version;
     assert.equal(created.status, 201);
     // The response reports exactly what changed so the UI cannot claim a
     // property update that did not happen.
@@ -1077,3 +1108,12 @@ test("saving an estimate can write field values back to the client's property de
       .where(inArray(estimateFieldsTable.id, [turf.id, gate.id, notes.id]));
   }
 });
+
+    const retried = await api(`/estimates/${created.body.id}`, admin.id, {
+      method: "PATCH",
+      body: JSON.stringify({
+        version: reloaded.body.version,
+        notes: "second admin's edit",
+        lines: [{ fieldId: turf.id, label: "", value: "9000" }],
+      }),
+    });

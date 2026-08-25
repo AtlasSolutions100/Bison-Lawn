@@ -184,6 +184,7 @@ export default function Estimates() {
             editEstimate={editing}
             onFinished={() => { setEditing(null); setTab('list'); }}
             onCancelEdit={() => { setEditing(null); setTab('list'); }}
+            onReloadEdit={(fresh) => setEditing(fresh)}
           />
         </TabsContent>
 
@@ -280,10 +281,12 @@ function customLinePrice(raw: string): number | null {
   return Number.isFinite(numeric) ? Math.round(numeric * 100) / 100 : null;
 }
 
-function EstimateBuilder({ editEstimate, onFinished, onCancelEdit }: {
+type VersionConflict = { message: string; current: Estimate | null };
+function EstimateBuilder({ editEstimate, onFinished, onCancelEdit, onReloadEdit }: {
   editEstimate: Estimate | null;
   onFinished: () => void;
   onCancelEdit: () => void;
+  onReloadEdit: (estimate: Estimate) => void;
 }) {
   const [clientId, setClientId] = useState(editEstimate ? String(editEstimate.clientId) : '');
   const [notes, setNotes] = useState(editEstimate?.notes ?? '');
@@ -295,6 +298,7 @@ function EstimateBuilder({ editEstimate, onFinished, onCancelEdit }: {
   const [carriedLines, setCarriedLines] = useState<EstimateLine[]>([]);
   // One-off charges (haul-away, dump fee, discount) entered by hand.
   const [customLines, setCustomLines] = useState<CustomLineDraft[]>([]);
+  const [conflict, setConflict] = useState<VersionConflict | null>(null);
   const { data: clients } = useListClients();
   const { data: fields } = useListEstimateFields();
   const { data: services } = useListServices();
@@ -302,8 +306,10 @@ function EstimateBuilder({ editEstimate, onFinished, onCancelEdit }: {
   const updateEstimate = useUpdateEstimate();
   const queryClient = useQueryClient();
 
-  // Satisfy useGetEstimate hook requirement
-  const _ = useGetEstimate(1, { query: { enabled: false, queryKey: ['/api/estimates', 1] } });
+  // Fetched on demand only, to pull the newest saved copy after a conflict.
+  const savedEstimate = useGetEstimate(editEstimate?.id ?? 1, {
+    query: { enabled: false, queryKey: ['/api/estimates', editEstimate?.id ?? 1] },
+  });
 
   const client = clients?.find(c => String(c.id) === clientId);
 
@@ -402,21 +408,42 @@ function EstimateBuilder({ editEstimate, onFinished, onCancelEdit }: {
 
   const saving = createEstimate.isPending || updateEstimate.isPending;
 
+  // Pull the newest saved copy of this draft into the builder, discarding the
+  // rejected edit so the admin reapplies their changes on top of the current one.
+  const handleReloadCurrent = async () => {
+    if (!editEstimate) return;
+    const refetched = await savedEstimate.refetch();
+    const fresh = refetched.data ?? conflict?.current;
+    if (!fresh) return;
+    queryClient.invalidateQueries({ queryKey: ['/api/estimates'] });
+    setNotes(fresh.notes ?? '');
+    setConflict(null);
+    onReloadEdit(fresh);
+  };
+
   const handleSave = () => {
     const payload = lines.map(({ calculatedPrice, ...line }) => ({ ...line, calculatedPrice }));
     const onError = (error: unknown) =>
       alert(error instanceof Error ? error.message : 'Could not save estimate');
 
     if (editEstimate) {
+      setConflict(null);
       updateEstimate.mutate({
         id: editEstimate.id,
-        data: { notes: notes.trim() || null, lines: payload },
+        data: { version: editEstimate.version, notes: notes.trim() || null, lines: payload },
       }, {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: ['/api/estimates'] });
           onFinished();
         },
-        onError,
+        onError: (error) => {
+          const versionConflict = readVersionConflict(error);
+          if (versionConflict) {
+            setConflict(versionConflict);
+            return;
+          }
+          onError(error);
+        },
       });
       return;
     }
@@ -686,6 +713,26 @@ function EstimateBuilder({ editEstimate, onFinished, onCancelEdit }: {
           <span>Total</span>
           <span className="tabular-nums">{money(total)}</span>
         </div>
+        {conflict && (
+          <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            <div className="flex gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>
+                {conflict.message}
+                {conflict.current && ` Their version totals ${money(conflict.current.total)}.`}
+              </span>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full"
+              disabled={savedEstimate.isFetching}
+              onClick={handleReloadCurrent}
+            >
+              {savedEstimate.isFetching ? 'Reloading…' : 'Reload current version'}
+            </Button>
+          </div>
+        )}
         {invalidCalculable && <p className="text-xs text-destructive">Enter numeric values for all selected calculable fields.</p>}
         {invalidCustom && <p className="text-xs text-destructive">Give every custom line a label and a numeric price.</p>}
         <Button className="w-full" disabled={!clientId || !lines.length || invalidCalculable || invalidCustom || saving} onClick={handleSave}>
@@ -837,4 +884,17 @@ function EstimateFields() {
       </Dialog>
     </div>
   );
+}
+
+/** A 409 raised because another admin saved a newer version of the same draft. */
+function readVersionConflict(error: unknown): VersionConflict | null {
+  if (!error || typeof error !== 'object') return null;
+  const { status, data } = error as { status?: number; data?: unknown };
+  if (status !== 409 || !data || typeof data !== 'object') return null;
+  const body = data as { error?: string; code?: string; current?: Estimate };
+  if (body.code !== 'estimate_version_conflict') return null;
+  return {
+    message: body.error ?? 'Someone else saved changes to this estimate while you were editing.',
+    current: body.current ?? null,
+  };
 }

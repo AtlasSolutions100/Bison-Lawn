@@ -535,6 +535,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Estimate"
+        "409":
+          description: The estimate changed since the edit was started, or is no longer editable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EstimateConflict"
     delete:
       operationId: deleteEstimate
       tags: [estimates]
@@ -1634,11 +1640,12 @@ components:
           description: "Server-computed for field/service lines; required and kept as submitted for custom lines"
     Estimate:
       type: object
-      required: [id, clientId, status, total, lines, createdAt, deliveryAttempts, deliveryState]
+      required: [id, clientId, status, total, lines, createdAt, deliveryAttempts, deliveryState, version]
       properties:
         id: { type: integer }
         clientId: { type: integer }
         clientName: { type: ["string", "null"] }
+        version: { type: integer, description: "Increments on every accepted edit; send it back with PATCH to detect concurrent edits" }
         status: { type: string, enum: [draft, sent, accepted, declined] }
         total: { type: number }
         notes: { type: ["string", "null"] }
@@ -1674,13 +1681,27 @@ components:
             $ref: "#/components/schemas/EstimateLine"
     EstimateUpdateInput:
       type: object
-      required: [lines]
+      required: [lines, version]
       properties:
+        version:
+          type: integer
+          description: "Version the edit was built from; a stale value is rejected with 409"
         notes: { type: ["string", "null"] }
         lines:
           type: array
           items:
             $ref: "#/components/schemas/EstimateLine"
+    EstimateConflict:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        code:
+          type: string
+          enum: [estimate_version_conflict]
+          description: "Present when another admin saved a newer version of this estimate"
+        current:
+          $ref: "#/components/schemas/Estimate"
     EstimateSendInput:
       type: object
       required: [toEmail]

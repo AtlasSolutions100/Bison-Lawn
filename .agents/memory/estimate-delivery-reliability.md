@@ -17,6 +17,13 @@ An estimate's lines, notes, and total are only editable while it is a draft AND 
 
 **How to apply:** Reject non-draft edits with 409, block edits during a claimed delivery, and make the update compare-and-set on status plus delivery state.
 
+## Concurrent office edits
+Estimate content edits are optimistically concurrent: the stored row carries a version counter, the client must send back the version it loaded, and a mismatch is refused with 409 carrying the current row so the UI can offer a reload. The counter is also re-checked inside the UPDATE's WHERE clause alongside the draft/delivery guards.
+
+**Why:** Several office users work the same drafts; last-write-wins silently discarded a colleague's pricing changes and left an audit trail that looked like two successful edits.
+
+**How to apply:** Bump the counter on every accepted content edit, reject stale ones before repricing and again at write time, and never auto-merge — make the admin reapply on top of the reloaded version.
+
 ## Reliable retries
 Keep the active response token separate from a pending delivery token. A resend claim must not replace the active token until Gmail accepts and the delivery state finalizes.
 

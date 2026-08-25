@@ -730,6 +730,7 @@ export const ListEstimatesResponseItem = zod.object({
   "id": zod.int(),
   "clientId": zod.int(),
   "clientName": zod.string().nullish(),
+  "version": zod.int().describe('Increments on every accepted edit; send it back with PATCH to detect concurrent edits'),
   "status": zod.enum(['draft', 'sent', 'accepted', 'declined']),
   "total": zod.number(),
   "notes": zod.string().nullish(),
@@ -771,6 +772,7 @@ export const CreateEstimateResponse = zod.object({
   "id": zod.int(),
   "clientId": zod.int(),
   "clientName": zod.string().nullish(),
+  "version": zod.int().describe('Increments on every accepted edit; send it back with PATCH to detect concurrent edits'),
   "status": zod.enum(['draft', 'sent', 'accepted', 'declined']),
   "total": zod.number(),
   "notes": zod.string().nullish(),
@@ -802,6 +804,7 @@ export const GetEstimateResponse = zod.object({
   "id": zod.int(),
   "clientId": zod.int(),
   "clientName": zod.string().nullish(),
+  "version": zod.int().describe('Increments on every accepted edit; send it back with PATCH to detect concurrent edits'),
   "status": zod.enum(['draft', 'sent', 'accepted', 'declined']),
   "total": zod.number(),
   "notes": zod.string().nullish(),
@@ -833,6 +836,7 @@ export const UpdateEstimateParams = zod.object({
 })
 
 export const UpdateEstimateBody = zod.object({
+  "version": zod.int().describe('Version the edit was built from; a stale value is rejected with 409'),
   "notes": zod.string().nullish(),
   "lines": zod.array(zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
@@ -847,6 +851,7 @@ export const UpdateEstimateResponse = zod.object({
   "id": zod.int(),
   "clientId": zod.int(),
   "clientName": zod.string().nullish(),
+  "version": zod.int().describe('Increments on every accepted edit; send it back with PATCH to detect concurrent edits'),
   "status": zod.enum(['draft', 'sent', 'accepted', 'declined']),
   "total": zod.number(),
   "notes": zod.string().nullish(),
@@ -903,6 +908,7 @@ export const SendEstimateResponse = zod.object({
   "id": zod.int(),
   "clientId": zod.int(),
   "clientName": zod.string().nullish(),
+  "version": zod.int().describe('Increments on every accepted edit; send it back with PATCH to detect concurrent edits'),
   "status": zod.enum(['draft', 'sent', 'accepted', 'declined']),
   "total": zod.number(),
   "notes": zod.string().nullish(),
@@ -937,6 +943,7 @@ export const ReconcileEstimateDeliveryResponse = zod.object({
   "id": zod.int(),
   "clientId": zod.int(),
   "clientName": zod.string().nullish(),
+  "version": zod.int().describe('Increments on every accepted edit; send it back with PATCH to detect concurrent edits'),
   "status": zod.enum(['draft', 'sent', 'accepted', 'declined']),
   "total": zod.number(),
   "notes": zod.string().nullish(),

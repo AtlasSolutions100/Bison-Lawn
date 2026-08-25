@@ -524,6 +524,8 @@ export interface Estimate {
   clientId: number;
   /** @nullable */
   clientName?: string | null;
+  /** Increments on every accepted edit; send it back with PATCH to detect concurrent edits */
+  version: number;
   status: EstimateStatus;
   total: number;
   /** @nullable */
@@ -557,11 +559,17 @@ export interface EstimateInput {
 }
 
 export interface EstimateUpdateInput {
+  /** Version the edit was built from; a stale value is rejected with 409 */
+  version: number;
   /** @nullable */
   notes?: string | null;
   lines: EstimateLine[];
 }
 
+/**
+ * Present when another admin saved a newer version of this estimate
+ */
+export type EstimateConflictCode = typeof EstimateConflictCode[keyof typeof EstimateConflictCode];
 export interface EstimateSendInput {
   toEmail: string;
   message?: string;
@@ -1332,3 +1340,14 @@ export const ListSuggestedActionsStatus = {
 export type GetContractorEarningsParams = {
 date: string;
 };
+
+export const EstimateConflictCode = {
+  estimate_version_conflict: 'estimate_version_conflict',
+} as const;
+
+export interface EstimateConflict {
+  error: string;
+  /** Present when another admin saved a newer version of this estimate */
+  code?: EstimateConflictCode;
+  current?: Estimate;
+}

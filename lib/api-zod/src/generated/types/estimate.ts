@@ -14,6 +14,8 @@ export interface Estimate {
   clientId: number;
   /** @nullable */
   clientName?: string | null;
+  /** Increments on every accepted edit; send it back with PATCH to detect concurrent edits */
+  version: number;
   status: EstimateStatus;
   total: number;
   /** @nullable */

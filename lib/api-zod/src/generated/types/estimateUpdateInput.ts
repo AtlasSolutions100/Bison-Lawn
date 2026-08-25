@@ -8,6 +8,8 @@
 import type { EstimateLine } from './estimateLine';
 
 export interface EstimateUpdateInput {
+  /** Version the edit was built from; a stale value is rejected with 409 */
+  version: number;
   /** @nullable */
   notes?: string | null;
   lines: EstimateLine[];

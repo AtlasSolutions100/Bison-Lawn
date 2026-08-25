@@ -136,6 +136,9 @@ export const estimatesTable = pgTable("estimates", {
   total: doublePrecision("total").notNull().default(0),
   notes: text("notes"),
   lines: jsonb("lines").$type<EstimateLine[]>().notNull().default([]),
+  // Optimistic-concurrency counter for admin edits: every accepted edit of the
+  // draft's contents bumps it, so a PATCH built from an older snapshot fails.
+  version: integer("version").notNull().default(1),
   sentAt: timestamp("sent_at"),
   sentToEmail: text("sent_to_email"),
   responseTokenHash: text("response_token_hash").unique(),

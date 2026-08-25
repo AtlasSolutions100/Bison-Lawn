@@ -137,15 +137,18 @@ router.post("/public/estimates/:token/respond", async (req, res) => {
   let providerAccepted = false;
   const [updated] = await db
     .update(estimatesTable)
-    .set({ notes: body.notes ?? null, lines, total })
+    .set({ notes: body.notes ?? null, lines, total, version: existing.version + 1 })
     .where(
       and(
         eq(estimatesTable.id, id),
         eq(estimatesTable.status, "draft"),
         eq(estimatesTable.deliveryState, existing.deliveryState),
+        eq(estimatesTable.version, body.version),
       ),
     )
     .returning();
+
+    const [latest] = await db.select().from(estimatesTable).where(eq(estimatesTable.id, id));
   if (!updated) {
     const latest = await loadPublicEstimate(req.params.token);
     return res.send(
@@ -459,6 +462,10 @@ router.get("/estimates/:id", async (req, res) => {
  * numbers, so revisions must go out as a new estimate. Lines are repriced
  * server-side from the current field/service definitions; lines whose field or
  * service has since been deleted are carried through exactly as stored.
+ *
+ * Edits are optimistically concurrent: the client sends back the `version` it
+ * loaded and a stale value is rejected with 409 plus the current estimate, so
+ * two admins on the same draft cannot silently overwrite each other.
  */
 router.patch("/estimates/:id", async (req, res) => {
   const body = SendEstimateBody.parse(req.body);
@@ -482,6 +489,14 @@ router.patch("/estimates/:id", async (req, res) => {
       error: "This estimate is being emailed right now. Finish or reconcile that delivery before editing.",
     });
   }
+  if (body.version !== existing.version) {
+    return res.status(409).json({
+      error:
+        "Someone else saved changes to this estimate while you were editing. Reload the current version and reapply your changes.",
+      code: "estimate_version_conflict",
+      current: await withClientName(existing),
+    });
+  }
 
   let lines: EstimateLine[];
   try {
@@ -493,33 +508,23 @@ router.patch("/estimates/:id", async (req, res) => {
   }
   const total = Math.round(lines.reduce((s, l) => s + (l.calculatedPrice ?? 0), 0) * 100) / 100;
 
-  // Re-check the draft state inside the write so a send claimed between the read
-  // above and here cannot have its emailed numbers changed underneath it.
+  // Re-check the draft state and the version inside the write so a send claimed
+  // (or a competing edit committed) between the read above and here cannot have
+  // its numbers changed underneath it.
   const [updated] = await db
     .update(estimatesTable)
-    .set({ notes: body.notes ?? null, lines, total })
+    .set({ notes: body.notes ?? null, lines, total, version: existing.version + 1 })
     .where(
       and(
         eq(estimatesTable.id, id),
         eq(estimatesTable.status, "draft"),
         eq(estimatesTable.deliveryState, existing.deliveryState),
+        eq(estimatesTable.version, body.version),
       ),
     )
     .returning();
-  if (!updated) {
-    return res.status(409).json({ error: "This estimate changed while you were editing. Refresh and try again." });
-  }
 
-  await logAudit({
-    clientId: updated.clientId,
-    actorName: req.appUser?.name,
-    action: "estimate_updated",
-    description: `Edited draft estimate #${updated.id} — ${lines.length} line${lines.length === 1 ? "" : "s"}, total $${existing.total} → $${updated.total}`,
-  });
-  return res.json(await withClientName(updated));
-});
-
-router.get("/estimates/:id/pdf", async (req, res) => {
+    const [latest] = await db.select().from(estimatesTable).where(eq(estimatesTable.id, id));
   const data = await loadEstimateDocument(Number(req.params.id));
   if (!data) return res.status(404).json({ error: "Estimate not found" });
     const pdf = await createEstimatePdf(data);
