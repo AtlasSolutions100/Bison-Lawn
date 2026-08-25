@@ -21,7 +21,11 @@ app.use(
         return {
           id: req.id,
           method: req.method,
-          url: req.url?.split("?")[0],
+            // Public estimate response tokens are bearer capabilities. Never
+            // write them to application logs.
+            url: req.url
+              ?.split("?")[0]
+              .replace(/\/api\/public\/estimates\/[^/]+/, "/api/public/estimates/[REDACTED]"),
         };
       },
       res(res) {

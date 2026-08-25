@@ -2473,6 +2473,83 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return useMutation(getDeleteEstimateMutationOptions(options));
     }
 
+export const getDownloadEstimatePdfUrl = (id: number,) => {
+
+
+
+
+  return `/api/estimates/${id}/pdf`
+}
+
+/**
+ * @summary Download a customer-ready estimate PDF
+ */
+export const downloadEstimatePdf = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getDownloadEstimatePdfUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDownloadEstimatePdfQueryKey = (id: number,) => {
+    return [
+    `/api/estimates/${id}/pdf`
+    ] as const;
+    }
+
+
+export const getDownloadEstimatePdfQueryOptions = <TData = Awaited<ReturnType<typeof downloadEstimatePdf>>, TError = ErrorType<unknown>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof downloadEstimatePdf>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDownloadEstimatePdfQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof downloadEstimatePdf>>> = ({ signal }) => downloadEstimatePdf(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof downloadEstimatePdf>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type DownloadEstimatePdfQueryResult = NonNullable<Awaited<ReturnType<typeof downloadEstimatePdf>>>
+export type DownloadEstimatePdfQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Download a customer-ready estimate PDF
+ */
+
+export function useDownloadEstimatePdf<TData = Awaited<ReturnType<typeof downloadEstimatePdf>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof downloadEstimatePdf>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDownloadEstimatePdfQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export const getSendEstimateUrl = (id: number,) => {
 
 
@@ -2482,7 +2559,7 @@ export const getSendEstimateUrl = (id: number,) => {
 }
 
 /**
- * @summary Mark estimate sent (records audit + intended email)
+ * @summary Email an estimate PDF and secure response links through Gmail
  */
 export const sendEstimate = async (id: number,
     estimateSendInput: EstimateSendInput, options?: Parameters<typeof customFetch>[1]): Promise<Estimate> => {
@@ -2532,7 +2609,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type SendEstimateMutationError = ErrorType<unknown>
 
     /**
- * @summary Mark estimate sent (records audit + intended email)
+ * @summary Email an estimate PDF and secure response links through Gmail
  */
 export const useSendEstimate = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendEstimate>>, TError,{id: number;data: BodyType<EstimateSendInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -2543,6 +2620,77 @@ export const useSendEstimate = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getSendEstimateMutationOptions(options));
+    }
+
+export const getReconcileEstimateDeliveryUrl = (id: number,) => {
+
+
+
+
+  return `/api/estimates/${id}/reconcile-delivery`
+}
+
+/**
+ * @summary Finalize a Gmail-accepted delivery without sending a duplicate
+ */
+export const reconcileEstimateDelivery = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<Estimate> => {
+
+  return customFetch<Estimate>(getReconcileEstimateDeliveryUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getReconcileEstimateDeliveryMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reconcileEstimateDelivery>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reconcileEstimateDelivery>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['reconcileEstimateDelivery'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reconcileEstimateDelivery>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  reconcileEstimateDelivery(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReconcileEstimateDeliveryMutationResult = NonNullable<Awaited<ReturnType<typeof reconcileEstimateDelivery>>>
+
+    export type ReconcileEstimateDeliveryMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Finalize a Gmail-accepted delivery without sending a duplicate
+ */
+export const useReconcileEstimateDelivery = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reconcileEstimateDelivery>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reconcileEstimateDelivery>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getReconcileEstimateDeliveryMutationOptions(options));
     }
 
 export const getListWaitingListUrl = (params?: ListWaitingListParams,) => {

@@ -10,8 +10,16 @@ import {
   invoicesTable,
   paymentsTable,
   servicesTable,
+  estimatesTable,
 } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
+import { createHash } from "node:crypto";
+import {
+  claimEstimateDelivery,
+  finalizeEstimateDelivery,
+  recordEstimateProviderAccepted,
+  releaseEstimateDelivery,
+} from "../src/lib/estimateDeliveryState.ts";
 
 // NODE_ENV=test plus a random per-process capability token enables the
 // x-test-user-id auth bypass in requireAuth.
@@ -350,4 +358,265 @@ test("un-optimized routes keep deterministic dispatch order for null routeOrder"
     res.body.stops.map((s: any) => s.jobId),
     [b3.id, b1.id, b2.id],
   );
+});
+
+test("estimate PDF downloads and a secure customer response can be recorded only once", async () => {
+  const token = `estimate-response-${Date.now()}`;
+  const [estimate] = await db
+    .insert(estimatesTable)
+    .values({
+      clientId: clientWithCoords.id,
+      status: "sent",
+      total: 80,
+      lines: [{ fieldId: 1, label: "Mowing", value: "1 visit", calculatedPrice: 80 }],
+      sentAt: new Date(),
+      sentToEmail: "customer@example.com",
+      responseTokenHash: createHash("sha256").update(token).digest("hex"),
+    })
+    .returning();
+
+  const pdf = await fetch(`${baseUrl}/api/estimates/${estimate.id}/pdf`, {
+    headers: { "x-test-user-id": String(admin.id), "x-test-auth-token": TEST_AUTH_TOKEN },
+  });
+  assert.equal(pdf.status, 200);
+  assert.match(pdf.headers.get("content-type") ?? "", /application\/pdf/);
+  const bytes = Buffer.from(await pdf.arrayBuffer());
+  assert.equal(bytes.subarray(0, 4).toString(), "%PDF");
+
+  const confirmation = await fetch(
+    `${baseUrl}/api/public/estimates/${encodeURIComponent(token)}/respond?action=accept`,
+  );
+  assert.equal(confirmation.status, 200);
+  assert.match(await confirmation.text(), /Confirm Acceptance/);
+  let [stillSent] = await db.select().from(estimatesTable).where(eq(estimatesTable.id, estimate.id));
+  assert.equal(stillSent.status, "sent");
+
+  const accepted = await fetch(
+    `${baseUrl}/api/public/estimates/${encodeURIComponent(token)}/respond`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "action=accept",
+    },
+  );
+  assert.equal(accepted.status, 200);
+  assert.match(await accepted.text(), /Estimate accepted/);
+
+  const declinedAfterAccept = await fetch(
+    `${baseUrl}/api/public/estimates/${encodeURIComponent(token)}/respond`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "action=decline",
+    },
+  );
+  assert.equal(declinedAfterAccept.status, 200);
+  assert.match(await declinedAfterAccept.text(), /Estimate already accepted/);
+
+  const [stored] = await db.select().from(estimatesTable).where(eq(estimatesTable.id, estimate.id));
+  assert.equal(stored.status, "accepted");
+  assert.ok(stored.respondedAt);
+
+  const badToken = await fetch(`${baseUrl}/api/public/estimates/not-valid/respond?action=accept`);
+  assert.equal(badToken.status, 404);
+});
+
+test("estimate delivery rejects concurrent sends and preserves final customer responses", async () => {
+  const [sending, accepted] = await db
+    .insert(estimatesTable)
+    .values([
+      {
+        clientId: clientWithCoords.id,
+        status: "draft",
+        total: 10,
+        lines: [{ fieldId: 1, label: "Test", value: "1", calculatedPrice: 10 }],
+        deliveryState: "sending",
+      },
+      {
+        clientId: clientWithCoords.id,
+        status: "accepted",
+        total: 20,
+        lines: [{ fieldId: 1, label: "Accepted", value: "1", calculatedPrice: 20 }],
+        respondedAt: new Date(),
+      },
+    ])
+    .returning();
+
+  for (const estimate of [sending, accepted]) {
+    const result = await api(`/estimates/${estimate.id}/send`, admin.id, {
+      method: "POST",
+      body: JSON.stringify({ toEmail: "customer@example.com", message: "Test" }),
+    });
+    assert.equal(result.status, 409);
+  }
+
+  const [stillAccepted] = await db
+    .select()
+    .from(estimatesTable)
+    .where(eq(estimatesTable.id, accepted.id));
+  assert.equal(stillAccepted.status, "accepted");
+  assert.ok(stillAccepted.respondedAt);
+});
+
+test("provider-accepted delivery can only be reconciled, never sent twice", async () => {
+  const pendingHash = createHash("sha256").update("provider-accepted-no-duplicate").digest("hex");
+  const [estimate] = await db
+    .insert(estimatesTable)
+    .values({
+      clientId: clientWithCoords.id,
+      status: "draft",
+      total: 25,
+      lines: [{ fieldId: 1, label: "No duplicate", value: "1", calculatedPrice: 25 }],
+    })
+    .returning();
+  await claimEstimateDelivery(estimate.id, pendingHash);
+  await recordEstimateProviderAccepted(
+    estimate.id,
+    pendingHash,
+    "customer@example.com",
+    "gmail-no-duplicate",
+  );
+
+  const resend = await api(`/estimates/${estimate.id}/send`, admin.id, {
+    method: "POST",
+    body: JSON.stringify({ toEmail: "customer@example.com", message: "Duplicate attempt" }),
+  });
+  assert.equal(resend.status, 409);
+  assert.match(resend.body.error, /Reconcile/i);
+
+  const [stored] = await db.select().from(estimatesTable).where(eq(estimatesTable.id, estimate.id));
+  assert.equal(stored.deliveryState, "provider_accepted");
+  assert.equal(stored.pendingResponseTokenHash, pendingHash);
+  assert.equal(stored.deliveryAttempts, 1);
+  assert.equal(stored.gmailMessageId, "gmail-no-duplicate");
+});
+
+test("a failed resend keeps the previously delivered customer response link active", async () => {
+  const oldHash = createHash("sha256").update("old-active-token").digest("hex");
+  const pendingHash = createHash("sha256").update("new-pending-token").digest("hex");
+  const [estimate] = await db
+    .insert(estimatesTable)
+    .values({
+      clientId: clientWithCoords.id,
+      status: "sent",
+      total: 30,
+      lines: [{ fieldId: 1, label: "Existing offer", value: "1", calculatedPrice: 30 }],
+      responseTokenHash: oldHash,
+      deliveryState: "sent",
+      sentAt: new Date(),
+    })
+    .returning();
+
+  const claimed = await claimEstimateDelivery(estimate.id, pendingHash);
+  assert.equal(claimed?.deliveryState, "sending");
+  assert.equal(claimed?.responseTokenHash, oldHash);
+  assert.equal(claimed?.pendingResponseTokenHash, pendingHash);
+
+  const released = await releaseEstimateDelivery(estimate.id, pendingHash, "PDF generation failed");
+  assert.equal(released?.deliveryState, "failed");
+  assert.equal(released?.pendingResponseTokenHash, null);
+  assert.equal(released?.responseTokenHash, oldHash);
+
+  const oldLink = await fetch(
+    `${baseUrl}/api/public/estimates/old-active-token/respond?action=accept`,
+  );
+  assert.equal(oldLink.status, 200);
+  assert.match(await oldLink.text(), /Confirm Acceptance/);
+});
+
+test("accepting during a resend cannot be overwritten when Gmail completes", async () => {
+  const oldToken = "race-old-active-token";
+  const oldHash = createHash("sha256").update(oldToken).digest("hex");
+  const pendingToken = "race-new-pending-token";
+  const pendingHash = createHash("sha256").update(pendingToken).digest("hex");
+  const [estimate] = await db
+    .insert(estimatesTable)
+    .values({
+      clientId: clientWithCoords.id,
+      status: "sent",
+      total: 45,
+      lines: [{ fieldId: 1, label: "Race offer", value: "1", calculatedPrice: 45 }],
+      responseTokenHash: oldHash,
+      deliveryState: "sent",
+      sentAt: new Date(),
+    })
+    .returning();
+
+  await claimEstimateDelivery(estimate.id, pendingHash);
+  const accepted = await fetch(
+    `${baseUrl}/api/public/estimates/${oldToken}/respond`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "action=accept",
+    },
+  );
+  assert.equal(accepted.status, 200);
+
+  await recordEstimateProviderAccepted(
+    estimate.id,
+    pendingHash,
+    "customer@example.com",
+    "gmail-race-test",
+  );
+  const finalized = await finalizeEstimateDelivery(
+    estimate.id,
+    pendingHash,
+    "customer@example.com",
+    "gmail-race-test",
+  );
+  assert.equal(finalized?.status, "accepted");
+  assert.ok(finalized?.respondedAt);
+  assert.equal(finalized?.responseTokenHash, pendingHash);
+  assert.equal(finalized?.pendingResponseTokenHash, null);
+  assert.equal(finalized?.deliveryState, "sent");
+
+  const newLink = await fetch(
+    `${baseUrl}/api/public/estimates/${pendingToken}/respond?action=accept`,
+  );
+  assert.equal(newLink.status, 200);
+  assert.match(await newLink.text(), /Estimate already accepted/);
+});
+
+test("provider-accepted and interrupted sends can be reconciled without a duplicate email", async () => {
+  for (const state of ["provider_accepted", "sending"] as const) {
+    const token = `recovery-${state}-${Date.now()}`;
+    const hash = createHash("sha256").update(token).digest("hex");
+    const [estimate] = await db
+      .insert(estimatesTable)
+      .values({
+        clientId: clientWithCoords.id,
+        status: "draft",
+        total: 55,
+        lines: [{ fieldId: 1, label: "Recovery offer", value: "1", calculatedPrice: 55 }],
+      })
+      .returning();
+    await claimEstimateDelivery(estimate.id, hash);
+    if (state === "provider_accepted") {
+      await recordEstimateProviderAccepted(
+        estimate.id,
+        hash,
+        "customer@example.com",
+        `gmail-recovery-${estimate.id}`,
+      );
+      const pendingLink = await fetch(
+        `${baseUrl}/api/public/estimates/${token}/respond?action=accept`,
+      );
+      assert.equal(pendingLink.status, 200);
+      assert.match(await pendingLink.text(), /Confirm Acceptance/);
+    }
+
+    const reconciled = await api(`/estimates/${estimate.id}/reconcile-delivery`, admin.id, {
+      method: "POST",
+    });
+    assert.equal(reconciled.status, 200);
+    assert.equal(reconciled.body.deliveryState, "sent");
+    assert.equal(reconciled.body.status, "sent");
+
+    const recoveredLink = await fetch(
+      `${baseUrl}/api/public/estimates/${token}/respond?action=accept`,
+    );
+    assert.equal(recoveredLink.status, 200);
+    assert.match(await recoveredLink.text(), /Confirm Acceptance/);
+  }
 });

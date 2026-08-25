@@ -483,6 +483,17 @@ export const EstimateStatus = {
   declined: 'declined',
 } as const;
 
+export type EstimateDeliveryState = typeof EstimateDeliveryState[keyof typeof EstimateDeliveryState];
+
+
+export const EstimateDeliveryState = {
+  idle: 'idle',
+  sending: 'sending',
+  provider_accepted: 'provider_accepted',
+  sent: 'sent',
+  failed: 'failed',
+} as const;
+
 export interface Estimate {
   id: number;
   clientId: number;
@@ -496,6 +507,18 @@ export interface Estimate {
   createdAt: string;
   /** @nullable */
   sentAt?: string | null;
+  /** @nullable */
+  sentToEmail?: string | null;
+  /** @nullable */
+  respondedAt?: string | null;
+  deliveryAttempts: number;
+  deliveryState: EstimateDeliveryState;
+  /** @nullable */
+  providerAcceptedAt?: string | null;
+  /** @nullable */
+  lastDeliveryError?: string | null;
+  /** @nullable */
+  gmailMessageId?: string | null;
 }
 
 export interface EstimateInput {

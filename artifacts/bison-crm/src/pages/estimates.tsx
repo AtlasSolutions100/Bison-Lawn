@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { 
   useListEstimates, useGetEstimate, useCreateEstimate, useDeleteEstimate, useSendEstimate,
+  useReconcileEstimateDelivery,
   useListEstimateFields, useCreateEstimateField, useUpdateEstimateField, useDeleteEstimateField,
   useListClients
 } from '@workspace/api-client-react';
@@ -9,18 +10,39 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
-import { FileText, Send, Trash2, Settings, Plus } from 'lucide-react';
+import { Download, Send, Trash2, Plus, AlertCircle } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 export default function Estimates() {
   const { data: estimates, isLoading } = useListEstimates();
   const deleteEstimate = useDeleteEstimate();
   const sendEstimate = useSendEstimate();
+  const reconcileDelivery = useReconcileEstimateDelivery();
+  const { data: clients } = useListClients();
   const queryClient = useQueryClient();
+  const [sendTarget, setSendTarget] = useState<{ id: number; email: string; clientName: string } | null>(null);
+  const [sendEmail, setSendEmail] = useState('');
+  const [sendMessage, setSendMessage] = useState('Thank you for the opportunity to care for your property. Please review the attached estimate.');
+  const [sendError, setSendError] = useState('');
 
-  const handleSend = (id: number) => {
-    sendEstimate.mutate({ id, data: { toEmail: 'client@example.com', message: 'Here is your estimate.' } }, {
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/estimates'] })
+  const openSend = (estimate: NonNullable<typeof estimates>[number]) => {
+    const email = clients?.find(c => c.id === estimate.clientId)?.email ?? '';
+    setSendTarget({ id: estimate.id, email, clientName: estimate.clientName ?? 'Client' });
+    setSendEmail(email);
+    setSendError('');
+  };
+
+  const handleSend = () => {
+    if (!sendTarget) return;
+    setSendError('');
+    sendEstimate.mutate({ id: sendTarget.id, data: { toEmail: sendEmail, message: sendMessage } }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ['/api/estimates'] });
+        setSendTarget(null);
+      },
+      onError: (error) => {
+        setSendError(error instanceof Error ? error.message : 'Email delivery failed. Please retry.');
+      },
     });
   };
 
@@ -68,14 +90,62 @@ export default function Estimates() {
                       <TableCell className="font-medium">{e.clientName}</TableCell>
                       <TableCell className="font-semibold">${e.total.toLocaleString(undefined, {minimumFractionDigits:2})}</TableCell>
                       <TableCell>
-                        <span className={`px-2 py-1 rounded text-xs font-bold ${e.sentAt ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground'}`}>
-                          {e.sentAt ? 'SENT' : 'DRAFT'}
+                        <span className={`px-2 py-1 rounded text-xs font-bold ${
+                          e.status === 'accepted' ? 'bg-green-100 text-green-800' :
+                          e.status === 'declined' ? 'bg-red-100 text-red-800' :
+                          e.status === 'sent' ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground'
+                        }`}>
+                          {e.status.toUpperCase()}
                         </span>
+                        {e.lastDeliveryError && <div className="text-xs text-destructive mt-1">Delivery failed — retry available</div>}
+                        {e.deliveryState === 'provider_accepted' && (
+                          <div className="text-xs text-amber-700 mt-1">Gmail accepted — confirmation needs finishing</div>
+                        )}
                       </TableCell>
                       <TableCell className="text-right space-x-1 whitespace-nowrap">
-                        {!e.sentAt && (
-                          <Button size="icon" variant="ghost" className="text-primary hover:text-primary hover:bg-primary/10" onClick={() => handleSend(e.id)}>
-                            <Send className="w-4 h-4" />
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          title="Preview or download PDF"
+                          onClick={() => window.open(`/api/estimates/${e.id}/pdf`, '_blank', 'noopener,noreferrer')}
+                        >
+                          <Download className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          title={
+                            e.status === 'accepted' || e.status === 'declined'
+                              ? 'Final customer response recorded'
+                              : e.deliveryState === 'sending' || e.deliveryState === 'provider_accepted'
+                                ? 'Finish the existing delivery before sending again'
+                                : e.sentAt ? 'Send again' : 'Email estimate'
+                          }
+                          disabled={
+                            e.status === 'accepted' ||
+                            e.status === 'declined' ||
+                            e.deliveryState === 'sending' ||
+                            e.deliveryState === 'provider_accepted'
+                          }
+                          className="text-primary hover:text-primary hover:bg-primary/10"
+                          onClick={() => openSend(e)}
+                        >
+                          <Send className="w-4 h-4" />
+                        </Button>
+                        {(e.deliveryState === 'provider_accepted' || e.deliveryState === 'sending') && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            title="Confirm this email was sent without sending another copy"
+                            onClick={() => {
+                              if (!confirm('Only continue if Gmail shows this estimate was sent. This finishes the delivery record without sending another email.')) return;
+                              reconcileDelivery.mutate(
+                                { id: e.id },
+                                { onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/estimates'] }) },
+                              );
+                            }}
+                          >
+                            <AlertCircle className="w-4 h-4 text-amber-600" />
                           </Button>
                         )}
                         <Button size="icon" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => handleDelete(e.id)}>
@@ -98,6 +168,49 @@ export default function Estimates() {
           <EstimateFields />
         </TabsContent>
       </Tabs>
+
+      <Dialog open={!!sendTarget} onOpenChange={open => !open && setSendTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Email estimate to {sendTarget?.clientName}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium mb-1 block">Customer email</label>
+              <Input
+                type="email"
+                value={sendEmail}
+                onChange={e => setSendEmail(e.target.value)}
+                placeholder="customer@example.com"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1 block">Message</label>
+              <textarea
+                className="flex min-h-28 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={sendMessage}
+                onChange={e => setSendMessage(e.target.value)}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              The email includes a polished PDF plus secure Accept and Decline buttons.
+            </p>
+            {sendError && (
+              <div className="flex gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{sendError}</span>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSendTarget(null)}>Cancel</Button>
+            <Button disabled={!sendEmail || sendEstimate.isPending} onClick={handleSend}>
+              <Send className="w-4 h-4 mr-2" />
+              {sendEstimate.isPending ? 'Sending…' : 'Send Estimate'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

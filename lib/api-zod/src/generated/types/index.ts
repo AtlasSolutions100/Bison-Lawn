@@ -31,6 +31,7 @@ export * from './contractorEarnings';
 export * from './dashboardSummary';
 export * from './dispatchInput';
 export * from './estimate';
+export * from './estimateDeliveryState';
 export * from './estimateField';
 export * from './estimateFieldFieldType';
 export * from './estimateFieldInput';

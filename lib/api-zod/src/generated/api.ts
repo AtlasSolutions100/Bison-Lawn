@@ -744,7 +744,14 @@ export const ListEstimatesResponseItem = zod.object({
   "calculatedPrice": zod.number().nullish()
 })),
   "createdAt": zod.string(),
-  "sentAt": zod.string().nullish()
+  "sentAt": zod.string().nullish(),
+  "sentToEmail": zod.string().nullish(),
+  "respondedAt": zod.string().nullish(),
+  "deliveryAttempts": zod.int(),
+  "deliveryState": zod.enum(['idle', 'sending', 'provider_accepted', 'sent', 'failed']),
+  "providerAcceptedAt": zod.string().nullish(),
+  "lastDeliveryError": zod.string().nullish(),
+  "gmailMessageId": zod.string().nullish()
 })
 export const ListEstimatesResponse = zod.array(ListEstimatesResponseItem)
 
@@ -774,7 +781,14 @@ export const CreateEstimateResponse = zod.object({
   "calculatedPrice": zod.number().nullish()
 })),
   "createdAt": zod.string(),
-  "sentAt": zod.string().nullish()
+  "sentAt": zod.string().nullish(),
+  "sentToEmail": zod.string().nullish(),
+  "respondedAt": zod.string().nullish(),
+  "deliveryAttempts": zod.int(),
+  "deliveryState": zod.enum(['idle', 'sending', 'provider_accepted', 'sent', 'failed']),
+  "providerAcceptedAt": zod.string().nullish(),
+  "lastDeliveryError": zod.string().nullish(),
+  "gmailMessageId": zod.string().nullish()
 })
 
 
@@ -796,7 +810,14 @@ export const GetEstimateResponse = zod.object({
   "calculatedPrice": zod.number().nullish()
 })),
   "createdAt": zod.string(),
-  "sentAt": zod.string().nullish()
+  "sentAt": zod.string().nullish(),
+  "sentToEmail": zod.string().nullish(),
+  "respondedAt": zod.string().nullish(),
+  "deliveryAttempts": zod.int(),
+  "deliveryState": zod.enum(['idle', 'sending', 'provider_accepted', 'sent', 'failed']),
+  "providerAcceptedAt": zod.string().nullish(),
+  "lastDeliveryError": zod.string().nullish(),
+  "gmailMessageId": zod.string().nullish()
 })
 
 
@@ -808,14 +829,24 @@ export const DeleteEstimateResponse = zod.void()
 
 
 /**
- * @summary Mark estimate sent (records audit + intended email)
+ * @summary Download a customer-ready estimate PDF
+ */
+export const DownloadEstimatePdfParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const DownloadEstimatePdfResponse = zod.unknown()
+
+
+/**
+ * @summary Email an estimate PDF and secure response links through Gmail
  */
 export const SendEstimateParams = zod.object({
   "id": zod.coerce.number().int()
 })
 
 export const SendEstimateBody = zod.object({
-  "toEmail": zod.string(),
+  "toEmail": zod.email(),
   "message": zod.string().optional()
 })
 
@@ -833,7 +864,46 @@ export const SendEstimateResponse = zod.object({
   "calculatedPrice": zod.number().nullish()
 })),
   "createdAt": zod.string(),
-  "sentAt": zod.string().nullish()
+  "sentAt": zod.string().nullish(),
+  "sentToEmail": zod.string().nullish(),
+  "respondedAt": zod.string().nullish(),
+  "deliveryAttempts": zod.int(),
+  "deliveryState": zod.enum(['idle', 'sending', 'provider_accepted', 'sent', 'failed']),
+  "providerAcceptedAt": zod.string().nullish(),
+  "lastDeliveryError": zod.string().nullish(),
+  "gmailMessageId": zod.string().nullish()
+})
+
+
+/**
+ * @summary Finalize a Gmail-accepted delivery without sending a duplicate
+ */
+export const ReconcileEstimateDeliveryParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ReconcileEstimateDeliveryResponse = zod.object({
+  "id": zod.int(),
+  "clientId": zod.int(),
+  "clientName": zod.string().nullish(),
+  "status": zod.enum(['draft', 'sent', 'accepted', 'declined']),
+  "total": zod.number(),
+  "notes": zod.string().nullish(),
+  "lines": zod.array(zod.object({
+  "fieldId": zod.int(),
+  "label": zod.string(),
+  "value": zod.string(),
+  "calculatedPrice": zod.number().nullish()
+})),
+  "createdAt": zod.string(),
+  "sentAt": zod.string().nullish(),
+  "sentToEmail": zod.string().nullish(),
+  "respondedAt": zod.string().nullish(),
+  "deliveryAttempts": zod.int(),
+  "deliveryState": zod.enum(['idle', 'sending', 'provider_accepted', 'sent', 'failed']),
+  "providerAcceptedAt": zod.string().nullish(),
+  "lastDeliveryError": zod.string().nullish(),
+  "gmailMessageId": zod.string().nullish()
 })
 
 

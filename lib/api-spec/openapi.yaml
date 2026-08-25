@@ -522,11 +522,26 @@ paths:
       responses:
         "204":
           description: Deleted
+  /estimates/{id}/pdf:
+    get:
+      operationId: downloadEstimatePdf
+      tags: [estimates]
+      summary: Download a customer-ready estimate PDF
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Estimate PDF
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
   /estimates/{id}/send:
     post:
       operationId: sendEstimate
       tags: [estimates]
-      summary: Mark estimate sent (records audit + intended email)
+      summary: Email an estimate PDF and secure response links through Gmail
       parameters:
         - $ref: "#/components/parameters/IdParam"
       requestBody:
@@ -538,6 +553,20 @@ paths:
       responses:
         "200":
           description: Sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Estimate"
+  /estimates/{id}/reconcile-delivery:
+    post:
+      operationId: reconcileEstimateDelivery
+      tags: [estimates]
+      summary: Finalize a Gmail-accepted delivery without sending a duplicate
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Reconciled estimate
           content:
             application/json:
               schema:
@@ -1294,7 +1323,7 @@ components:
         calculatedPrice: { type: ["number", "null"] }
     Estimate:
       type: object
-      required: [id, clientId, status, total, lines, createdAt]
+      required: [id, clientId, status, total, lines, createdAt, deliveryAttempts, deliveryState]
       properties:
         id: { type: integer }
         clientId: { type: integer }
@@ -1308,6 +1337,13 @@ components:
             $ref: "#/components/schemas/EstimateLine"
         createdAt: { type: string }
         sentAt: { type: ["string", "null"] }
+        sentToEmail: { type: ["string", "null"] }
+        respondedAt: { type: ["string", "null"] }
+        deliveryAttempts: { type: integer }
+        deliveryState: { type: string, enum: [idle, sending, provider_accepted, sent, failed] }
+        providerAcceptedAt: { type: ["string", "null"] }
+        lastDeliveryError: { type: ["string", "null"] }
+        gmailMessageId: { type: ["string", "null"] }
     EstimateInput:
       type: object
       required: [clientId, lines]
@@ -1322,7 +1358,7 @@ components:
       type: object
       required: [toEmail]
       properties:
-        toEmail: { type: string }
+        toEmail: { type: string, format: email }
         message: { type: string }
     JobProduct:
       type: object

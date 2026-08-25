@@ -133,6 +133,15 @@ export const estimatesTable = pgTable("estimates", {
   notes: text("notes"),
   lines: jsonb("lines").$type<EstimateLine[]>().notNull().default([]),
   sentAt: timestamp("sent_at"),
+  sentToEmail: text("sent_to_email"),
+  responseTokenHash: text("response_token_hash").unique(),
+  pendingResponseTokenHash: text("pending_response_token_hash").unique(),
+  respondedAt: timestamp("responded_at"),
+  deliveryAttempts: integer("delivery_attempts").notNull().default(0),
+  deliveryState: text("delivery_state").notNull().default("idle"), // idle | sending | provider_accepted | sent | failed
+  providerAcceptedAt: timestamp("provider_accepted_at"),
+  lastDeliveryError: text("last_delivery_error"),
+  gmailMessageId: text("gmail_message_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 export type Estimate = typeof estimatesTable.$inferSelect;

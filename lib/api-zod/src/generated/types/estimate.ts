@@ -5,6 +5,7 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+import type { EstimateDeliveryState } from './estimateDeliveryState';
 import type { EstimateLine } from './estimateLine';
 import type { EstimateStatus } from './estimateStatus';
 
@@ -21,4 +22,16 @@ export interface Estimate {
   createdAt: string;
   /** @nullable */
   sentAt?: string | null;
+  /** @nullable */
+  sentToEmail?: string | null;
+  /** @nullable */
+  respondedAt?: string | null;
+  deliveryAttempts: number;
+  deliveryState: EstimateDeliveryState;
+  /** @nullable */
+  providerAcceptedAt?: string | null;
+  /** @nullable */
+  lastDeliveryError?: string | null;
+  /** @nullable */
+  gmailMessageId?: string | null;
 }
