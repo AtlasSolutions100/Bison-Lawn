@@ -2,3 +2,4 @@
 - [Clerk app-profile loading](clerk-app-profile-loading.md) — gate cookie-authenticated app-profile queries on Clerk's loaded and signed-in state to avoid cached 401s after OAuth.
 - [E2E auth testing pattern](e2e-auth-testing.md) — test auth bypass needs NODE_ENV=test plus a random capability token; Clerk browser tests sign in programmatically and can be role-promoted via DB.
 - [Estimate delivery reliability](estimate-delivery-reliability.md) — email links require POST confirmation and log redaction; retries keep active and pending response tokens separate.
+- [esbuild bundling and pdfkit](esbuild-pdfkit.md) — packages that load assets via runtime subpath imports (pdfkit's #standard-fonts) must be externalized; tsx tests won't catch bundle-only failures.

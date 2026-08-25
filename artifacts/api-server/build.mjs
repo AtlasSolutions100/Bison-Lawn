@@ -47,6 +47,9 @@ async function buildAll() {
       "isolated-vm",
       "lightningcss",
       "pg-native",
+      // pdfkit resolves bundled .afm font data through '#standard-fonts' subpath
+      // imports at runtime, which esbuild cannot inline.
+      "pdfkit",
       "oracledb",
       "mongodb-client-encryption",
       "nodemailer",

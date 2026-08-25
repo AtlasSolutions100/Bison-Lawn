@@ -1497,12 +1497,13 @@ components:
         sortOrder: { type: ["integer", "null"] }
     EstimateLine:
       type: object
-      required: [fieldId, label, value]
+      required: [label, value]
       properties:
-        fieldId: { type: integer }
+        fieldId: { type: ["integer", "null"], description: "Reference to a reusable estimate field" }
+        serviceId: { type: ["integer", "null"], description: "Reference to a service priced by its equations" }
         label: { type: string }
         value: { type: string }
-        calculatedPrice: { type: ["number", "null"] }
+        calculatedPrice: { type: ["number", "null"], description: "Server-computed for field/service lines" }
     Estimate:
       type: object
       required: [id, clientId, status, total, lines, createdAt, deliveryAttempts, deliveryState]

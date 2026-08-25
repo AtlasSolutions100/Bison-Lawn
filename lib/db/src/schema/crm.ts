@@ -119,7 +119,8 @@ export type EstimateField = typeof estimateFieldsTable.$inferSelect;
 
 // ---------- estimates ----------
 export type EstimateLine = {
-  fieldId: number;
+  fieldId?: number | null;
+  serviceId?: number | null;
   label: string;
   value: string;
   calculatedPrice?: number | null;

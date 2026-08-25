@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
-import { db, estimateFieldsTable, estimatesTable, clientsTable } from "@workspace/db";
-import { and, desc, eq, or } from "drizzle-orm";
+import { db, estimateFieldsTable, estimatesTable, clientsTable, servicesTable } from "@workspace/db";
+import type { EstimateLine } from "@workspace/db";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
 import {
   CreateEstimateFieldBody,
@@ -9,7 +10,7 @@ import {
   SendEstimateBody,
 } from "@workspace/api-zod";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
-import { logAudit } from "../lib/helpers";
+import { calculatePrice, logAudit } from "../lib/helpers";
 import { createEstimateEmailHtml, createEstimatePdf } from "../lib/estimateDocument";
 import { sendEstimateViaGmail } from "../lib/estimateDelivery";
 import {
@@ -229,15 +230,70 @@ router.get("/estimates", async (req, res) => {
   return res.json(await Promise.all(rows.map(withClientName)));
 });
 
+/**
+ * Recompute each line's price from the authoritative field/service definitions
+ * so a client cannot submit arbitrary prices for configured items.
+ * - Calculable fields: value / unitSize * pricePerUnit
+ * - Services: pricing equations against a sqft value, falling back to rate * quantity
+ * - Other field types are informational (no price)
+ */
+async function priceEstimateLines(lines: EstimateLine[]): Promise<EstimateLine[]> {
+  const fieldIds = [...new Set(lines.map((l) => l.fieldId).filter((id): id is number => id != null))];
+  const serviceIds = [...new Set(lines.map((l) => l.serviceId).filter((id): id is number => id != null))];
+  const fields = fieldIds.length
+    ? await db.select().from(estimateFieldsTable).where(inArray(estimateFieldsTable.id, fieldIds))
+    : [];
+  const services = serviceIds.length
+    ? await db.select().from(servicesTable).where(inArray(servicesTable.id, serviceIds))
+    : [];
+  const round = (n: number) => Math.round(n * 100) / 100;
+  return lines.map((line) => {
+    if (line.serviceId != null) {
+      const svc = services.find((s) => s.id === line.serviceId);
+      if (!svc) throw Object.assign(new Error(`Service ${line.serviceId} not found`), { status: 400 });
+      const numeric = Number(line.value);
+      const price =
+        svc.pricingEquations.length > 0 && Number.isFinite(numeric)
+          ? calculatePrice(svc.pricingEquations, numeric).price
+          : round(svc.rate * svc.quantity);
+      return { ...line, label: line.label || svc.name, calculatedPrice: price };
+    }
+    if (line.fieldId != null) {
+      const field = fields.find((f) => f.id === line.fieldId);
+      if (!field) throw Object.assign(new Error(`Estimate field ${line.fieldId} not found`), { status: 400 });
+      if (field.fieldType === "calculable") {
+        const numeric = Number(line.value);
+        if (!Number.isFinite(numeric)) {
+          throw Object.assign(new Error(`"${field.label}" needs a numeric value`), { status: 400 });
+        }
+        const unitSize = field.unitSize && field.unitSize > 0 ? field.unitSize : 1;
+        return { ...line, label: field.label, calculatedPrice: round((numeric / unitSize) * (field.pricePerUnit ?? 0)) };
+      }
+      return { ...line, label: field.label, calculatedPrice: null };
+    }
+    // Free-form line: keep the submitted price (manual add-on).
+    return { ...line, calculatedPrice: line.calculatedPrice ?? null };
+  });
+}
+
 router.post("/estimates", async (req, res) => {
   const body = CreateEstimateBody.parse(req.body);
-  const total = body.lines.reduce((s, l) => s + (l.calculatedPrice ?? 0), 0);
+  let lines: EstimateLine[];
+  try {
+    lines = await priceEstimateLines(body.lines);
+  } catch (error) {
+    if (error instanceof Error && (error as { status?: number }).status === 400) {
+      return res.status(400).json({ error: error.message });
+    }
+    throw error;
+  }
+  const total = lines.reduce((s, l) => s + (l.calculatedPrice ?? 0), 0);
   const [est] = await db
     .insert(estimatesTable)
     .values({
       clientId: body.clientId,
       notes: body.notes ?? null,
-      lines: body.lines,
+      lines,
       total: Math.round(total * 100) / 100,
     })
     .returning();

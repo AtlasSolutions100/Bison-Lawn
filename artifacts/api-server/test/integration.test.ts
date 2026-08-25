@@ -620,3 +620,85 @@ test("provider-accepted and interrupted sends can be reconciled without a duplic
     assert.match(await recoveredLink.text(), /Confirm Acceptance/);
   }
 });
+
+test("estimate lines are priced server-side from field and service definitions", async () => {
+  const [turf] = await db
+    .insert((await import("@workspace/db")).estimateFieldsTable)
+    .values([
+      { label: `Turf Sqft ${Date.now()}`, fieldType: "calculable", pricePerUnit: 20, unitSize: 1000, sortOrder: 1 },
+    ])
+    .returning();
+  const [gate] = await db
+    .insert((await import("@workspace/db")).estimateFieldsTable)
+    .values([{ label: `Gate Code ${Date.now()}`, fieldType: "text", sortOrder: 2 }])
+    .returning();
+  const [aeration] = await db
+    .insert(servicesTable)
+    .values({
+      name: `Aeration ${Date.now()}`,
+      rate: 0,
+      pricingEquations: [
+        { upToSqft: null, basePrice: 100, baseSqft: 5000, incrementPrice: 10, incrementSqft: 1000 },
+      ],
+    })
+    .returning();
+  ids.services.push(aeration.id);
+
+  try {
+    // Client-submitted calculatedPrice values must be ignored/recomputed.
+    const created = await api("/estimates", admin.id, {
+      method: "POST",
+      body: JSON.stringify({
+        clientId: clientWithCoords.id,
+        lines: [
+          { fieldId: turf.id, label: "tampered", value: "6200", calculatedPrice: 1 },
+          { fieldId: gate.id, label: "tampered", value: "4417", calculatedPrice: 999 },
+          { serviceId: aeration.id, label: "tampered", value: "6200", calculatedPrice: 2 },
+        ],
+      }),
+    });
+    assert.equal(created.status, 201);
+    const [turfLine, gateLine, svcLine] = created.body.lines;
+    assert.equal(turfLine.calculatedPrice, 124); // 6200/1000 * 20
+    assert.equal(turfLine.label, turf.label);
+    assert.equal(gateLine.calculatedPrice, null); // informational fields never price
+    assert.equal(svcLine.calculatedPrice, 120); // 100 + ceil(1200/1000)*10
+    assert.equal(created.body.total, 244);
+
+    // Unknown field references are rejected, and calculable fields need numbers.
+    const badField = await api("/estimates", admin.id, {
+      method: "POST",
+      body: JSON.stringify({
+        clientId: clientWithCoords.id,
+        lines: [{ fieldId: 99999999, label: "x", value: "1" }],
+      }),
+    });
+    assert.equal(badField.status, 400);
+    const badValue = await api("/estimates", admin.id, {
+      method: "POST",
+      body: JSON.stringify({
+        clientId: clientWithCoords.id,
+        lines: [{ fieldId: turf.id, label: "x", value: "not-a-number" }],
+      }),
+    });
+    assert.equal(badValue.status, 400);
+
+    // Estimate fields are fully manageable: update pricing, then reprice.
+    const updated = await api(`/estimate-fields/${turf.id}`, admin.id, {
+      method: "PATCH",
+      body: JSON.stringify({ pricePerUnit: 30, unitSize: 500 }),
+    });
+    assert.equal(updated.status, 200);
+    const repriced = await api("/estimates", admin.id, {
+      method: "POST",
+      body: JSON.stringify({
+        clientId: clientWithCoords.id,
+        lines: [{ fieldId: turf.id, label: "", value: "1000" }],
+      }),
+    });
+    assert.equal(repriced.body.lines[0].calculatedPrice, 60); // 1000/500 * 30
+  } finally {
+    const { estimateFieldsTable } = await import("@workspace/db");
+    await db.delete(estimateFieldsTable).where(inArray(estimateFieldsTable.id, [turf.id, gate.id]));
+  }
+});

@@ -466,10 +466,22 @@ export interface EstimateFieldUpdate {
 }
 
 export interface EstimateLine {
-  fieldId: number;
+  /**
+     * Reference to a reusable estimate field
+     * @nullable
+     */
+  fieldId?: number | null;
+  /**
+     * Reference to a service priced by its equations
+     * @nullable
+     */
+  serviceId?: number | null;
   label: string;
   value: string;
-  /** @nullable */
+  /**
+     * Server-computed for field/service lines
+     * @nullable
+     */
   calculatedPrice?: number | null;
 }
 
@@ -1202,4 +1214,3 @@ export const ListSuggestedActionsStatus = {
 export type GetContractorEarningsParams = {
 date: string;
 };
-
