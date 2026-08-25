@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startAbandonedMessageClaimSweeper } from "./lib/abandonedMessageClaims";
+import { reconcileUserAccounts } from "./lib/userAccounts";
 
 const rawPort = process.env["PORT"];
 
@@ -28,4 +29,17 @@ app.listen(port, (err) => {
   // catching anything the previous process left stranded) so the office does
   // not have to open the review queue for them to surface.
   startAbandonedMessageClaimSweeper();
+
+  // Registers sign-in identities for existing accounts and merges any
+  // duplicate accounts (same person, two Clerk identities) already stored.
+  // Never fatal: the app stays up if the cleanup cannot run.
+  reconcileUserAccounts()
+    .then((result) => {
+      if (result.identitiesBackfilled > 0 || result.accountsMerged > 0) {
+        logger.info(result, "reconciled duplicate user accounts");
+      }
+    })
+    .catch((err) => {
+      logger.error({ err }, "failed to reconcile user accounts");
+    });
 });

@@ -4,10 +4,19 @@ import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import type { User } from "@workspace/db";
 import { resolveOwnerAccess } from "../lib/ownerAccess";
+import type { OwnerAccessDecision } from "../lib/ownerAccess";
+import {
+  mergeAccountsForEmail,
+  normalizeEmailKey,
+  resolveAccountForClerkId,
+} from "../lib/userAccounts";
 
-type ClerkIdentity = {
+export type ClerkIdentity = {
   name: string;
   email: string | null;
+  // Only a verified email proves the sign-in belongs to that person, so only a
+  // verified one may join an existing app account.
+  emailVerified: boolean;
 };
 
 const IDENTITY_CACHE_MS = 60_000;
@@ -30,6 +39,7 @@ async function loadCurrentClerkIdentity(clerkId: string): Promise<ClerkIdentity 
           clerkUser.primaryEmailAddress?.emailAddress ||
           "New User",
         email: clerkUser.primaryEmailAddress?.emailAddress ?? null,
+        emailVerified: clerkUser.primaryEmailAddress?.verification?.status === "verified",
       };
       identityCache.set(clerkId, {
         identity,
@@ -54,6 +64,26 @@ declare global {
       appUser?: User;
     }
   }
+}
+
+/**
+ * Decides what access a signed-in Clerk identity gets.
+ *
+ * Owner access is a privilege grant, so it is only ever matched against an
+ * email address Clerk has verified: anyone can put the owner's address on a new
+ * Clerk identity, and an unverified one is not evidence that it is theirs.
+ */
+export function resolveIdentityAccess(
+  identity: ClerkIdentity | null,
+  current: { role: string; roleSource: string },
+): OwnerAccessDecision {
+  return resolveOwnerAccess({
+    configuredOwnerEmails: [process.env.APP_OWNER_EMAIL, process.env.APP_SECONDARY_OWNER_EMAIL],
+    currentPrimaryEmail: identity?.emailVerified ? identity.email : null,
+    profileAvailable: identity != null,
+    currentRole: current.role,
+    currentRoleSource: current.roleSource,
+  });
 }
 
 /**
@@ -98,59 +128,40 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       req.log.warn({ clerkId }, "failed to fetch current Clerk user profile; access will fail closed");
     }
 
-    let [user] = await db.select().from(usersTable).where(eq(usersTable.clerkId, clerkId));
-    if (!user) {
-      const access = resolveOwnerAccess({
-        configuredOwnerEmails: [
-          process.env.APP_OWNER_EMAIL,
-          process.env.APP_SECONDARY_OWNER_EMAIL,
-        ],
-        currentPrimaryEmail: identity?.email ?? null,
-        profileAvailable: identity != null,
-        currentRole: "contractor",
-        currentRoleSource: "provisioned",
-      });
-      [user] = await db
-        .insert(usersTable)
-        .values({
-          clerkId,
-          name: identity?.name ?? "New User",
-          email: identity?.email ?? null,
-          role: access.role,
-          roleSource: access.roleSource,
-        })
-        .onConflictDoNothing({ target: usersTable.clerkId })
-        .returning();
-      if (!user) {
-        [user] = await db.select().from(usersTable).where(eq(usersTable.clerkId, clerkId));
-      }
-    }
+    // Accounts are keyed on the person (verified email), not on the individual
+    // Clerk identity, so a second sign-in method joins the existing account
+    // instead of quietly creating a parallel one with its own role.
+    let user = await resolveAccountForClerkId(
+      clerkId,
+      identity,
+      resolveIdentityAccess(identity, { role: "contractor", roleSource: "provisioned" }),
+    );
 
     if (user) {
-      const access = resolveOwnerAccess({
-        configuredOwnerEmails: [
-          process.env.APP_OWNER_EMAIL,
-          process.env.APP_SECONDARY_OWNER_EMAIL,
-        ],
-        currentPrimaryEmail: identity?.email ?? null,
-        profileAvailable: identity != null,
-        currentRole: user.role,
-        currentRoleSource: user.roleSource,
-      });
+      const access = resolveIdentityAccess(identity, user);
+      // Only a verified address is stored: an unverified one must never make
+      // this account look like the same person as an existing one.
+      const verifiedEmail = identity?.emailVerified ? identity.email : null;
       const profileChanged =
-        identity != null && (user.email !== identity.email || user.name !== identity.name);
+        identity != null && (user.email !== verifiedEmail || user.name !== identity.name);
       const accessChanged = user.role !== access.role || user.roleSource !== access.roleSource;
 
       if (profileChanged || accessChanged) {
-        [user] = await db
+        const [refreshed] = await db
           .update(usersTable)
           .set({
-            ...(identity ? { name: identity.name, email: identity.email } : {}),
+            ...(identity ? { name: identity.name, email: verifiedEmail } : {}),
             role: access.role,
             roleSource: access.roleSource,
           })
           .where(eq(usersTable.id, user.id))
           .returning();
+        user = refreshed ?? user;
+        // An email change can make this account a duplicate of another one.
+        const emailKey = identity?.emailVerified ? normalizeEmailKey(user.email) : null;
+        if (profileChanged && emailKey) {
+          user = (await mergeAccountsForEmail(emailKey)) ?? user;
+        }
       }
     }
 

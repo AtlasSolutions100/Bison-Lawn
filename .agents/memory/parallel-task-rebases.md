@@ -48,3 +48,14 @@ return), so non-overlapping hunks get grafted into the wrong function.
 - After rebasing onto a sibling task that added database columns, the dev
   database is still on the old schema. Push the schema before running tests, or
   the failures look like application bugs (`column ... does not exist`).
+- Upstream itself can already be broken this way: the damage from a bad merge is
+  not limited to the feature that merge was about, and it lands in test files as
+  much as in source (whole test bodies spliced into unrelated tests). Judge a
+  file by whether it compiles and runs, not by whether the incoming commit
+  claimed to touch it.
+- An incremental typecheck (`tsBuildInfoFile`) can report a single error where a
+  clean run reports thirty. When a rebase produces one implausible-looking type
+  error in a file, delete the build info and re-run before believing the count.
+- Repair by finding the last commit where the file was actually clean, then
+  re-applying each later commit's *intent* by hand — the recorded diffs are the
+  thing that broke it, so replaying them reproduces the damage.

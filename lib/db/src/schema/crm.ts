@@ -29,7 +29,14 @@ export const insertUserSchema = createInsertSchema(usersTable).omit({ id: true, 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof usersTable.$inferSelect;
 
-// ---------- clients ----------
+export const userIdentitiesTable = pgTable("user_identities", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => usersTable.id, { onDelete: "cascade" }),
+  clerkId: text("clerk_id").notNull().unique(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
 export const clientsTable = pgTable("clients", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
@@ -315,3 +322,5 @@ export const ticketsTable = pgTable("tickets", {
 export type Ticket = typeof ticketsTable.$inferSelect;
 
 export type BillingSettings = typeof billingSettingsTable.$inferSelect;
+
+export type UserIdentity = typeof userIdentitiesTable.$inferSelect;

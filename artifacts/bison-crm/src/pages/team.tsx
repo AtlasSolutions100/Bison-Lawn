@@ -49,10 +49,13 @@ function UserRow({ user }: { user: any }) {
   const [phone, setPhone] = useState(user.phone || '');
   const [baseAddress, setBaseAddress] = useState(user.baseAddress || '');
   
+  const [error, setError] = useState<string | null>(null);
+
   const updateUser = useUpdateUser();
   const queryClient = useQueryClient();
 
   const handleSave = () => {
+    setError(null);
     updateUser.mutate({
       id: user.id,
       data: { role, phone, baseAddress }
@@ -60,6 +63,10 @@ function UserRow({ user }: { user: any }) {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: ['/api/users'] });
         setIsEditing(false);
+      },
+      onError: (e: any) => {
+        // e.g. an admin trying to remove their own access, or demoting the owner
+        setError(e?.data?.error || e?.message || 'Could not save changes');
       }
     });
   };
@@ -68,6 +75,7 @@ function UserRow({ user }: { user: any }) {
     setRole(user.role);
     setPhone(user.phone || '');
     setBaseAddress(user.baseAddress || '');
+    setError(null);
     setIsEditing(false);
   };
 
@@ -91,6 +99,7 @@ function UserRow({ user }: { user: any }) {
         <TableCell className="space-x-1 whitespace-nowrap">
           <Button size="icon" variant="ghost" className="h-8 w-8 text-primary" onClick={handleSave} disabled={updateUser.isPending}><Check className="w-4 h-4" /></Button>
           <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground" onClick={handleCancel}><X className="w-4 h-4" /></Button>
+          {error && <p className="text-xs text-destructive mt-1 whitespace-normal">{error}</p>}
         </TableCell>
       </TableRow>
     );
