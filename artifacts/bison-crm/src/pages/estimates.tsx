@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { 
   useListEstimates, useGetEstimate, useCreateEstimate, useUpdateEstimate, useDeleteEstimate, useSendEstimate,
   useReconcileEstimateDelivery,
@@ -13,6 +13,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Download, Send, Trash2, Plus, AlertCircle, Pencil } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { useUnsavedChangesWarning } from '@/hooks/use-unsaved-changes-warning';
+import { cn } from '@/lib/utils';
 
 const isEditableDraft = (estimate: Estimate) =>
   estimate.status === 'draft' &&
@@ -23,6 +25,10 @@ export default function Estimates() {
   const { data: estimates, isLoading } = useListEstimates();
   const [tab, setTab] = useState('list');
   const [editing, setEditing] = useState<Estimate | null>(null);
+  // The builder stays mounted across tab switches, so unsaved work is only ever
+  // discarded by an action that replaces it (switching edit target, cancelling)
+  // or by leaving the page. Both of those confirm first.
+  const [builderDirty, setBuilderDirty] = useState(false);
   const deleteEstimate = useDeleteEstimate();
   const sendEstimate = useSendEstimate();
   const reconcileDelivery = useReconcileEstimateDelivery();
@@ -54,6 +60,42 @@ export default function Estimates() {
     });
   };
 
+  useUnsavedChangesWarning(
+    builderDirty,
+    'This estimate has unsaved changes. Leave the Estimates page and discard them?',
+  );
+
+  const startEdit = (estimate: Estimate) => {
+    if (editing?.id === estimate.id) {
+      setTab('builder');
+      return;
+    }
+    if (
+      builderDirty &&
+      !confirm(
+        editing
+          ? `Discard the unsaved changes to estimate #${editing.id} and edit #${estimate.id} instead?`
+          : `Discard the unsaved new estimate in the builder and edit #${estimate.id} instead?`,
+      )
+    ) {
+      return;
+    }
+    setBuilderDirty(false);
+    setEditing(estimate);
+    setTab('builder');
+  };
+
+  const closeBuilder = () => {
+    setBuilderDirty(false);
+    setEditing(null);
+    setTab('list');
+  };
+
+  const cancelEdit = () => {
+    if (builderDirty && !confirm('Discard the unsaved changes to this estimate?')) return;
+    closeBuilder();
+  };
+
   const handleDelete = (id: number) => {
     if(confirm('Delete estimate?')) {
       deleteEstimate.mutate({ id }, { onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/estimates'] }) });
@@ -71,7 +113,12 @@ export default function Estimates() {
         <div className="flex justify-between items-center mb-4">
           <TabsList>
             <TabsTrigger value="list">All Estimates</TabsTrigger>
-            <TabsTrigger value="builder">{editing ? `Editing #${editing.id}` : 'Builder'}</TabsTrigger>
+            <TabsTrigger value="builder">
+              {editing ? `Editing #${editing.id}` : 'Builder'}
+              {builderDirty && (
+                <span className="ml-1.5 text-amber-600" title="Unsaved changes" aria-label="Unsaved changes">•</span>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="fields">Custom Fields</TabsTrigger>
           </TabsList>
         </div>
@@ -116,7 +163,7 @@ export default function Estimates() {
                             size="icon"
                             variant="ghost"
                             title="Edit this draft"
-                            onClick={() => { setEditing(e); setTab('builder'); }}
+                            onClick={() => startEdit(e)}
                           >
                             <Pencil className="w-4 h-4" />
                           </Button>
@@ -178,12 +225,20 @@ export default function Estimates() {
           </div>
         </TabsContent>
 
-        <TabsContent value="builder" className="flex-1 m-0">
+        {/* forceMount keeps the builder mounted while another tab is showing, so
+            switching to "All Estimates" mid-build no longer destroys its state.
+            Radix leaves force-mounted content visible, so hide it ourselves. */}
+        <TabsContent
+          value="builder"
+          forceMount
+          className={cn('flex-1 m-0', tab !== 'builder' && 'hidden')}
+        >
           <EstimateBuilder
             key={editing ? `edit-${editing.id}` : 'new'}
             editEstimate={editing}
-            onFinished={() => { setEditing(null); setTab('list'); }}
-            onCancelEdit={() => { setEditing(null); setTab('list'); }}
+            onDirtyChange={setBuilderDirty}
+            onFinished={closeBuilder}
+            onCancelEdit={cancelEdit}
             onReloadEdit={(fresh) => setEditing(fresh)}
           />
         </TabsContent>
@@ -268,6 +323,7 @@ function serviceLinePrice(service: Service, value: string): number {
   return Math.round(service.rate * service.quantity * 100) / 100;
 }
 
+type SelectionState = Record<number, { selected: boolean; value: string }>;
 type CustomLineDraft = { key: number; label: string; value: string; price: string };
 
 let customLineKeySeq = 0;
@@ -281,9 +337,31 @@ function customLinePrice(raw: string): number | null {
   return Number.isFinite(numeric) ? Math.round(numeric * 100) / 100 : null;
 }
 
+function builderSnapshot(
+  clientId: string,
+  notes: string,
+  fields: SelectionState,
+  services: SelectionState,
+  customLines: CustomLineDraft[],
+) {
+  const normalize = (state: SelectionState) =>
+    Object.entries(state)
+      .filter(([, v]) => v.selected || v.value !== '')
+      .map(([id, v]) => [Number(id), v.selected, v.value] as const)
+      .sort((a, b) => a[0] - b[0]);
+  return JSON.stringify({
+    clientId,
+    notes,
+    fields: normalize(fields),
+    services: normalize(services),
+    custom: customLines.map(c => [c.label, c.value, c.price]),
+  });
+}
+
 type VersionConflict = { message: string; current: Estimate | null };
-function EstimateBuilder({ editEstimate, onFinished, onCancelEdit, onReloadEdit }: {
+function EstimateBuilder({ editEstimate, onDirtyChange, onFinished, onCancelEdit, onReloadEdit }: {
   editEstimate: Estimate | null;
+  onDirtyChange: (dirty: boolean) => void;
   onFinished: () => void;
   onCancelEdit: () => void;
   onReloadEdit: (estimate: Estimate) => void;
@@ -291,14 +369,24 @@ function EstimateBuilder({ editEstimate, onFinished, onCancelEdit, onReloadEdit 
   const [clientId, setClientId] = useState(editEstimate ? String(editEstimate.clientId) : '');
   const [notes, setNotes] = useState(editEstimate?.notes ?? '');
   const [savePropertyData, setSavePropertyData] = useState(true);
-  const [fieldValues, setFieldValues] = useState<Record<number, { selected: boolean; value: string }>>({});
-  const [serviceValues, setServiceValues] = useState<Record<number, { selected: boolean; value: string }>>({});
+  const [fieldValues, setFieldValues] = useState<SelectionState>({});
+  const [serviceValues, setServiceValues] = useState<SelectionState>({});
   // Saved lines whose field/service no longer exists. They are carried through
   // an edit untouched so an edit never silently drops part of the estimate.
   const [carriedLines, setCarriedLines] = useState<EstimateLine[]>([]);
   // One-off charges (haul-away, dump fee, discount) entered by hand.
   const [customLines, setCustomLines] = useState<CustomLineDraft[]>([]);
   const [conflict, setConflict] = useState<VersionConflict | null>(null);
+  // Snapshot of the last saved state. For a draft edit that is the hydrated
+  // draft; for a new estimate it stays empty, so picking a client already
+  // counts as unsaved work worth warning about before leaving the page.
+  const baselineRef = useRef(
+    builderSnapshot(editEstimate ? String(editEstimate.clientId) : '', editEstimate?.notes ?? '', {}, {}, []),
+  );
+  // Snapshot taken right after a client's saved property values are prefilled.
+  // Used only to decide whether switching clients would throw away typing —
+  // an untouched prefill can be replaced without nagging the admin.
+  const prefillRef = useRef(baselineRef.current);
   const { data: clients } = useListClients();
   const { data: fields } = useListEstimateFields();
   const { data: services } = useListServices();
@@ -326,8 +414,8 @@ function EstimateBuilder({ editEstimate, onFinished, onCancelEdit, onReloadEdit 
   // and service catalogs are available.
   useEffect(() => {
     if (!editEstimate || !fieldsLoaded || !servicesLoaded) return;
-    const nextFields: Record<number, { selected: boolean; value: string }> = {};
-    const nextServices: Record<number, { selected: boolean; value: string }> = {};
+    const nextFields: SelectionState = {};
+    const nextServices: SelectionState = {};
     const carried: EstimateLine[] = [];
     const custom: CustomLineDraft[] = [];
     for (const line of editEstimate.lines) {
@@ -351,6 +439,10 @@ function EstimateBuilder({ editEstimate, onFinished, onCancelEdit, onReloadEdit 
     setServiceValues(nextServices);
     setCarriedLines(carried);
     setCustomLines(custom);
+    baselineRef.current = builderSnapshot(
+      String(editEstimate.clientId), editEstimate.notes ?? '', nextFields, nextServices, custom,
+    );
+    prefillRef.current = baselineRef.current;
   }, [editEstimate, fieldsLoaded, servicesLoaded]);
 
   useEffect(() => {
@@ -358,19 +450,54 @@ function EstimateBuilder({ editEstimate, onFinished, onCancelEdit, onReloadEdit 
     if (!clientId) {
       setFieldValues({});
       setServiceValues({});
+      prefillRef.current = builderSnapshot('', '', {}, {}, []);
       return;
     }
     if (!clientsLoaded || !fieldsLoaded) return;
     const property = (clients.find(c => String(c.id) === clientId)?.propertyData ?? {}) as Record<string, string>;
-    const next: Record<number, { selected: boolean; value: string }> = {};
+    const next: SelectionState = {};
     for (const f of fields) {
       const saved = property[f.label];
       next[f.id] = { selected: saved != null, value: saved ?? '' };
     }
     setFieldValues(next);
     setServiceValues({});
+    // A brand new estimate is never "saved", so the baseline stays empty and the
+    // chosen client counts as unsaved work. The prefill snapshot is separate:
+    // replacing an untouched prefill costs the admin nothing.
+    prefillRef.current = builderSnapshot(clientId, notes, next, {}, customLines);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId, clientsLoaded, fieldsLoaded]);
+
+  const current = builderSnapshot(clientId, notes, fieldValues, serviceValues, customLines);
+  const dirty = current !== baselineRef.current;
+  // Values the admin typed on top of the current client's prefill.
+  const hasTypedValues = current !== prefillRef.current;
+  useEffect(() => {
+    onDirtyChange(dirty);
+  }, [dirty, onDirtyChange]);
+
+  // Changing the client rebuilds the whole form from the new client's saved
+  // property values, so confirm first if that would throw away typing.
+  const handleClientChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const nextClientId = event.target.value;
+    if (nextClientId === clientId) return;
+    // Picking the first client discards nothing, so it never prompts.
+    const replacingAClient = clientId !== '';
+    if (
+      replacingAClient &&
+      hasTypedValues &&
+      !confirm('Switching clients clears the values, custom lines, and notes entered for the current client. Discard them?')
+    ) {
+      event.target.value = clientId; // keep the select in sync with the unchanged state
+      return;
+    }
+    if (replacingAClient) {
+      setNotes('');
+      setCustomLines([]);
+    }
+    setClientId(nextClientId);
+  };
 
   const lines = useMemo(() => {
     const result: { fieldId?: number | null; serviceId?: number | null; label: string; value: string; calculatedPrice: number | null }[] = [];
@@ -542,7 +669,7 @@ function EstimateBuilder({ editEstimate, onFinished, onCancelEdit, onReloadEdit 
             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-70"
             value={clientId}
             disabled={!!editEstimate}
-            onChange={e => setClientId(e.target.value)}
+            onChange={handleClientChange}
           >
             <option value="">Select client...</option>
             {clients?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
