@@ -10,6 +10,7 @@ import {
 } from "./middlewares/clerkProxyMiddleware";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { weatherSchedulerRequestHook } from "./lib/weatherScheduler";
 
 const app: Express = express();
 
@@ -78,6 +79,10 @@ app.use(
     ),
   })),
 );
+
+// Lets the daily weather check catch up on traffic when the deployment has
+// been scaled to zero over the scheduled hour. Does not delay the request.
+app.use(weatherSchedulerRequestHook());
 
 app.use("/api", router);
 

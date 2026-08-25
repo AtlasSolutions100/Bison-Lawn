@@ -7,7 +7,9 @@ import {
   doublePrecision,
   timestamp,
   jsonb,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -318,10 +320,42 @@ export const suggestedActionsTable = pgTable("suggested_actions", {
   reviewedById: integer("reviewed_by_id").references(() => usersTable.id),
   reviewedAt: timestamp("reviewed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [
+  // A recovered weather run can overlap an evaluator that has not yet stopped.
+  // Only one pending suggestion may exist for any weather rule/job pair; after
+  // an admin acts on it, a subsequent check can prepare a new suggestion.
+  uniqueIndex("suggested_actions_pending_weather_job_rule_idx")
+    .on(t.jobId, t.ruleId)
+    .where(sql`${t.source} = 'weather' AND ${t.status} = 'pending' AND ${t.jobId} IS NOT NULL AND ${t.ruleId} IS NOT NULL`),
+]);
 export type SuggestedAction = typeof suggestedActionsTable.$inferSelect;
 
-// ---------- tickets ----------
+export const automationRunsTable = pgTable(
+  "automation_runs",
+  {
+    id: serial("id").primaryKey(),
+    kind: text("kind").notNull().default("weather"),
+    trigger: text("trigger").notNull(), // scheduled | manual
+    runDate: text("run_date"), // local calendar day a scheduled run claimed
+    datesChecked: text("dates_checked").array().notNull().default(sql`'{}'::text[]`),
+    status: text("status").notNull().default("running"), // running | succeeded | failed
+    jobsChecked: integer("jobs_checked").notNull().default(0),
+    suggestionsCreated: integer("suggestions_created").notNull().default(0),
+    summary: text("summary"),
+    error: text("error"),
+    triggeredBy: text("triggered_by"),
+    startedAt: timestamp("started_at").notNull().defaultNow(),
+    // Renewed by an active worker. A NULL value belongs to a legacy/manual
+    // row and is eligible for recovery immediately.
+    leaseExpiresAt: timestamp("lease_expires_at"),
+    finishedAt: timestamp("finished_at"),
+  },
+  (t) => [
+    uniqueIndex("automation_runs_scheduled_day_idx")
+      .on(t.kind, t.runDate)
+      .where(sql`${t.trigger} = 'scheduled'`),
+  ],
+);
 export const ticketsTable = pgTable("tickets", {
   id: serial("id").primaryKey(),
   clientId: integer("client_id").references(() => clientsTable.id, { onDelete: "cascade" }),
@@ -336,4 +370,5 @@ export type Ticket = typeof ticketsTable.$inferSelect;
 
 export type BillingSettings = typeof billingSettingsTable.$inferSelect;
 
+export type AutomationRun = typeof automationRunsTable.$inferSelect;
 export type UserIdentity = typeof userIdentitiesTable.$inferSelect;

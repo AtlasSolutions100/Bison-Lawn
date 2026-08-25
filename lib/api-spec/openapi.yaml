@@ -1253,6 +1253,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WeatherCheckResult"
+  /weather-check/status:
+    get:
+      operationId: getWeatherCheckStatus
+      tags: [automation]
+      summary: Daily weather-check schedule plus the last automatic and manual runs
+      responses:
+        "200":
+          description: Weather check status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeatherCheckStatus"
   /suggested-actions:
     get:
       operationId: listSuggestedActions
@@ -2106,6 +2118,40 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SuggestedAction"
+    WeatherCheckRun:
+      type: object
+      required: [id, trigger, status, datesChecked, jobsChecked, suggestionsCreated, startedAt]
+      properties:
+        id: { type: integer }
+        trigger: { type: string, enum: [scheduled, manual] }
+        status: { type: string, enum: [running, succeeded, failed] }
+        datesChecked:
+          type: array
+          items: { type: string }
+        jobsChecked: { type: integer }
+        suggestionsCreated: { type: integer }
+        summary: { type: ["string", "null"] }
+        error: { type: ["string", "null"] }
+        triggeredBy: { type: ["string", "null"] }
+        startedAt: { type: string }
+        finishedAt: { type: ["string", "null"] }
+    WeatherCheckStatus:
+      type: object
+      required: [enabled, runAtLocalTime, timeZone, daysAhead]
+      properties:
+        enabled: { type: boolean }
+        runAtLocalTime: { type: string }
+        timeZone: { type: string }
+        daysAhead: { type: integer }
+        nextRunAt: { type: ["string", "null"] }
+        lastAutomaticRun:
+          oneOf:
+            - $ref: "#/components/schemas/WeatherCheckRun"
+            - type: "null"
+        lastManualRun:
+          oneOf:
+            - $ref: "#/components/schemas/WeatherCheckRun"
+            - type: "null"
     SuggestedAction:
       type: object
       required: [id, source, clientId, actionType, reason, status, messageDeliveryState, createdAt]

@@ -605,6 +605,17 @@ export interface EstimateConflict {
   current?: Estimate;
 }
 
+export interface WeatherCheckStatus {
+  enabled: boolean;
+  runAtLocalTime: string;
+  timeZone: string;
+  daysAhead: number;
+  /** @nullable */
+  nextRunAt?: string | null;
+  lastAutomaticRun?: WeatherCheckRun | null;
+  lastManualRun?: WeatherCheckRun | null;
+}
+
 export interface EstimateSendInput {
   toEmail: string;
   message?: string;
@@ -1189,6 +1200,11 @@ export const SuggestedActionMessageDeliveryState = {
   failed: 'failed',
 } as const;
 
+export const WeatherCheckRunStatus = {
+  running: 'running',
+  succeeded: 'succeeded',
+  failed: 'failed',
+} as const;
 export interface SuggestedAction {
   id: number;
   source: SuggestedActionSource;
@@ -1239,6 +1255,7 @@ export interface WeatherCheckResult {
   suggestions: SuggestedAction[];
 }
 
+export type WeatherCheckRunTrigger = typeof WeatherCheckRunTrigger[keyof typeof WeatherCheckRunTrigger];
 export interface SuggestedActionUpdate {
   /** @nullable */
   newDate?: string | null;
@@ -1376,3 +1393,28 @@ export type GetContractorEarningsParams = {
 date: string;
 };
 
+export interface WeatherCheckRun {
+  id: number;
+  trigger: WeatherCheckRunTrigger;
+  status: WeatherCheckRunStatus;
+  datesChecked: string[];
+  jobsChecked: number;
+  suggestionsCreated: number;
+  /** @nullable */
+  summary?: string | null;
+  /** @nullable */
+  error?: string | null;
+  /** @nullable */
+  triggeredBy?: string | null;
+  startedAt: string;
+  /** @nullable */
+  finishedAt?: string | null;
+}
+
+
+export type WeatherCheckRunStatus = typeof WeatherCheckRunStatus[keyof typeof WeatherCheckRunStatus];
+
+export const WeatherCheckRunTrigger = {
+  scheduled: 'scheduled',
+  manual: 'manual',
+} as const;

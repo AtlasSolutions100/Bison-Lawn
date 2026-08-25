@@ -10,8 +10,11 @@ import {
   useUpdateWeatherRule,
   useDeleteWeatherRule,
   useRunWeatherCheck,
+  useGetWeatherCheckStatus,
+  getGetWeatherCheckStatusQueryKey,
   SuggestedAction,
   WeatherRule,
+  WeatherCheckRun,
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
@@ -20,7 +23,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import {
   CloudRain, Wind, Thermometer, Snowflake, Plus, Trash2, CheckCircle2, XCircle,
-  Pencil, CalendarClock, SkipForward, Mail, MailCheck, MailWarning, PlayCircle, Send,
+  Pencil, CalendarClock, SkipForward, Mail, MailCheck, MailWarning, PlayCircle, Send, Clock,
 } from 'lucide-react';
 
 const CONDITION_META: Record<string, { label: string; unit: string; icon: any }> = {
@@ -78,6 +81,7 @@ function WeatherCheckPanel() {
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [result, setResult] = useState<string | null>(null);
   const runCheck = useRunWeatherCheck();
+  const { data: status } = useGetWeatherCheckStatus();
   const queryClient = useQueryClient();
 
   const handleRun = () => {
@@ -85,6 +89,7 @@ function WeatherCheckPanel() {
     runCheck.mutate({ data: { date } }, {
       onSuccess: (r) => {
         queryClient.invalidateQueries({ queryKey: ['/api/suggested-actions'] });
+        queryClient.invalidateQueries({ queryKey: getGetWeatherCheckStatusQueryKey() });
         setResult(
           `Checked ${r.jobsChecked} job(s); prepared ${r.suggestionsCreated} suggestion(s).` +
           (r.forecastSummary ? ` ${r.forecastSummary}` : ''),
@@ -107,10 +112,42 @@ function WeatherCheckPanel() {
         </Button>
       </div>
       {result && <p className="text-sm bg-muted/50 border rounded-md p-3">{result}</p>}
+
+      {status && (
+        <div className="border-t pt-3 space-y-1.5">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <Clock className="w-4 h-4 text-primary" />
+            Automatic daily check
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {status.enabled
+              ? `Runs every day at ${status.runAtLocalTime} (${status.timeZone.replace('_', ' ')}) for the next ${status.daysAhead} day(s) of scheduled jobs. Suggestions still wait for your approval.`
+              : 'The daily check is not running on this server. Use the button above to check manually.'}
+            {status.enabled && status.nextRunAt && ` Next run ${format(new Date(status.nextRunAt), "EEE d MMM 'at' h:mm a")}.`}
+          </p>
+          <LastRunLine label="Last automatic run" run={status.lastAutomaticRun} emptyText="Hasn't run yet." />
+          <LastRunLine label="Last manual run" run={status.lastManualRun} emptyText="None yet." />
+        </div>
+      )}
     </div>
   );
 }
 
+function LastRunLine({ label, run, emptyText }: { label: string; run?: WeatherCheckRun | null; emptyText: string }) {
+  if (!run) return <p className="text-xs text-muted-foreground">{label}: {emptyText}</p>;
+  const when = format(new Date(run.startedAt), "d MMM yyyy 'at' h:mm a");
+  return (
+    <p className="text-xs text-muted-foreground">
+      <span className="font-semibold text-foreground">{label}:</span> {when}
+      {run.triggeredBy ? ` by ${run.triggeredBy}` : ''} — {run.status === 'failed'
+        ? `failed (${run.error ?? 'unknown error'})`
+        : run.status === 'running'
+          ? 'in progress'
+          : `${run.jobsChecked} job(s) checked, ${run.suggestionsCreated} suggestion(s) prepared`}
+      {run.datesChecked.length ? ` for ${run.datesChecked.join(', ')}` : ''}
+    </p>
+  );
+}
 function SuggestionCard({ suggestion: s }: { suggestion: SuggestedAction }) {
   const approve = useApproveSuggestedAction();
   const reject = useRejectSuggestedAction();

@@ -11,9 +11,12 @@ import {
   fieldNotesTable,
   weatherRulesTable,
   suggestedActionsTable,
+  automationRunsTable,
   auditEventsTable,
 } from "@workspace/db";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, gte, inArray } from "drizzle-orm";
+
+const suiteStartedAt = new Date();
 
 // NODE_ENV=test plus a random per-process capability token enables the
 // x-test-user-id auth bypass in requireAuth.
@@ -23,6 +26,9 @@ process.env.TEST_AUTH_TOKEN = TEST_AUTH_TOKEN;
 
 const { default: app } = await import("../src/app.ts");
 const { setCustomerMessageGmailProxyForTests } = await import("../src/routes/automation.ts");
+const { addDaysISO, runWeatherCheckForDate, setForecastFetcherForTests } = await import("../src/lib/weatherCheck.ts");
+const { WEATHER_SCHEDULE, datesForRun, localDateOf, nextRunAt, releaseExpiredClaims, runDailyWeatherCheck } =
+  await import("../src/lib/weatherScheduler.ts");
 
 let server: Server;
 let baseUrl: string;
@@ -116,6 +122,11 @@ after(async () => {
     .delete(ticketsTable)
     .where(eq(ticketsTable.title, "Field note: Sprinkler head cracked near the driveway"));
   await db.delete(weatherRulesTable).where(eq(weatherRulesTable.name, "__auto_test_rule__"));
+  // manual run rows recorded by the weather-check endpoint during these tests
+  await db
+    .delete(automationRunsTable)
+    .where(and(eq(automationRunsTable.trigger, "manual"), gte(automationRunsTable.startedAt, suiteStartedAt)));
+  await db.delete(auditEventsTable).where(eq(auditEventsTable.action, "weather_check_run"));
   if (ids.users.length) await db.delete(usersTable).where(inArray(usersTable.id, ids.users));
   server.close();
   await pool.end();
@@ -176,6 +187,7 @@ test("contractors cannot access the automation review queue", async () => {
     ["/suggested-actions", {}],
     ["/weather-rules", {}],
     ["/weather-check", { method: "POST", body: JSON.stringify({ date: TOMORROW }) }],
+    ["/weather-check/status", {}],
   ] as const) {
     const res = await api(path, contractorA.id, init as RequestInit);
     assert.equal(res.status, 403, `${path} should be admin-only`);
@@ -946,6 +958,234 @@ test("weather rule create/update/delete are audited", async () => {
   assert.ok(audits.some((e) => e.action === "weather_rule_deleted" && /__auto_test_rule__/.test(e.description)));
   // clean rule-related audit rows (they carry no clientId)
   await db.delete(auditEventsTable).where(inArray(auditEventsTable.action, ["weather_rule_created", "weather_rule_updated", "weather_rule_deleted"]));
+});
+
+test("the daily schedule is exposed and a manual check is recorded as a run", async () => {
+  const before = await api("/weather-check/status", admin.id);
+  assert.equal(before.status, 200);
+  assert.equal(before.body.runAtLocalTime, WEATHER_SCHEDULE.runAtLocalTime);
+  assert.equal(before.body.timeZone, WEATHER_SCHEDULE.timeZone);
+  assert.equal(before.body.daysAhead, WEATHER_SCHEDULE.daysAhead);
+
+  // A manual run with no matching jobs still records history for the panel.
+  const noJobsDate = addDaysISO(TOMORROW, 400);
+  const run = await api("/weather-check", admin.id, {
+    method: "POST",
+    body: JSON.stringify({ date: noJobsDate }),
+  });
+  assert.equal(run.status, 200);
+
+  const after = await api("/weather-check/status", admin.id);
+  assert.equal(after.status, 200);
+  assert.equal(after.body.lastManualRun.status, "succeeded");
+  assert.equal(after.body.lastManualRun.triggeredBy, "Auto Admin");
+  assert.deepEqual(after.body.lastManualRun.datesChecked, [noJobsDate]);
+});
+
+test("the unattended run prepares suggestions, records the run, and audits it", async () => {
+  // Exactly what a Scheduled Deployment (or the in-process timer) invokes.
+  const runDate = localDateOf(new Date());
+  const [rule] = await db
+    .insert(weatherRulesTable)
+    .values({
+      name: "__auto_test_rule__",
+      conditionType: "rain",
+      threshold: 5,
+      actionType: "skip",
+      messageTemplate: "Rain on {date} — we will skip {clientName}.",
+      enabled: true,
+    })
+    .returning();
+  const [rainClient] = await db
+    .insert(clientsTable)
+    .values({ name: "Scheduled Run Client", lat: 41.88, lng: -87.63 })
+    .returning();
+  const job = await makeJob({ clientId: rainClient.id, scheduledDate: runDate });
+
+  // The dev server's own scheduler may already hold today's claim; release it
+  // so this test exercises a fresh unattended run.
+  await db
+    .delete(automationRunsTable)
+    .where(and(eq(automationRunsTable.trigger, "scheduled"), eq(automationRunsTable.runDate, runDate)));
+
+  setForecastFetcherForTests(async () => ({ precipitationMm: 20, windKph: 4, maxTempC: 22, minTempC: 12 }));
+  try {
+    await runDailyWeatherCheck({ force: true });
+  } finally {
+    setForecastFetcherForTests(null);
+  }
+
+  const [run] = await db
+    .select()
+    .from(automationRunsTable)
+    .where(and(eq(automationRunsTable.trigger, "scheduled"), eq(automationRunsTable.runDate, runDate)));
+  assert.ok(run, "the unattended run must be recorded so admins can see it happened");
+  assert.equal(run.status, "succeeded");
+  assert.deepEqual(run.datesChecked, datesForRun(runDate));
+  assert.ok(run.suggestionsCreated >= 1, "rain on a scheduled job should produce a suggestion");
+
+  const [suggestion] = await db
+    .select()
+    .from(suggestedActionsTable)
+    .where(eq(suggestedActionsTable.jobId, job.id));
+  assert.ok(suggestion, "a suggestion should be waiting in the review queue");
+  assert.equal(suggestion.status, "pending", "unattended runs never apply a change themselves");
+
+  const audits = await db.select().from(auditEventsTable);
+  assert.ok(audits.some((e) => e.action === "weather_check_run"), "the run should leave an audit entry");
+
+  // A second invocation the same local day is a no-op: the day is claimed.
+  await runDailyWeatherCheck({ force: true });
+  const runs = await db
+    .select()
+    .from(automationRunsTable)
+    .where(and(eq(automationRunsTable.trigger, "scheduled"), eq(automationRunsTable.runDate, runDate)));
+  assert.equal(runs.length, 1, "the day's run must not happen twice");
+
+  await db.delete(suggestedActionsTable).where(eq(suggestedActionsTable.jobId, job.id));
+  await db.delete(automationRunsTable).where(eq(automationRunsTable.id, run.id));
+  await db.delete(jobsTable).where(eq(jobsTable.id, job.id));
+  await db.delete(clientsTable).where(eq(clientsTable.id, rainClient.id));
+  await db.delete(weatherRulesTable).where(eq(weatherRulesTable.id, rule.id));
+});
+
+test("overlapping weather evaluators can prepare only one pending suggestion per job and rule", async () => {
+  const runDate = localDateOf(new Date(Date.now() + 700 * 24 * 3600 * 1000));
+  const [rule] = await db
+    .insert(weatherRulesTable)
+    .values({
+      name: "__weather_overlap_rule__",
+      conditionType: "rain",
+      threshold: 5,
+      actionType: "skip",
+      enabled: true,
+    })
+    .returning();
+  const [rainClient] = await db
+    .insert(clientsTable)
+    .values({ name: "Concurrent Weather Client", lat: 41.88, lng: -87.63 })
+    .returning();
+  const job = await makeJob({ clientId: rainClient.id, scheduledDate: runDate });
+
+  // Both evaluators read the queue before either gets to insert, matching a
+  // recovered lease overlapping a slow original worker.
+  let releaseForecast: () => void;
+  const forecastReady = new Promise<void>((resolve) => {
+    releaseForecast = resolve;
+  });
+  setForecastFetcherForTests(async () => {
+    await forecastReady;
+    return { precipitationMm: 20, windKph: 4, maxTempC: 22, minTempC: 12 };
+  });
+
+  try {
+    const first = runWeatherCheckForDate(runDate);
+    const second = runWeatherCheckForDate(runDate);
+    // Give both calls a turn to reach the blocked forecast fetch.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    releaseForecast!();
+    const outcomes = await Promise.all([first, second]);
+    assert.equal(
+      outcomes[0].suggestionsCreated + outcomes[1].suggestionsCreated,
+      1,
+      "only the insert that wins the database constraint counts as created",
+    );
+  } finally {
+    setForecastFetcherForTests(null);
+  }
+
+  const suggestions = await db
+    .select()
+    .from(suggestedActionsTable)
+    .where(
+      and(
+        eq(suggestedActionsTable.jobId, job.id),
+        eq(suggestedActionsTable.ruleId, rule.id),
+        eq(suggestedActionsTable.status, "pending"),
+      ),
+    );
+  assert.equal(suggestions.length, 1, "an overlapping recovery must not duplicate the review item");
+
+  await db.delete(suggestedActionsTable).where(eq(suggestedActionsTable.jobId, job.id));
+  await db.delete(jobsTable).where(eq(jobsTable.id, job.id));
+  await db.delete(clientsTable).where(eq(clientsTable.id, rainClient.id));
+  await db.delete(weatherRulesTable).where(eq(weatherRulesTable.id, rule.id));
+});
+
+test("a scheduled run claims its local day exactly once", async () => {
+  const runDate = localDateOf(new Date(Date.now() + 500 * 24 * 3600 * 1000));
+  const claim = () =>
+    db
+      .insert(automationRunsTable)
+      .values({ kind: "weather", trigger: "scheduled", runDate, datesChecked: datesForRun(runDate) })
+      .onConflictDoNothing()
+      .returning();
+
+  const [first] = await claim();
+  assert.ok(first, "first scheduled claim for the day should win");
+  const [second] = await claim();
+  assert.equal(second, undefined, "a second run for the same local day must not start");
+
+  // Releasing the day (as a failed run does) frees it for a retry.
+  await db.update(automationRunsTable).set({ runDate: null }).where(eq(automationRunsTable.id, first.id));
+  const [retry] = await claim();
+  assert.ok(retry, "a failed run should free the day for a retry");
+
+  await db.delete(automationRunsTable).where(inArray(automationRunsTable.id, [first.id, retry.id]));
+});
+
+test("a run abandoned by a crashed instance releases its day for a retry", async () => {
+  const runDate = localDateOf(new Date(Date.now() + 600 * 24 * 3600 * 1000));
+  // A claim left behind mid-run by an instance that died 30 minutes ago.
+  const [abandoned] = await db
+    .insert(automationRunsTable)
+    .values({
+      kind: "weather",
+      trigger: "scheduled",
+      runDate,
+      datesChecked: datesForRun(runDate),
+      status: "running",
+      startedAt: new Date(Date.now() - 30 * 60 * 1000),
+    })
+    .returning();
+
+  const [blocked] = await db
+    .insert(automationRunsTable)
+    .values({ kind: "weather", trigger: "scheduled", runDate })
+    .onConflictDoNothing()
+    .returning();
+  assert.equal(blocked, undefined, "the day is claimed while the run looks alive");
+
+  await releaseExpiredClaims();
+
+  const [recovered] = await db
+    .select()
+    .from(automationRunsTable)
+    .where(eq(automationRunsTable.id, abandoned.id));
+  assert.equal(recovered.status, "failed");
+  assert.equal(recovered.runDate, null, "the day must be freed");
+  assert.ok(recovered.finishedAt, "the abandoned run is closed out");
+
+  const [retry] = await db
+    .insert(automationRunsTable)
+    .values({ kind: "weather", trigger: "scheduled", runDate })
+    .onConflictDoNothing()
+    .returning();
+  assert.ok(retry, "a retry can claim the day once the lease expires");
+
+  await db.delete(automationRunsTable).where(inArray(automationRunsTable.id, [abandoned.id, retry.id]));
+});
+
+test("the next scheduled run is in the future at the configured local time", () => {
+  const next = nextRunAt(new Date());
+  assert.ok(next.getTime() > Date.now(), "next run must be in the future");
+  const local = new Intl.DateTimeFormat("en-GB", {
+    timeZone: WEATHER_SCHEDULE.timeZone,
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(next);
+  assert.equal(local, WEATHER_SCHEDULE.runAtLocalTime);
 });
 
 test("field notes require a non-empty transcript", async () => {

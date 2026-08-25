@@ -106,9 +106,6 @@ export const ListClientsResponseItem = zod.object({
 export const ListClientsResponse = zod.array(ListClientsResponseItem)
 
 
-
-
-
 export const CreateClientBody = zod.object({
   "name": zod.string().min(1),
   "status": zod.enum(['lead', 'client', 'former_client']).optional(),
@@ -170,8 +167,6 @@ export const UpdateClientParams = zod.object({
 })
 
 
-
-
 export const UpdateClientBody = zod.object({
   "name": zod.string().min(1).optional(),
   "status": zod.enum(['lead', 'client', 'former_client']).optional(),
@@ -229,8 +224,6 @@ export const ListClientNotesResponse = zod.array(ListClientNotesResponseItem)
 export const CreateClientNoteParams = zod.object({
   "id": zod.coerce.number().int()
 })
-
-
 
 
 export const CreateClientNoteBody = zod.object({
@@ -405,9 +398,6 @@ export const ListServicesResponseItem = zod.object({
 export const ListServicesResponse = zod.array(ListServicesResponseItem)
 
 
-
-
-
 export const CreateServiceBody = zod.object({
   "name": zod.string().min(1),
   "description": zod.string().optional(),
@@ -485,8 +475,6 @@ export const GetServiceResponse = zod.object({
 export const UpdateServiceParams = zod.object({
   "id": zod.coerce.number().int()
 })
-
-
 
 
 export const UpdateServiceBody = zod.object({
@@ -591,9 +579,6 @@ export const ListPackagesResponseItem = zod.object({
 export const ListPackagesResponse = zod.array(ListPackagesResponseItem)
 
 
-
-
-
 export const CreatePackageBody = zod.object({
   "name": zod.string().min(1),
   "description": zod.string().optional(),
@@ -633,8 +618,6 @@ export const CreatePackageResponse = zod.object({
 export const UpdatePackageParams = zod.object({
   "id": zod.coerce.number().int()
 })
-
-
 
 
 export const UpdatePackageBody = zod.object({
@@ -691,9 +674,6 @@ export const ListEstimateFieldsResponseItem = zod.object({
 export const ListEstimateFieldsResponse = zod.array(ListEstimateFieldsResponseItem)
 
 
-
-
-
 export const CreateEstimateFieldBody = zod.object({
   "label": zod.string().min(1),
   "fieldType": zod.enum(['calculable', 'text', 'number', 'boolean']),
@@ -715,8 +695,6 @@ export const CreateEstimateFieldResponse = zod.object({
 export const UpdateEstimateFieldParams = zod.object({
   "id": zod.coerce.number().int()
 })
-
-
 
 
 export const UpdateEstimateFieldBody = zod.object({
@@ -755,9 +733,6 @@ export const ListChargePresetsResponseItem = zod.object({
 export const ListChargePresetsResponse = zod.array(ListChargePresetsResponseItem)
 
 
-
-
-
 export const CreateChargePresetBody = zod.object({
   "label": zod.string().min(1),
   "defaultPrice": zod.number()
@@ -773,8 +748,6 @@ export const CreateChargePresetResponse = zod.object({
 export const UpdateChargePresetParams = zod.object({
   "id": zod.coerce.number().int()
 })
-
-
 
 
 export const UpdateChargePresetBody = zod.object({
@@ -1420,8 +1393,6 @@ export const AddJobProductParams = zod.object({
 })
 
 
-
-
 export const AddJobProductBody = zod.object({
   "name": zod.string().min(1),
   "price": zod.number(),
@@ -1517,7 +1488,6 @@ export const AddExtraWorkParams = zod.object({
 export const addExtraWorkBodyQuantityMin = 0.01;
 
 
-
 export const AddExtraWorkBody = zod.object({
   "serviceId": zod.int(),
   "quantity": zod.number().min(addExtraWorkBodyQuantityMin).optional()
@@ -1541,7 +1511,6 @@ export const RecordOnSitePaymentParams = zod.object({
 })
 
 export const recordOnSitePaymentBodyAmountMin = 0.01;
-
 
 
 export const RecordOnSitePaymentBody = zod.object({
@@ -1581,7 +1550,6 @@ export const GetBillingSettingsResponse = zod.object({
  */
 export const updateBillingSettingsBodyCardFeePercentMin = 0;
 export const updateBillingSettingsBodyCardFeePercentMax = 25;
-
 
 
 export const UpdateBillingSettingsBody = zod.object({
@@ -1779,9 +1747,6 @@ export const ListTicketsResponseItem = zod.object({
 export const ListTicketsResponse = zod.array(ListTicketsResponseItem)
 
 
-
-
-
 export const CreateTicketBody = zod.object({
   "clientId": zod.int().nullish(),
   "title": zod.string().min(1),
@@ -1807,8 +1772,6 @@ export const CreateTicketResponse = zod.object({
 export const UpdateTicketParams = zod.object({
   "id": zod.coerce.number().int()
 })
-
-
 
 
 export const UpdateTicketBody = zod.object({
@@ -1846,8 +1809,6 @@ export const DeleteTicketResponse = zod.void()
 export const CreateFieldNoteParams = zod.object({
   "id": zod.coerce.number().int()
 })
-
-
 
 
 export const CreateFieldNoteBody = zod.object({
@@ -1906,10 +1867,6 @@ export const ListWeatherRulesResponseItem = zod.object({
 export const ListWeatherRulesResponse = zod.array(ListWeatherRulesResponseItem)
 
 
-
-
-
-
 export const CreateWeatherRuleBody = zod.object({
   "name": zod.string().min(1),
   "conditionType": zod.enum(['rain', 'wind', 'heat', 'cold']),
@@ -1936,9 +1893,6 @@ export const CreateWeatherRuleResponse = zod.object({
 export const UpdateWeatherRuleParams = zod.object({
   "id": zod.coerce.number().int()
 })
-
-
-
 
 
 export const UpdateWeatherRuleBody = zod.object({
@@ -2010,7 +1964,42 @@ export const RunWeatherCheckResponse = zod.object({
 }))
 })
 
-
+/**
+ * @summary Daily weather-check schedule plus the last automatic and manual runs
+ */
+export const GetWeatherCheckStatusResponse = zod.object({
+  "enabled": zod.boolean(),
+  "runAtLocalTime": zod.string(),
+  "timeZone": zod.string(),
+  "daysAhead": zod.int(),
+  "nextRunAt": zod.string().nullish(),
+  "lastAutomaticRun": zod.union([zod.object({
+  "id": zod.int(),
+  "trigger": zod.enum(['scheduled', 'manual']),
+  "status": zod.enum(['running', 'succeeded', 'failed']),
+  "datesChecked": zod.array(zod.string()),
+  "jobsChecked": zod.int(),
+  "suggestionsCreated": zod.int(),
+  "summary": zod.string().nullish(),
+  "error": zod.string().nullish(),
+  "triggeredBy": zod.string().nullish(),
+  "startedAt": zod.string(),
+  "finishedAt": zod.string().nullish()
+}),zod.null()]).optional(),
+  "lastManualRun": zod.union([zod.object({
+  "id": zod.int(),
+  "trigger": zod.enum(['scheduled', 'manual']),
+  "status": zod.enum(['running', 'succeeded', 'failed']),
+  "datesChecked": zod.array(zod.string()),
+  "jobsChecked": zod.int(),
+  "suggestionsCreated": zod.int(),
+  "summary": zod.string().nullish(),
+  "error": zod.string().nullish(),
+  "triggeredBy": zod.string().nullish(),
+  "startedAt": zod.string(),
+  "finishedAt": zod.string().nullish()
+}),zod.null()]).optional()
+})
 export const ListSuggestedActionsQueryParams = zod.object({
   "status": zod.enum(['pending', 'approved', 'rejected']).optional()
 })
@@ -2230,5 +2219,4 @@ export const GetContractorEarningsResponseItem = zod.object({
   "completedCount": zod.int().optional()
 })
 export const GetContractorEarningsResponse = zod.array(GetContractorEarningsResponseItem)
-
 

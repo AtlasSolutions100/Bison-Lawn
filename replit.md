@@ -38,6 +38,7 @@ Custom CRM + job management for Bison Lawn Care LLC — leads/clients, equation-
 - Jobs table doubles as waiting list (`dispatched=false`, window dates) and dispatch board (`dispatched=true`, scheduledDate).
 - Completing a job auto-creates an invoice (job amount + products); balances always recomputed from invoices − payments.
 - Contractor route: server-side nearest-neighbor + 2-opt over client lat/lng from the contractor's home base; Google Maps links for navigation (no API key).
+- Daily weather check (`artifacts/api-server/src/lib/weatherScheduler.ts`): runs once per local day (05:00 America/Chicago, today + tomorrow) and only ever prepares pending suggestions. Three triggers — the in-process timer, incoming traffic, and opening the review queue (awaited, so the queue is never stale) — all claim the day through a unique index on `automation_runs`, so the run happens exactly once however it is started. Optional belt-and-braces: create a Scheduled Deployment in the Publish pane running `pnpm --filter @workspace/api-server run weather-check` at 05:00 America/Chicago; the app does not depend on it.
 
 ## Product
 

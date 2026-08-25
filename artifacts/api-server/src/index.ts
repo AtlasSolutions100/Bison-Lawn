@@ -2,6 +2,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { startAbandonedMessageClaimSweeper } from "./lib/abandonedMessageClaims";
 import { reconcileUserAccounts } from "./lib/userAccounts";
+import { startWeatherScheduler } from "./lib/weatherScheduler";
 
 const rawPort = process.env["PORT"];
 
@@ -29,6 +30,10 @@ app.listen(port, (err) => {
   // catching anything the previous process left stranded) so the office does
   // not have to open the review queue for them to surface.
   startAbandonedMessageClaimSweeper();
+
+  // Daily weather check: prepares suggestions for review without anyone
+  // having to click "Check Weather".
+  startWeatherScheduler();
 
   // Registers sign-in identities for existing accounts and merges any
   // duplicate accounts (same person, two Clerk identities) already stored.
