@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request } from "express";
 import {
   db,
   weatherRulesTable,
@@ -16,6 +16,11 @@ import {
 } from "@workspace/api-zod";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
 import { logAudit } from "../lib/helpers";
+import {
+  createCustomerMessageEmailHtml,
+  customerMessageSubject,
+  sendCustomerMessageViaGmail,
+} from "../lib/customerMessageDelivery";
 
 const router: IRouter = Router();
 
@@ -282,15 +287,17 @@ async function hydrateSuggestions(rows: SuggestionRow[]) {
     ruleIds.length ? db.select().from(weatherRulesTable).where(inArray(weatherRulesTable.id, ruleIds)) : Promise.resolve([]),
     userIds.length ? db.select().from(usersTable).where(inArray(usersTable.id, userIds)) : Promise.resolve([]),
   ]);
-  const cMap = new Map(clients.map((c) => [c.id, c.name]));
+  const cMap = new Map(clients.map((c) => [c.id, c]));
   const rMap = new Map(rules.map((r) => [r.id, r.name]));
   const uMap = new Map(users.map((u) => [u.id, u.name]));
   return rows.map((r) => ({
     ...r,
-    clientName: cMap.get(r.clientId) ?? null,
+    clientName: cMap.get(r.clientId)?.name ?? null,
+    clientEmail: cMap.get(r.clientId)?.email ?? null,
     ruleName: r.ruleId ? (rMap.get(r.ruleId) ?? null) : null,
     reviewedByName: r.reviewedById ? (uMap.get(r.reviewedById) ?? null) : null,
     reviewedAt: r.reviewedAt ? r.reviewedAt.toISOString() : null,
+    messageSentAt: r.messageSentAt ? r.messageSentAt.toISOString() : null,
   }));
 }
 
@@ -345,6 +352,12 @@ router.patch("/suggested-actions/:id", async (req, res) => {
  * Approving applies the schedule change atomically: reschedule moves the job
  * to the new date; skip returns it to the waiting list. The approved customer
  * message and the change are both written to the audit trail.
+ *
+ * When the suggestion carries a customer message and the client has an email,
+ * the message is emailed after the schedule change commits. The transaction
+ * claims delivery ("sending") so the pending → approved transition is the only
+ * gate that can hand the message to Gmail, and a failed email never rolls back
+ * an already-applied schedule change — it is recorded as "failed" instead.
  */
 router.post("/suggested-actions/:id/approve", async (req, res) => {
   const id = Number(req.params.id);
@@ -377,12 +390,28 @@ router.post("/suggested-actions/:id/approve", async (req, res) => {
       }
     }
 
+    // Claim delivery in the same transaction that approves, so the message can
+    // only be handed to Gmail by the single request that wins the transition.
+    const [client] = await tx.select().from(clientsTable).where(eq(clientsTable.id, locked.clientId));
+    const toEmail = client?.email?.trim() || null;
+    const deliveryState = !locked.customerMessage?.trim()
+      ? "not_applicable"
+      : !toEmail
+        ? "no_email"
+        : "sending";
+
     const [suggestion] = await tx
       .update(suggestedActionsTable)
-      .set({ status: "approved", reviewedById: req.appUser!.id, reviewedAt: new Date() })
+      .set({
+        status: "approved",
+        reviewedById: req.appUser!.id,
+        reviewedAt: new Date(),
+        messageDeliveryState: deliveryState,
+        messageDeliveryError: null,
+      })
       .where(eq(suggestedActionsTable.id, id))
       .returning();
-    return { suggestion };
+    return { suggestion, toEmail, clientName: client?.name ?? null };
   });
 
   if ("error" in applied && applied.error !== undefined) {
@@ -396,7 +425,13 @@ router.post("/suggested-actions/:id/approve", async (req, res) => {
     return res.status(applied.error).json({ error: messages[applied.error] });
   }
 
-  const s = applied.suggestion!;
+  let s = applied.suggestion!;
+  const deliveryNote =
+    s.messageDeliveryState === "sending"
+      ? `. Emailing the approved customer message to ${applied.toEmail}`
+      : s.messageDeliveryState === "no_email"
+        ? ". Customer message could not be emailed: this client has no email address on file"
+        : "";
   await logAudit({
     clientId: s.clientId,
     actorName: req.appUser?.name,
@@ -404,11 +439,79 @@ router.post("/suggested-actions/:id/approve", async (req, res) => {
     description:
       `Approved ${s.actionType}${s.jobId ? ` of job #${s.jobId}` : ""}` +
       `${s.actionType === "reschedule" && s.newDate ? ` to ${s.newDate}` : ""} (${s.reason})` +
-      `${s.customerMessage ? `. Customer message approved for delivery (not sent automatically): "${s.customerMessage}"` : ""}`,
+      `${s.customerMessage ? `. Customer message: "${s.customerMessage}"` : ""}${deliveryNote}`,
   });
+
+  if (s.messageDeliveryState === "sending" && applied.toEmail) {
+    s = await deliverCustomerMessage(s, applied.toEmail, applied.clientName ?? null, req);
+  }
 
   return res.json((await hydrateSuggestions([s]))[0]);
 });
+
+/**
+ * Send the approved message and persist the outcome. The schedule change is
+ * already committed, so a delivery failure is recorded and surfaced rather
+ * than thrown — the office needs to see it and contact the customer.
+ */
+async function deliverCustomerMessage(
+  suggestion: SuggestionRow,
+  toEmail: string,
+  clientName: string | null,
+  req: Request,
+): Promise<SuggestionRow> {
+  try {
+    const sent = await sendCustomerMessageViaGmail({
+      toEmail,
+      subject: customerMessageSubject(suggestion.actionType, suggestion.targetDate),
+      html: createCustomerMessageEmailHtml(suggestion.customerMessage!, clientName),
+    });
+    const [updated] = await db
+      .update(suggestedActionsTable)
+      .set({
+        messageDeliveryState: "sent",
+        messageSentToEmail: toEmail,
+        messageSentAt: new Date(),
+        messageDeliveryError: null,
+        messageGmailId: sent.id ?? null,
+      })
+      .where(eq(suggestedActionsTable.id, suggestion.id))
+      .returning();
+    try {
+      await logAudit({
+        clientId: suggestion.clientId,
+        actorName: req.appUser?.name,
+        action: "suggestion_message_sent",
+        description: `Emailed the approved ${suggestion.actionType} message for suggestion #${suggestion.id} to ${toEmail}`,
+      });
+    } catch (auditError) {
+      req.log.error({ err: auditError, suggestionId: suggestion.id }, "message sent but audit write failed");
+    }
+    return updated ?? suggestion;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown delivery error";
+    const [failed] = await db
+      .update(suggestedActionsTable)
+      .set({
+        messageDeliveryState: "failed",
+        messageSentToEmail: toEmail,
+        messageDeliveryError: message.slice(0, 500),
+      })
+      .where(eq(suggestedActionsTable.id, suggestion.id))
+      .returning();
+    try {
+      await logAudit({
+        clientId: suggestion.clientId,
+        actorName: req.appUser?.name,
+        action: "suggestion_message_failed",
+        description: `Could not email the approved ${suggestion.actionType} message for suggestion #${suggestion.id} to ${toEmail}: ${message.slice(0, 180)}`,
+      });
+    } catch (auditError) {
+      req.log.error({ err: auditError, suggestionId: suggestion.id }, "message delivery failure audit write failed");
+    }
+    return failed ?? suggestion;
+  }
+}
 
 router.post("/suggested-actions/:id/reject", async (req, res) => {
   const id = Number(req.params.id);
@@ -419,7 +522,12 @@ router.post("/suggested-actions/:id/reject", async (req, res) => {
   }
   const [suggestion] = await db
     .update(suggestedActionsTable)
-    .set({ status: "rejected", reviewedById: req.appUser!.id, reviewedAt: new Date() })
+    .set({
+      status: "rejected",
+      reviewedById: req.appUser!.id,
+      reviewedAt: new Date(),
+      messageDeliveryState: "not_applicable",
+    })
     .where(eq(suggestedActionsTable.id, id))
     .returning();
   await logAudit({

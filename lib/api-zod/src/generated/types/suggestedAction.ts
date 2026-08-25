@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { SuggestedActionActionType } from './suggestedActionActionType';
+import type { SuggestedActionMessageDeliveryState } from './suggestedActionMessageDeliveryState';
 import type { SuggestedActionSource } from './suggestedActionSource';
 import type { SuggestedActionStatus } from './suggestedActionStatus';
 
@@ -30,6 +31,15 @@ export interface SuggestedAction {
   /** @nullable */
   customerMessage?: string | null;
   status: SuggestedActionStatus;
+  /** @nullable */
+  clientEmail?: string | null;
+  messageDeliveryState: SuggestedActionMessageDeliveryState;
+  /** @nullable */
+  messageSentToEmail?: string | null;
+  /** @nullable */
+  messageSentAt?: string | null;
+  /** @nullable */
+  messageDeliveryError?: string | null;
   /** @nullable */
   reviewedById?: number | null;
   /** @nullable */

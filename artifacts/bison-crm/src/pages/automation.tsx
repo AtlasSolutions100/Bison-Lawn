@@ -19,7 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import {
   CloudRain, Wind, Thermometer, Snowflake, Plus, Trash2, CheckCircle2, XCircle,
-  Pencil, CalendarClock, SkipForward, Mail, PlayCircle,
+  Pencil, CalendarClock, SkipForward, Mail, MailCheck, MailWarning, PlayCircle,
 } from 'lucide-react';
 
 const CONDITION_META: Record<string, { label: string; unit: string; icon: any }> = {
@@ -38,7 +38,7 @@ export default function Automation() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Automation Review</h1>
         <p className="text-muted-foreground mt-1">
-          Weather rules prepare skip/reschedule actions and draft customer messages. Approving applies the schedule change — messages stay drafts for the office to send to the customer.
+          Weather rules prepare skip/reschedule actions and draft customer messages. Approving applies the schedule change and emails the approved message to the customer.
         </p>
       </div>
 
@@ -121,9 +121,27 @@ function SuggestionCard({ suggestion: s }: { suggestion: SuggestedAction }) {
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['/api/suggested-actions'] });
 
+  const willEmail = Boolean(s.customerMessage?.trim() && s.clientEmail);
+  const missingEmail = Boolean(s.customerMessage?.trim() && !s.clientEmail);
+
   const handleApprove = () => {
-    if (!confirm(`Approve this ${s.actionType}? The schedule change will be applied. The customer message is a draft — the office still needs to send it.`)) return;
-    approve.mutate({ id: s.id }, { onSuccess: refresh, onError: (e: any) => alert(e?.message ?? 'Could not approve') });
+    const consequence = willEmail
+      ? `The schedule change will be applied and the message below will be emailed to ${s.clientEmail}.`
+      : missingEmail
+        ? 'The schedule change will be applied, but this client has no email address on file, so the message cannot be sent.'
+        : 'The schedule change will be applied.';
+    if (!confirm(`Approve this ${s.actionType}? ${consequence}`)) return;
+    approve.mutate({ id: s.id }, {
+      onSuccess: (updated) => {
+        refresh();
+        if (updated.messageDeliveryState === 'failed') {
+          alert(`The ${s.actionType} was applied, but the customer email could not be sent: ${updated.messageDeliveryError ?? 'unknown error'}`);
+        } else if (updated.messageDeliveryState === 'no_email') {
+          alert(`The ${s.actionType} was applied, but the customer message was not sent — this client has no email address on file.`);
+        }
+      },
+      onError: (e: any) => alert(e?.message ?? 'Could not approve'),
+    });
   };
 
   const handleSaveEdit = () => {
@@ -184,9 +202,11 @@ function SuggestionCard({ suggestion: s }: { suggestion: SuggestedAction }) {
         s.customerMessage && (
           <div className="border-t pt-3">
             <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1 mb-1">
-              <Mail className="w-3 h-3" /> Customer message {isPending ? '(draft — not sent automatically; send it after approval)' : '(not sent automatically)'}
+              <Mail className="w-3 h-3" /> Customer message{' '}
+              {isPending && (willEmail ? `(will be emailed to ${s.clientEmail} on approval)` : '(no email on file — cannot be sent)')}
             </span>
             <p className="text-sm bg-muted/40 border rounded-md p-2 whitespace-pre-wrap">{s.customerMessage}</p>
+            {!isPending && <DeliveryStatus suggestion={s} />}
           </div>
         )
       )}
@@ -205,6 +225,51 @@ function SuggestionCard({ suggestion: s }: { suggestion: SuggestedAction }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** Shows whether the approved customer message actually reached the customer. */
+function DeliveryStatus({ suggestion: s }: { suggestion: SuggestedAction }) {
+  if (s.status === 'rejected' || s.messageDeliveryState === 'not_applicable') return null;
+
+  if (s.messageDeliveryState === 'sent') {
+    return (
+      <p className="text-xs text-primary font-semibold flex items-center gap-1 mt-2">
+        <MailCheck className="w-3.5 h-3.5" />
+        Emailed to {s.messageSentToEmail}
+        {s.messageSentAt ? ` on ${format(new Date(s.messageSentAt), 'MMM d, yyyy h:mm a')}` : ''}
+      </p>
+    );
+  }
+
+  if (s.messageDeliveryState === 'failed') {
+    return (
+      <div className="mt-2 text-xs bg-destructive/10 border border-destructive/30 text-destructive rounded-md p-2">
+        <span className="font-bold flex items-center gap-1">
+          <MailWarning className="w-3.5 h-3.5" /> Email failed{s.messageSentToEmail ? ` to ${s.messageSentToEmail}` : ''}
+        </span>
+        {s.messageDeliveryError && <p className="mt-1 break-words">{s.messageDeliveryError}</p>}
+        <p className="mt-1">Contact this customer directly — they were not notified.</p>
+      </div>
+    );
+  }
+
+  if (s.messageDeliveryState === 'no_email') {
+    return (
+      <div className="mt-2 text-xs bg-destructive/10 border border-destructive/30 text-destructive rounded-md p-2">
+        <span className="font-bold flex items-center gap-1">
+          <MailWarning className="w-3.5 h-3.5" /> Not sent — no email address on file
+        </span>
+        <p className="mt-1">Add an email to this client, or contact them directly.</p>
+      </div>
+    );
+  }
+
+  // "sending" only persists if the server was interrupted mid-delivery.
+  return (
+    <p className="text-xs text-muted-foreground flex items-center gap-1 mt-2">
+      <Mail className="w-3.5 h-3.5" /> Sending...
+    </p>
   );
 }
 

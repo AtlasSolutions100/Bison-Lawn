@@ -1,16 +1,7 @@
 import { randomBytes } from "node:crypto";
-import { ReplitConnectors } from "@replit/connectors-sdk";
+import { defaultGmailProxy, sendRawGmailMessage, toBase64Url, type GmailProxy } from "./gmail";
 
-const connectors = new ReplitConnectors();
-
-export const toBase64Url = (value: string | Buffer) =>
-  Buffer.from(value).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-
-export type GmailProxy = (
-  connector: string,
-  path: string,
-  init: { method: string; body: string; headers: Record<string, string> },
-) => Promise<Response>;
+export { toBase64Url, type GmailProxy };
 
 export async function sendEstimateViaGmail(
   {
@@ -20,7 +11,7 @@ export async function sendEstimateViaGmail(
     pdf,
     estimateId,
   }: { toEmail: string; subject: string; html: string; pdf: Buffer; estimateId: number },
-  proxy: GmailProxy = connectors.proxy.bind(connectors) as GmailProxy,
+  proxy: GmailProxy = defaultGmailProxy,
 ) {
   const boundary = `bison_estimate_${randomBytes(12).toString("hex")}`;
   const mime = [
@@ -43,14 +34,5 @@ export async function sendEstimateViaGmail(
     `--${boundary}--`,
   ].join("\r\n");
 
-  const response = await proxy("google-mail", "/gmail/v1/users/me/messages/send", {
-    method: "POST",
-    body: JSON.stringify({ raw: toBase64Url(mime) }),
-    headers: { "Content-Type": "application/json" },
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`Gmail delivery failed (${response.status}): ${detail.slice(0, 300)}`);
-  }
-  return (await response.json()) as { id?: string };
+  return sendRawGmailMessage(mime, proxy);
 }

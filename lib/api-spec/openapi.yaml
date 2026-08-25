@@ -1954,7 +1954,7 @@ components:
             $ref: "#/components/schemas/SuggestedAction"
     SuggestedAction:
       type: object
-      required: [id, source, clientId, actionType, reason, status, createdAt]
+      required: [id, source, clientId, actionType, reason, status, messageDeliveryState, createdAt]
       properties:
         id: { type: integer }
         source: { type: string, enum: [weather, field_note] }
@@ -1969,6 +1969,13 @@ components:
         newDate: { type: ["string", "null"] }
         customerMessage: { type: ["string", "null"] }
         status: { type: string, enum: [pending, approved, rejected] }
+        clientEmail: { type: ["string", "null"] }
+        messageDeliveryState:
+          type: string
+          enum: [pending_review, not_applicable, no_email, sending, sent, failed]
+        messageSentToEmail: { type: ["string", "null"] }
+        messageSentAt: { type: ["string", "null"] }
+        messageDeliveryError: { type: ["string", "null"] }
         reviewedById: { type: ["integer", "null"] }
         reviewedByName: { type: ["string", "null"] }
         reviewedAt: { type: ["string", "null"] }

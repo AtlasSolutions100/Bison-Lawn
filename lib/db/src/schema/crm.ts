@@ -282,6 +282,13 @@ export const suggestedActionsTable = pgTable("suggested_actions", {
   newDate: text("new_date"),
   customerMessage: text("customer_message"),
   status: text("status").notNull().default("pending"), // pending | approved | rejected
+  // Delivery of the approved customer message by email.
+  // pending_review | not_applicable (no message) | no_email (client has none) | sending | sent | failed
+  messageDeliveryState: text("message_delivery_state").notNull().default("pending_review"),
+  messageSentToEmail: text("message_sent_to_email"),
+  messageSentAt: timestamp("message_sent_at"),
+  messageDeliveryError: text("message_delivery_error"),
+  messageGmailId: text("message_gmail_id"),
   reviewedById: integer("reviewed_by_id").references(() => usersTable.id),
   reviewedAt: timestamp("reviewed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),

@@ -101,6 +101,7 @@ export * from './servicePackageUpdate';
 export * from './serviceUpdate';
 export * from './suggestedAction';
 export * from './suggestedActionActionType';
+export * from './suggestedActionMessageDeliveryState';
 export * from './suggestedActionSource';
 export * from './suggestedActionStatus';
 export * from './suggestedActionUpdate';

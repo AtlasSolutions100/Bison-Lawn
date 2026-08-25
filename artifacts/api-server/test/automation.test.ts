@@ -233,6 +233,73 @@ test("suggestion edit/approve/reject lifecycle with audit trail", async () => {
   assert.ok(audits2.some((e) => e.action === "suggestion_rejected"));
 });
 
+test("approving a message for a client with no email is recorded as undelivered, not silently dropped", async () => {
+  const job = await makeJob();
+  const [s] = await db
+    .insert(suggestedActionsTable)
+    .values({
+      source: "weather",
+      jobId: job.id,
+      clientId: client.id,
+      actionType: "skip",
+      reason: "test no email",
+      targetDate: TOMORROW,
+      customerMessage: "We have to skip your service tomorrow.",
+    })
+    .returning();
+  assert.equal(s.messageDeliveryState, "pending_review");
+
+  const approve = await api(`/suggested-actions/${s.id}/approve`, admin.id, { method: "POST" });
+  assert.equal(approve.status, 200);
+  // Test client has no email on file, so delivery is impossible and must be visible.
+  assert.equal(approve.body.messageDeliveryState, "no_email");
+  assert.equal(approve.body.clientEmail, null);
+  assert.equal(approve.body.messageSentAt, null);
+
+  const audits = await db.select().from(auditEventsTable).where(eq(auditEventsTable.clientId, client.id));
+  const approved = audits.find((e) => e.action === "suggestion_approved" && /test no email/.test(e.description));
+  assert.ok(approved, "approval must be audited");
+  assert.match(approved!.description, /no email address on file/);
+});
+
+test("a suggestion without a customer message needs no delivery", async () => {
+  const job = await makeJob();
+  const [s] = await db
+    .insert(suggestedActionsTable)
+    .values({
+      source: "weather",
+      jobId: job.id,
+      clientId: client.id,
+      actionType: "skip",
+      reason: "test no message",
+      targetDate: TOMORROW,
+    })
+    .returning();
+  const approve = await api(`/suggested-actions/${s.id}/approve`, admin.id, { method: "POST" });
+  assert.equal(approve.status, 200);
+  assert.equal(approve.body.messageDeliveryState, "not_applicable");
+});
+
+test("rejecting a suggestion never leaves a message queued for delivery", async () => {
+  const job = await makeJob();
+  const [s] = await db
+    .insert(suggestedActionsTable)
+    .values({
+      source: "weather",
+      jobId: job.id,
+      clientId: client.id,
+      actionType: "skip",
+      reason: "test reject delivery",
+      targetDate: TOMORROW,
+      customerMessage: "Draft that must never be sent.",
+    })
+    .returning();
+  const reject = await api(`/suggested-actions/${s.id}/reject`, admin.id, { method: "POST" });
+  assert.equal(reject.status, 200);
+  assert.equal(reject.body.messageDeliveryState, "not_applicable");
+  assert.equal(reject.body.messageSentAt, null);
+});
+
 test("approving a skip pulls the job back to the waiting list", async () => {
   const job = await makeJob();
   const [s] = await db

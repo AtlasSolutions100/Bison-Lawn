@@ -1119,6 +1119,7 @@ export const SuggestedActionStatus = {
   rejected: 'rejected',
 } as const;
 
+export type SuggestedActionMessageDeliveryState = typeof SuggestedActionMessageDeliveryState[keyof typeof SuggestedActionMessageDeliveryState];
 export interface SuggestedAction {
   id: number;
   source: SuggestedActionSource;
@@ -1140,6 +1141,15 @@ export interface SuggestedAction {
   /** @nullable */
   customerMessage?: string | null;
   status: SuggestedActionStatus;
+  /** @nullable */
+  clientEmail?: string | null;
+  messageDeliveryState: SuggestedActionMessageDeliveryState;
+  /** @nullable */
+  messageSentToEmail?: string | null;
+  /** @nullable */
+  messageSentAt?: string | null;
+  /** @nullable */
+  messageDeliveryError?: string | null;
   /** @nullable */
   reviewedById?: number | null;
   /** @nullable */
@@ -1294,3 +1304,12 @@ export type GetContractorEarningsParams = {
 date: string;
 };
 
+
+export const SuggestedActionMessageDeliveryState = {
+  pending_review: 'pending_review',
+  not_applicable: 'not_applicable',
+  no_email: 'no_email',
+  sending: 'sending',
+  sent: 'sent',
+  failed: 'failed',
+} as const;
