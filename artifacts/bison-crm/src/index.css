@@ -91,23 +91,24 @@
   --card-foreground: 30 30% 15%;
   --card-border: 30 20% 88%;
 
-  /* Sidebar - deep bison brown */
-  --sidebar: 25 40% 20%;
-  --sidebar-foreground: 40 20% 95%;
-  --sidebar-border: 25 35% 15%;
-  --sidebar-primary: 145 50% 25%;
-  --sidebar-primary-foreground: 40 20% 98%;
-  --sidebar-accent: 25 35% 25%;
-  --sidebar-accent-foreground: 40 20% 95%;
-  --sidebar-ring: 45 95% 55%;
+  /* Sidebar - bison green (#215343) */
+  --sidebar: 161 43% 23%;
+  --sidebar-foreground: 45 30% 95%;
+  --sidebar-border: 161 43% 16%;
+  /* Active nav sits in prairie yellow so the current page reads at a glance */
+  --sidebar-primary: 46 100% 68%;
+  --sidebar-primary-foreground: 161 45% 14%;
+  --sidebar-accent: 161 40% 29%;
+  --sidebar-accent-foreground: 45 30% 95%;
+  --sidebar-ring: 46 100% 68%;
 
   --popover: 40 10% 100%;
   --popover-foreground: 30 30% 15%;
   --popover-border: 30 20% 88%;
 
-  /* Forest Green */
-  --primary: 145 50% 25%;
-  --primary-foreground: 40 20% 98%;
+  /* Bison Green — #215343 */
+  --primary: 161 43% 23%;
+  --primary-foreground: 45 30% 97%;
 
   /* Lighter warm neutral for secondary */
   --secondary: 40 15% 92%;
@@ -116,20 +117,20 @@
   --muted: 40 15% 92%;
   --muted-foreground: 30 15% 45%;
 
-  /* Prairie Gold */
-  --accent: 45 90% 50%;
-  --accent-foreground: 30 40% 15%;
+  /* Prairie Yellow — #ffd85c */
+  --accent: 46 100% 68%;
+  --accent-foreground: 161 45% 14%;
 
   /* Danger - earthy rust red */
   --destructive: 10 70% 45%;
   --destructive-foreground: 40 20% 98%;
 
   --input: 30 20% 88%;
-  --ring: 145 50% 25%;
+  --ring: 161 43% 23%;
   
-  --chart-1: 145 50% 25%;
-  --chart-2: 45 90% 50%;
-  --chart-3: 25 40% 20%;
+  --chart-1: 161 43% 23%;
+  --chart-2: 46 100% 68%;
+  --chart-3: 161 28% 48%;
   --chart-4: 10 70% 45%;
   --chart-5: 200 40% 30%;
 
@@ -207,21 +208,21 @@
   --card-foreground: 40 20% 95%;
   --card-border: 30 20% 20%;
 
-  --sidebar: 30 30% 8%;
-  --sidebar-foreground: 40 20% 95%;
-  --sidebar-border: 30 20% 15%;
-  --sidebar-primary: 145 40% 35%;
-  --sidebar-primary-foreground: 30 30% 10%;
-  --sidebar-accent: 30 20% 18%;
-  --sidebar-accent-foreground: 40 20% 95%;
-  --sidebar-ring: 45 80% 50%;
+  --sidebar: 161 40% 9%;
+  --sidebar-foreground: 45 25% 95%;
+  --sidebar-border: 161 32% 16%;
+  --sidebar-primary: 46 90% 62%;
+  --sidebar-primary-foreground: 161 45% 12%;
+  --sidebar-accent: 161 28% 18%;
+  --sidebar-accent-foreground: 45 25% 95%;
+  --sidebar-ring: 46 90% 62%;
 
   --popover: 30 25% 13%;
   --popover-foreground: 40 20% 95%;
   --popover-border: 30 20% 20%;
 
-  --primary: 145 40% 35%;
-  --primary-foreground: 30 30% 10%;
+  --primary: 161 40% 38%;
+  --primary-foreground: 45 30% 97%;
 
   --secondary: 30 20% 20%;
   --secondary-foreground: 40 20% 95%;
@@ -229,18 +230,18 @@
   --muted: 30 20% 20%;
   --muted-foreground: 40 10% 65%;
 
-  --accent: 45 80% 50%;
-  --accent-foreground: 30 30% 10%;
+  --accent: 46 90% 62%;
+  --accent-foreground: 161 45% 12%;
 
   --destructive: 10 60% 45%;
   --destructive-foreground: 40 20% 95%;
 
   --input: 30 20% 25%;
-  --ring: 145 40% 35%;
+  --ring: 161 40% 38%;
   
-  --chart-1: 145 40% 35%;
-  --chart-2: 45 80% 50%;
-  --chart-3: 25 30% 40%;
+  --chart-1: 161 40% 38%;
+  --chart-2: 46 90% 62%;
+  --chart-3: 161 25% 55%;
   --chart-4: 10 60% 45%;
   --chart-5: 200 40% 35%;
 
