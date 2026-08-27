@@ -23,8 +23,14 @@ export type MergeContext = {
   quoteTotal?: number | null;
 };
 
-const money = (n: number) =>
-  n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+const money = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+
+/**
+ * Marks where a known token rendered to nothing, so the tidy pass can clean up
+ * around exactly those spots and leave every other character alone. A NUL byte
+ * cannot occur in a template body, so it can never collide with real content.
+ */
+const EMPTY = String.fromCharCode(0);
 
 /**
  * First name for `[clientfname]`.
@@ -75,21 +81,22 @@ function buildMap(ctx: MergeContext): Record<string, string> {
   };
 }
 
+const EMPTY_COMPANY = {
+  name: "",
+  addressLine1: null,
+  addressLine2: null,
+  city: null,
+  state: null,
+  postalCode: null,
+  phone: null,
+  email: null,
+  website: null,
+  signatureLine: "",
+} as unknown as CompanyProfile;
+
 /** Every token this renderer understands, for showing the office what it can use. */
 export function supportedTokens(): string[] {
-  const stub = {
-    name: "",
-    addressLine1: null,
-    addressLine2: null,
-    city: null,
-    state: null,
-    postalCode: null,
-    phone: null,
-    email: null,
-    website: null,
-    signatureLine: "",
-  } as unknown as CompanyProfile;
-  return Object.keys(buildMap({ company: stub })).map((t) => `[${t}]`);
+  return Object.keys(buildMap({ company: EMPTY_COMPANY })).map((t) => `[${t}]`);
 }
 
 /**
@@ -102,27 +109,58 @@ export function supportedTokens(): string[] {
  */
 export function renderTemplate(body: string, ctx: MergeContext): string {
   const map = buildMap(ctx);
-  return body.replace(/\[([A-Za-z0-9_:]+)\]/g, (whole, token: string) => {
+  const substituted = body.replace(/\[([A-Za-z0-9_:]+)\]/g, (whole, token: string) => {
     const value = map[token.toLowerCase()];
-    return value === undefined ? whole : value;
+    if (value === undefined) return whole;
+    return value === "" ? EMPTY : value;
   });
+  return tidy(substituted);
+}
+
+/**
+ * Clean up what an empty token leaves behind — and nothing else.
+ *
+ * His letters juxtapose tokens with their own punctuation:
+ * `[physicalcity], [physicalstate] [physicalzip]` and
+ * `[companyphonenumber] | [companyemail]`. A customer with no zip on file
+ * renders "Bozeman,  " with a dangling comma; a line holding only
+ * `[physicaladdress2]` renders as a blank line inside the address block.
+ *
+ * The cleanup is anchored to the EMPTY marker, so it can only ever touch
+ * punctuation sitting directly against a value that came out empty. An earlier
+ * version worked line-by-line and stripped trailing separators from any line
+ * containing a token — which quietly deleted the comma in "Dear [clientfname],"
+ * and in his "Your Friendly Bison," sign-off. Author punctuation that is not
+ * adjacent to an empty value is now untouchable by construction.
+ *
+ * Deliberately not general prose repair. It cannot fix a sentence whose meaning
+ * depended on the missing value — "contact us at ." is left visible, because the
+ * honest fix is to fill in the phone number, not to silently reword his letter.
+ */
+function tidy(substituted: string): string {
+  const marker = EMPTY;
+  const kept: string[] = [];
+
+  for (const raw of substituted.split("\n")) {
+    // A line that held only empty values (address line 2, say) disappears.
+    // A blank line the author typed has no marker and survives.
+    if (raw.includes(marker) && !/[A-Za-z0-9]/.test(raw)) continue;
+
+    const line = raw
+      // A separator immediately before or after an empty value belonged to it.
+      .replace(new RegExp("[ \\t]*[,|][ \\t]*" + marker, "g"), marker)
+      .replace(new RegExp(marker + "[ \\t]*[,|][ \\t]*", "g"), marker)
+      .replace(new RegExp(marker, "g"), "")
+      .replace(/[ \t]{2,}/g, " ")
+      .replace(/[ \t]+$/, "");
+    kept.push(line);
+  }
+  return kept.join("\n");
 }
 
 /** Tokens present in `body` that this renderer cannot fill. */
 export function unknownTokensIn(body: string): string[] {
-  const stub = {
-    name: "",
-    addressLine1: null,
-    addressLine2: null,
-    city: null,
-    state: null,
-    postalCode: null,
-    phone: null,
-    email: null,
-    website: null,
-    signatureLine: "",
-  } as unknown as CompanyProfile;
-  const known = new Set(Object.keys(buildMap({ company: stub })));
+  const known = new Set(Object.keys(buildMap({ company: EMPTY_COMPANY })));
   const found = new Set<string>();
   for (const m of body.matchAll(/\[([A-Za-z0-9_:]+)\]/g)) {
     const t = m[1]!.toLowerCase();

@@ -31,10 +31,14 @@ import {
   letterTemplatesTable,
   auditEventsTable,
   schedulingRulesTable,
+  documentTemplatesTable,
+  companyProfileTable,
   feedbackTable,
 } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { ensureDefaultSchedulingRules } from "./lib/schedulingRules";
+import { ensureDocumentTemplates } from "./lib/documentTemplateSeeds";
+import { getCompanyProfile } from "./lib/companyProfile";
 
 const RESET = process.argv.includes("--reset");
 
@@ -50,6 +54,7 @@ function near(i: number) {
 async function main() {
   if (RESET) {
     // Children before parents.
+    await db.delete(documentTemplatesTable);
     await db.delete(feedbackTable);
     await db.delete(schedulingRulesTable);
     await db.delete(paymentsTable);
@@ -227,6 +232,9 @@ async function main() {
     email?: string;
     phone?: string;
     additionalContact?: string;
+    addressLine2?: string;
+    state?: string;
+    postalCode?: string;
     propertyData: Record<string, string>;
     mapNote?: string;
   };
@@ -237,6 +245,8 @@ async function main() {
       status: "client",
       serviceAddress: "412 W Maple Ave",
       city: "Bozeman",
+      state: "MT",
+      postalCode: "59715",
       email: "sarah.t@example.com",
       phone: "406-555-0142",
       propertyData: { "Turf Sqft": "6200", "Gate Code": "4417", Dog: "Yes" },
@@ -247,6 +257,8 @@ async function main() {
       status: "client",
       serviceAddress: "88 Sourdough Rd",
       city: "Bozeman",
+      state: "MT",
+      postalCode: "59715",
       email: "dale.hutchins@example.com",
       phone: "406-555-0177",
       propertyData: { "Turf Sqft": "9100", "Sprinkler Zones": "8" },
@@ -257,6 +269,8 @@ async function main() {
       status: "client",
       serviceAddress: "1200 Baxter Ln",
       city: "Bozeman",
+      state: "MT",
+      postalCode: "59715",
       email: "ops@ridgelineproperty.example.com",
       phone: "406-555-0188",
       additionalContact: "Ally Bremer, portfolio manager",
@@ -268,6 +282,8 @@ async function main() {
       status: "client",
       serviceAddress: "77 Kagy Blvd",
       city: "Bozeman",
+      state: "MT",
+      postalCode: "59715",
       email: "marcy.olander@example.com",
       phone: "406-555-0101",
       propertyData: { "Turf Sqft": "4800", Dog: "No" },
@@ -277,6 +293,8 @@ async function main() {
       status: "lead",
       serviceAddress: "206 Willow Creek Ln",
       city: "Bozeman",
+      state: "MT",
+      postalCode: "59715",
       email: "trent.kovacs@example.com",
       phone: "406-555-0198",
       propertyData: { "Turf Sqft": "5400" },
@@ -286,6 +304,8 @@ async function main() {
       status: "lead",
       serviceAddress: "915 Durston Rd",
       city: "Bozeman",
+      state: "MT",
+      postalCode: "59715",
       email: "nina.ruiz@example.com",
       phone: "406-555-5421",
       propertyData: {},
@@ -295,6 +315,8 @@ async function main() {
       status: "lead",
       serviceAddress: "202 Cedar Hollow Way",
       city: "Bozeman",
+      state: "MT",
+      postalCode: "59715",
       email: "board@cedarhollow.example.com",
       phone: "406-555-0233",
       propertyData: { "Turf Sqft": "22000" },
@@ -304,6 +326,8 @@ async function main() {
       status: "lead",
       serviceAddress: "101 Story Mill Rd",
       city: "Bozeman",
+      state: "MT",
+      postalCode: "59715",
       email: "pete.quinlan@example.com",
       phone: "406-555-0244",
       propertyData: {},
@@ -313,6 +337,8 @@ async function main() {
       status: "lead",
       serviceAddress: "530 N Rouse Ave",
       city: "Bozeman",
+      state: "MT",
+      postalCode: "59715",
       email: "susan.d@example.com",
       phone: "406-555-0255",
       propertyData: { "Turf Sqft": "3300" },
@@ -491,6 +517,26 @@ async function main() {
   // the --reset above clears audit_events, which clears that very guard.
   await ensureDefaultSchedulingRules();
 
+  // ---------- company profile + the owner's own documents ----------
+  // Address and phone are from the contract text in his own estimate template.
+  const company = await getCompanyProfile();
+  await db
+    .update(companyProfileTable)
+    .set({
+      name: "Bison Lawn Care LLC",
+      addressLine1: "PO Box 7156",
+      city: "Kalispell",
+      state: "MT",
+      postalCode: "59904",
+      phone: "406-885-5296",
+      email: "bisonlawncarellc@gmail.com",
+      website: "bisonlawncare.net",
+      signatureLine: "Your Friendly Bison,",
+    })
+    .where(eq(companyProfileTable.id, company.id));
+
+  const templateCount = await ensureDocumentTemplates();
+
   // ---------- a little feedback, so the screen is not empty at the demo ----------
   await db.insert(feedbackTable).values([
     {
@@ -525,9 +571,12 @@ async function main() {
       (SELECT count(*) FROM tickets WHERE status = 'open')               AS open_tickets,
       (SELECT count(*) FROM services)                                    AS services,
       (SELECT count(*) FROM estimates)                                   AS estimates,
-      (SELECT count(*) FROM web_requests)                                AS web_requests
+      (SELECT count(*) FROM web_requests)                                AS web_requests,
+      (SELECT count(*) FROM document_templates)                          AS templates,
+      (SELECT count(*) FROM scheduling_rules)                            AS scheduling_rules
   `);
   console.log("Seeded demo data:", counts.rows[0]);
+  console.log("document templates seeded:", templateCount);
 }
 
 main()

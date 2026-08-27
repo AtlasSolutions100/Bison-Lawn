@@ -64,7 +64,7 @@ const clerkAppearance = {
   options: {
     logoPlacement: "inside" as const,
     logoLinkUrl: basePath || "/",
-    logoImageUrl: `${window.location.origin}${basePath}/logo.svg`,
+    logoImageUrl: `${window.location.origin}${basePath}/logo-wordmark.png`,
   },
   variables: {
     colorPrimary: "hsl(145, 50%, 25%)",

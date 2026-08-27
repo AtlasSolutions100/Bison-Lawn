@@ -18,7 +18,7 @@ export function ContractorLayout({ children }: { children: React.ReactNode }) {
       {/* Mobile Top Bar */}
       <header className="flex items-center justify-between p-4 bg-sidebar text-sidebar-foreground shadow-sm sticky top-0 z-10">
         <div className="flex items-center gap-2">
-          <img src={`${basePath}/logo.svg`} alt="Logo" className="w-8 h-8 rounded-sm bg-white p-1" />
+          <img src={`${basePath}/logo-mark.png`} alt="Logo" className="w-8 h-8 rounded-sm bg-white p-1" />
           <span className="font-bold text-lg">Bison Field</span>
         </div>
         <button 

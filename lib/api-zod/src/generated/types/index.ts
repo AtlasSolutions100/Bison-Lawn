@@ -36,6 +36,8 @@ export * from './clientStatus';
 export * from './clientUpdate';
 export * from './clientUpdatePropertyData';
 export * from './clientUpdateStatus';
+export * from './companyProfile';
+export * from './companyProfileInput';
 export * from './contractorEarnings';
 export * from './dashboardSummary';
 export * from './dispatchInput';

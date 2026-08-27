@@ -15,6 +15,12 @@ export interface ClientUpdate {
   /** @nullable */
   serviceAddress?: string | null;
   /** @nullable */
+  addressLine2?: string | null;
+  /** @nullable */
+  state?: string | null;
+  /** @nullable */
+  postalCode?: string | null;
+  /** @nullable */
   city?: string | null;
   /** @nullable */
   lat?: number | null;

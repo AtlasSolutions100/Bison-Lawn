@@ -238,6 +238,48 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Feedback"
+  /company-profile:
+    get:
+      operationId: getCompanyProfile
+      tags: [settings]
+      summary: The business identity used in letters, estimates and emails
+      responses:
+        "200":
+          description: Company profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyProfile"
+    put:
+      operationId: updateCompanyProfile
+      tags: [settings]
+      summary: Update the business identity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompanyProfileInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyProfile"
+  /merge-tokens:
+    get:
+      operationId: listMergeTokens
+      tags: [settings]
+      summary: Every merge token a document template can use
+      responses:
+        "200":
+          description: Tokens
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: string }
   /clients:
     get:
       operationId: listClients
@@ -1932,6 +1974,35 @@ components:
       properties:
         status: { type: string, enum: [new, read, done] }
         adminNote: { type: ["string", "null"] }
+    CompanyProfile:
+      type: object
+      required: [id, name, signatureLine]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        addressLine1: { type: ["string", "null"] }
+        addressLine2: { type: ["string", "null"] }
+        city: { type: ["string", "null"] }
+        state: { type: ["string", "null"] }
+        postalCode: { type: ["string", "null"] }
+        phone: { type: ["string", "null"] }
+        email: { type: ["string", "null"] }
+        website: { type: ["string", "null"] }
+        signatureLine: { type: string }
+        updatedAt: { type: string }
+    CompanyProfileInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        addressLine1: { type: ["string", "null"] }
+        addressLine2: { type: ["string", "null"] }
+        city: { type: ["string", "null"] }
+        state: { type: ["string", "null"] }
+        postalCode: { type: ["string", "null"] }
+        phone: { type: ["string", "null"] }
+        email: { type: ["string", "null"] }
+        website: { type: ["string", "null"] }
+        signatureLine: { type: string }
     Client:
       type: object
       required: [id, name, status, accountBalance]
@@ -1940,6 +2011,9 @@ components:
         name: { type: string }
         status: { type: string, enum: [lead, client, former_client] }
         serviceAddress: { type: ["string", "null"] }
+        addressLine2: { type: ["string", "null"] }
+        state: { type: ["string", "null"] }
+        postalCode: { type: ["string", "null"] }
         city: { type: ["string", "null"] }
         lat: { type: ["number", "null"] }
         lng: { type: ["number", "null"] }
@@ -1965,6 +2039,9 @@ components:
         name: { type: string, minLength: 1 }
         status: { type: string, enum: [lead, client, former_client] }
         serviceAddress: { type: string }
+        addressLine2: { type: ["string", "null"] }
+        state: { type: ["string", "null"] }
+        postalCode: { type: ["string", "null"] }
         city: { type: string }
         lat: { type: number }
         lng: { type: number }
@@ -1981,6 +2058,9 @@ components:
         name: { type: string, minLength: 1 }
         status: { type: string, enum: [lead, client, former_client] }
         serviceAddress: { type: ["string", "null"] }
+        addressLine2: { type: ["string", "null"] }
+        state: { type: ["string", "null"] }
+        postalCode: { type: ["string", "null"] }
         city: { type: ["string", "null"] }
         lat: { type: ["number", "null"] }
         lng: { type: ["number", "null"] }

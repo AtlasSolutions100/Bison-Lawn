@@ -13,6 +13,12 @@ export interface ClientInput {
   name: string;
   status?: ClientInputStatus;
   serviceAddress?: string;
+  /** @nullable */
+  addressLine2?: string | null;
+  /** @nullable */
+  state?: string | null;
+  /** @nullable */
+  postalCode?: string | null;
   city?: string;
   lat?: number;
   lng?: number;

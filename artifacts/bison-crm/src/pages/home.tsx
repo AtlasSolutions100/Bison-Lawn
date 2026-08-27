@@ -9,7 +9,7 @@ export default function Home() {
     <div className="min-h-[100dvh] flex flex-col bg-background selection:bg-primary/20">
       <header className="absolute top-0 w-full p-6 flex items-center justify-between z-10">
         <div className="flex items-center gap-3">
-          <img src={`${basePath}/logo.svg`} alt="Bison Lawn Care Logo" className="w-12 h-12 rounded-md shadow-sm" />
+          <img src={`${basePath}/logo-wordmark.png`} alt="Bison Lawn Care" className="h-11 w-auto" />
           <span className="font-bold text-2xl tracking-tight text-foreground">Bison Lawn Care</span>
         </div>
         <div className="flex items-center gap-4">

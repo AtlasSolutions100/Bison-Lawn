@@ -316,6 +316,67 @@ export const UpdateFeedbackResponse = zod.object({
 
 
 /**
+ * @summary The business identity used in letters, estimates and emails
+ */
+export const GetCompanyProfileResponse = zod.object({
+  "id": zod.int(),
+  "name": zod.string(),
+  "addressLine1": zod.string().nullish(),
+  "addressLine2": zod.string().nullish(),
+  "city": zod.string().nullish(),
+  "state": zod.string().nullish(),
+  "postalCode": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "website": zod.string().nullish(),
+  "signatureLine": zod.string(),
+  "updatedAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Update the business identity
+ */
+
+
+
+export const UpdateCompanyProfileBody = zod.object({
+  "name": zod.string().min(1).optional(),
+  "addressLine1": zod.string().nullish(),
+  "addressLine2": zod.string().nullish(),
+  "city": zod.string().nullish(),
+  "state": zod.string().nullish(),
+  "postalCode": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "website": zod.string().nullish(),
+  "signatureLine": zod.string().optional()
+})
+
+export const UpdateCompanyProfileResponse = zod.object({
+  "id": zod.int(),
+  "name": zod.string(),
+  "addressLine1": zod.string().nullish(),
+  "addressLine2": zod.string().nullish(),
+  "city": zod.string().nullish(),
+  "state": zod.string().nullish(),
+  "postalCode": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "website": zod.string().nullish(),
+  "signatureLine": zod.string(),
+  "updatedAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Every merge token a document template can use
+ */
+export const ListMergeTokensResponseItem = zod.string()
+export const ListMergeTokensResponse = zod.array(ListMergeTokensResponseItem)
+
+
+/**
  * @summary List clients/leads with optional filters
  */
 export const ListClientsQueryParams = zod.object({
@@ -328,6 +389,9 @@ export const ListClientsResponseItem = zod.object({
   "name": zod.string(),
   "status": zod.enum(['lead', 'client', 'former_client']),
   "serviceAddress": zod.string().nullish(),
+  "addressLine2": zod.string().nullish(),
+  "state": zod.string().nullish(),
+  "postalCode": zod.string().nullish(),
   "city": zod.string().nullish(),
   "lat": zod.number().nullish(),
   "lng": zod.number().nullish(),
@@ -351,6 +415,9 @@ export const CreateClientBody = zod.object({
   "name": zod.string().min(1),
   "status": zod.enum(['lead', 'client', 'former_client']).optional(),
   "serviceAddress": zod.string().optional(),
+  "addressLine2": zod.string().nullish(),
+  "state": zod.string().nullish(),
+  "postalCode": zod.string().nullish(),
   "city": zod.string().optional(),
   "lat": zod.number().optional(),
   "lng": zod.number().optional(),
@@ -366,6 +433,9 @@ export const CreateClientResponse = zod.object({
   "name": zod.string(),
   "status": zod.enum(['lead', 'client', 'former_client']),
   "serviceAddress": zod.string().nullish(),
+  "addressLine2": zod.string().nullish(),
+  "state": zod.string().nullish(),
+  "postalCode": zod.string().nullish(),
   "city": zod.string().nullish(),
   "lat": zod.number().nullish(),
   "lng": zod.number().nullish(),
@@ -390,6 +460,9 @@ export const GetClientResponse = zod.object({
   "name": zod.string(),
   "status": zod.enum(['lead', 'client', 'former_client']),
   "serviceAddress": zod.string().nullish(),
+  "addressLine2": zod.string().nullish(),
+  "state": zod.string().nullish(),
+  "postalCode": zod.string().nullish(),
   "city": zod.string().nullish(),
   "lat": zod.number().nullish(),
   "lng": zod.number().nullish(),
@@ -416,6 +489,9 @@ export const UpdateClientBody = zod.object({
   "name": zod.string().min(1).optional(),
   "status": zod.enum(['lead', 'client', 'former_client']).optional(),
   "serviceAddress": zod.string().nullish(),
+  "addressLine2": zod.string().nullish(),
+  "state": zod.string().nullish(),
+  "postalCode": zod.string().nullish(),
   "city": zod.string().nullish(),
   "lat": zod.number().nullish(),
   "lng": zod.number().nullish(),
@@ -431,6 +507,9 @@ export const UpdateClientResponse = zod.object({
   "name": zod.string(),
   "status": zod.enum(['lead', 'client', 'former_client']),
   "serviceAddress": zod.string().nullish(),
+  "addressLine2": zod.string().nullish(),
+  "state": zod.string().nullish(),
+  "postalCode": zod.string().nullish(),
   "city": zod.string().nullish(),
   "lat": zod.number().nullish(),
   "lng": zod.number().nullish(),

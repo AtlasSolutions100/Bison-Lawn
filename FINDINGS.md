@@ -419,3 +419,55 @@ mixed as he writes it, unknown tokens preserved and reported.
 - **The real logo is not the one in the app.** His letterhead is a "B" formed
   from a bison plus a wordmark; `logo.svg` is a crude arch. Ask him for the
   artwork — it cannot be recovered from a screenshot.
+
+## 2026-08-27 — real logos, company profile, his five documents seeded
+
+**Logos.** He supplied the actual artwork: a horizontal wordmark (B formed from a
+bison + "BISON LAWN CARE") and a bison-on-mountain emblem, 1201px transparent
+PNG. Brand green sampled from the files rather than guessed: **#215343**,
+identical in both. Shipped as `logo-wordmark.png`, `logo-emblem.png`, and
+`logo-mark.png` (the B alone, cropped at columns 43-413, found by scanning for
+the gap between glyph and wordmark rather than by eye).
+
+The favicon is now the real B, cream on green — the same comparison as before
+against Chrome's tab-strip grey, and the real mark is legible at 16px where the
+placeholder arch was not. Both placeholder SVGs deleted; a dangling reference in
+Clerk's sign-in branding (`logoImageUrl`) was caught by sweeping for it rather
+than by the typechecker, which would never have seen a 404 on a string URL.
+
+**Company profile + template library.** `/company-profile` and `/merge-tokens`
+endpoints; the token list is *served* rather than duplicated in the front end,
+because the renderer is the only thing that knows what it can fill and a
+hand-kept UI list drifts silently — the office would be shown a token that
+reaches a customer as literal text.
+
+His five documents (aeration notice, mow-care welcome, estimate proposal,
+sprinkler repair proposal, contract + payment disclosure) are seeded verbatim,
+matched to services by name, and marked `isSeeded` so an edit of his is never
+overwritten by a later ship. All five render with **zero** unfillable tokens.
+
+**Two defects found by rendering against real data, not by reading the code:**
+
+1. **Empty tokens left visible wreckage.** A client with no zip rendered
+   "Bozeman,  " with a dangling comma; a line holding only `[physicaladdress2]`
+   rendered as a blank line mid-address. Fixed with a tidy pass.
+2. **My first fix silently deleted his punctuation.** Working line-by-line, it
+   stripped trailing separators from any line containing a token — which removed
+   the comma from "Dear [clientfname]," and from his "Your Friendly Bison,"
+   sign-off. Rewritten to anchor on a NUL marker emitted only where a token
+   rendered empty, so author punctuation not adjacent to an empty value is
+   untouchable by construction. Eight assertions now cover both the fix and the
+   regression.
+
+**Process note (third occurrence).** The Bash heredoc mangled backslashes again,
+this time writing a literal NUL byte into a source file and turning `\n` escapes
+into real newlines inside string literals. Use the Write tool for any file
+containing escape sequences — this shell cannot be trusted with them.
+
+**Correction for the record:** the estimate checkboxes cannot be auto-detected.
+They are the *customer's* selection, made in their inbox ("check the box
+corresponding to each service you desire"). Nothing on our side can know which
+services a customer will decline. The workable equivalent, and what his current
+system does, is to default every box checked so that clicking Accept with no
+changes accepts everything — identical to today's behaviour, with unchecking
+purely additive.

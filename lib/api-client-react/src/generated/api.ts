@@ -40,6 +40,8 @@ import type {
   ClientServiceInput,
   ClientServiceUpdate,
   ClientUpdate,
+  CompanyProfile,
+  CompanyProfileInput,
   ContractorEarnings,
   DashboardSummary,
   DispatchInput,
@@ -1238,6 +1240,238 @@ export const useUpdateFeedback = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getUpdateFeedbackMutationOptions(options));
     }
+
+export const getGetCompanyProfileUrl = () => {
+
+
+
+
+  return `/api/company-profile`
+}
+
+/**
+ * @summary The business identity used in letters, estimates and emails
+ */
+export const getCompanyProfile = async ( options?: Parameters<typeof customFetch>[1]): Promise<CompanyProfile> => {
+
+  return customFetch<CompanyProfile>(getGetCompanyProfileUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCompanyProfileQueryKey = () => {
+    return [
+    `/api/company-profile`
+    ] as const;
+    }
+
+
+export const getGetCompanyProfileQueryOptions = <TData = Awaited<ReturnType<typeof getCompanyProfile>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCompanyProfile>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCompanyProfileQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCompanyProfile>>> = ({ signal }) => getCompanyProfile({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCompanyProfile>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCompanyProfileQueryResult = NonNullable<Awaited<ReturnType<typeof getCompanyProfile>>>
+export type GetCompanyProfileQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary The business identity used in letters, estimates and emails
+ */
+
+export function useGetCompanyProfile<TData = Awaited<ReturnType<typeof getCompanyProfile>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCompanyProfile>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCompanyProfileQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateCompanyProfileUrl = () => {
+
+
+
+
+  return `/api/company-profile`
+}
+
+/**
+ * @summary Update the business identity
+ */
+export const updateCompanyProfile = async (companyProfileInput: CompanyProfileInput, options?: Parameters<typeof customFetch>[1]): Promise<CompanyProfile> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<CompanyProfile>(getUpdateCompanyProfileUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(companyProfileInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateCompanyProfileMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateCompanyProfile>>, TError,UpdateCompanyProfileMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateCompanyProfile>>, TError,UpdateCompanyProfileMutationVariables, TContext> => {
+
+const mutationKey = ['updateCompanyProfile'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateCompanyProfile>>, UpdateCompanyProfileMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateCompanyProfile(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateCompanyProfileMutationResult = NonNullable<Awaited<ReturnType<typeof updateCompanyProfile>>>
+    export type UpdateCompanyProfileMutationBody = BodyType<CompanyProfileInput>
+    export type UpdateCompanyProfileMutationError = ErrorType<unknown>
+    export type UpdateCompanyProfileMutationVariables = {data: BodyType<CompanyProfileInput>}
+
+    /**
+ * @summary Update the business identity
+ */
+export const useUpdateCompanyProfile = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateCompanyProfile>>, TError,UpdateCompanyProfileMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateCompanyProfile>>,
+        TError,
+        UpdateCompanyProfileMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateCompanyProfileMutationOptions(options));
+    }
+
+export const getListMergeTokensUrl = () => {
+
+
+
+
+  return `/api/merge-tokens`
+}
+
+/**
+ * @summary Every merge token a document template can use
+ */
+export const listMergeTokens = async ( options?: Parameters<typeof customFetch>[1]): Promise<string[]> => {
+
+  return customFetch<string[]>(getListMergeTokensUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListMergeTokensQueryKey = () => {
+    return [
+    `/api/merge-tokens`
+    ] as const;
+    }
+
+
+export const getListMergeTokensQueryOptions = <TData = Awaited<ReturnType<typeof listMergeTokens>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listMergeTokens>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListMergeTokensQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listMergeTokens>>> = ({ signal }) => listMergeTokens({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listMergeTokens>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListMergeTokensQueryResult = NonNullable<Awaited<ReturnType<typeof listMergeTokens>>>
+export type ListMergeTokensQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Every merge token a document template can use
+ */
+
+export function useListMergeTokens<TData = Awaited<ReturnType<typeof listMergeTokens>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listMergeTokens>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListMergeTokensQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getListClientsUrl = (params?: ListClientsParams,) => {
   const normalizedParams = new URLSearchParams();

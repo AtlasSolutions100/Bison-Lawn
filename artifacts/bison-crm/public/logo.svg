@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" fill="none">
-  <!-- Warm neutral background / card -->
-  <rect width="400" height="400" rx="40" fill="#f8f6f3"/>
-  <!-- Bison silhouette in forest green -->
-  <path d="M295 180c-15-25-45-40-75-45-20-3-45 2-60 10-15 10-30 25-40 45-5 10-15 35-15 45 0 15 10 20 20 20 5 0 15-5 25-15 10-10 20-35 30-40 10-5 25-5 40 0 10 5 20 15 30 30 5 10 15 20 25 20s20-10 20-25c0-15 0-35-10-45" fill="#20603d"/>
-  <circle cx="200" cy="200" r="140" stroke="#b08d44" stroke-width="12" stroke-dasharray="10 20"/>
-  <!-- Text -->
-  <text x="200" y="320" font-family="sans-serif" font-weight="bold" font-size="32" fill="#38291f" text-anchor="middle">Bison Lawn Care</text>
-</svg>

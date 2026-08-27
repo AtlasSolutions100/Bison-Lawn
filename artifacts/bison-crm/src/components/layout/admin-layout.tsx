@@ -48,7 +48,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
       {/* Mobile Header */}
       <div className="md:hidden flex items-center justify-between p-4 bg-sidebar border-b border-sidebar-border text-sidebar-foreground">
         <div className="flex items-center gap-2">
-          <img src={`${basePath}/logo.svg`} alt="Logo" className="w-8 h-8 rounded-sm bg-white p-1" />
+          <img src={`${basePath}/logo-mark.png`} alt="Logo" className="w-8 h-8 rounded-sm bg-white p-1" />
           <span className="font-bold text-lg">Bison CRM</span>
         </div>
         <Button variant="ghost" size="icon" className="text-white hover:bg-sidebar-accent" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
@@ -62,7 +62,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
         md:block md:w-64 flex-shrink-0 bg-sidebar border-r border-sidebar-border text-sidebar-foreground flex flex-col h-[100dvh] md:sticky md:top-0
       `}>
         <div className="p-6 hidden md:flex items-center gap-3">
-          <img src={`${basePath}/logo.svg`} alt="Logo" className="w-10 h-10 rounded-sm bg-white p-1 shadow-sm" />
+          <img src={`${basePath}/logo-mark.png`} alt="Logo" className="w-10 h-10 rounded-sm bg-white p-1 shadow-sm" />
           <span className="font-bold text-xl tracking-tight">Bison CRM</span>
         </div>
         

@@ -265,6 +265,51 @@ export interface FeedbackUpdate {
   adminNote?: string | null;
 }
 
+export interface CompanyProfile {
+  id: number;
+  name: string;
+  /** @nullable */
+  addressLine1?: string | null;
+  /** @nullable */
+  addressLine2?: string | null;
+  /** @nullable */
+  city?: string | null;
+  /** @nullable */
+  state?: string | null;
+  /** @nullable */
+  postalCode?: string | null;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  website?: string | null;
+  signatureLine: string;
+  updatedAt?: string;
+}
+
+export interface CompanyProfileInput {
+  /** @minLength 1 */
+  name?: string;
+  /** @nullable */
+  addressLine1?: string | null;
+  /** @nullable */
+  addressLine2?: string | null;
+  /** @nullable */
+  city?: string | null;
+  /** @nullable */
+  state?: string | null;
+  /** @nullable */
+  postalCode?: string | null;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  website?: string | null;
+  signatureLine?: string;
+}
+
 export type ClientStatus = typeof ClientStatus[keyof typeof ClientStatus];
 
 
@@ -282,6 +327,12 @@ export interface Client {
   status: ClientStatus;
   /** @nullable */
   serviceAddress?: string | null;
+  /** @nullable */
+  addressLine2?: string | null;
+  /** @nullable */
+  state?: string | null;
+  /** @nullable */
+  postalCode?: string | null;
   /** @nullable */
   city?: string | null;
   /** @nullable */
@@ -321,6 +372,12 @@ export interface ClientInput {
   name: string;
   status?: ClientInputStatus;
   serviceAddress?: string;
+  /** @nullable */
+  addressLine2?: string | null;
+  /** @nullable */
+  state?: string | null;
+  /** @nullable */
+  postalCode?: string | null;
   city?: string;
   lat?: number;
   lng?: number;
@@ -348,6 +405,12 @@ export interface ClientUpdate {
   status?: ClientUpdateStatus;
   /** @nullable */
   serviceAddress?: string | null;
+  /** @nullable */
+  addressLine2?: string | null;
+  /** @nullable */
+  state?: string | null;
+  /** @nullable */
+  postalCode?: string | null;
   /** @nullable */
   city?: string | null;
   /** @nullable */
