@@ -43,8 +43,17 @@ export const clientsTable = pgTable("clients", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   status: text("status").notNull().default("lead"), // lead | client | former_client
+  // serviceAddress is the street line the app has always shown. The owner's
+  // letter templates address the parts separately ([physicaladdress1],
+  // [physicaladdress2], [physicalcity], [physicalstate], [physicalzip]), so the
+  // remaining parts are stored alongside rather than parsed back out of one
+  // string — parsing addresses is guesswork and gets names like
+  // "Ridgeline Property Group, Suite 2" wrong.
   serviceAddress: text("service_address"),
+  addressLine2: text("address_line2"),
   city: text("city"),
+  state: text("state"),
+  postalCode: text("postal_code"),
   lat: doublePrecision("lat"),
   lng: doublePrecision("lng"),
   accountBalance: doublePrecision("account_balance").notNull().default(0),
@@ -525,6 +534,66 @@ export const schedulingRulesTable = pgTable("scheduling_rules", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 export type SchedulingRule = typeof schedulingRulesTable.$inferSelect;
+
+// ---------- company profile ----------
+// Who the business is, in one editable row.
+//
+// Every one of these was hardcoded — "Bison Lawn Care LLC" appeared verbatim in
+// seven places across three files, and the address, phone, website and email
+// existed nowhere at all. The owner's letter templates address all of them by
+// merge token ([companyname], [companyaddress], [companywebsite] ...), so they
+// have to become data before a single template can render.
+//
+// A singleton, like billing_settings: exactly one row, created on first read.
+// Kept separate from billing_settings on purpose — card-fee policy and business
+// identity change for unrelated reasons and by different people.
+export const companyProfileTable = pgTable("company_profile", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().default("Bison Lawn Care LLC"),
+  addressLine1: text("address_line1"),
+  addressLine2: text("address_line2"),
+  city: text("city"),
+  state: text("state"),
+  postalCode: text("postal_code"),
+  phone: text("phone"),
+  email: text("email"),
+  website: text("website"),
+  // Sign-off above the company block, e.g. "Your Friendly Bison,". The owner
+  // uses this verbatim in every letter and it is part of the brand voice.
+  signatureLine: text("signature_line").notNull().default("Your Friendly Bison,"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export type CompanyProfile = typeof companyProfileTable.$inferSelect;
+
+// ---------- document templates ----------
+// The letters and proposals the office sends, with the owner's own merge tokens.
+//
+// Supersedes the single-row letter_templates table, which held one spring letter
+// and understood three tokens. The owner works from at least four distinct
+// documents (aeration notice, mow-care welcome, estimate proposal, sprinkler
+// repair) and expects ~17 tokens. letter_templates is left in place so the
+// existing spring-letter run keeps working untouched; new work uses this.
+export const documentTemplatesTable = pgTable("document_templates", {
+  id: serial("id").primaryKey(),
+  // Stable slug so code can fetch a specific document without matching on a
+  // name the office is free to rename.
+  key: text("key").notNull().unique(),
+  name: text("name").notNull(),
+  // notice        — standalone letter about upcoming work (aeration, mow care)
+  // estimate_cover — the body wrapped around a quote
+  // contract      — terms appended below a quote
+  kind: text("kind").notNull().default("notice"),
+  // Attaches the template to a service, so sending for that service picks it up
+  // without the office choosing from a list every time. Null = general purpose.
+  serviceId: integer("service_id").references(() => servicesTable.id, { onDelete: "set null" }),
+  subject: text("subject"),
+  body: text("body").notNull(),
+  // Seeded rows are marked so a future update can tell "the office wrote this"
+  // from "we shipped this", and never overwrite the former.
+  isSeeded: boolean("is_seeded").notNull().default(false),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export type DocumentTemplate = typeof documentTemplatesTable.$inferSelect;
 
 // ---------- feedback ----------
 // In-app feedback from whoever is using the system, captured where they hit the

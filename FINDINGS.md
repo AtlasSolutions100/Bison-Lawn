@@ -364,3 +364,58 @@ Chrome's tab-strip grey.
 **Process note:** holding codegen while agents ran left the tree uncompilable and
 cost two agents real time chasing a phantom `feedbackTable` error. Regeneration
 is additive; it should have been immediate.
+
+## 2026-08-27 — the owner's document templates are a data-model gap, not a formatting one
+
+He sent four templates (aeration notice, mow-care welcome, estimate proposal,
+sprinkler repair) using ~17 square-bracket merge tokens. Measured against the
+app: **only 3 of them had anything to read from.**
+
+| Token group | State before this change |
+|---|---|
+| `[clientname]` `[physicalcity]` `[quotetotal]` | existed |
+| `[clientfname]` | only a single `name` column |
+| `[physicaladdress2]` `[physicalstate]` `[physicalzip]` | no columns at all |
+| all 8 `[company*]` tokens | **no company profile existed** — "Bison Lawn Care LLC" was hardcoded in 7 places across 3 files, and address/phone/website nowhere |
+| `[signatureline]` `[Bison_Full_Service]` | no concept |
+
+**Built (foundation only):**
+- `company_profile`, a singleton like `billing_settings` but separate from it —
+  card-fee policy and business identity change for different reasons.
+- `clients.address_line2`, `.state`, `.postal_code`. Stored alongside
+  `serviceAddress` rather than parsed out of it: address parsing is guesswork
+  and mangles "Ridgeline Property Group, Suite 2".
+- `document_templates`, superseding the single-row `letter_templates` (one
+  letter, three tokens). `letter_templates` is left in place so the existing
+  spring-letter run keeps working.
+- `lib/mergeTokens.ts` — 21 tokens in **his** `[token]` syntax, not the app's
+  `{{token}}`. He has years of documents written that way; making him rewrite
+  them is the tax that stops a tool being adopted. Both syntaxes now coexist.
+
+**Deliberate decisions worth knowing:**
+- An unrecognised token is left visible, never blanked. `[speciallowerprice]`
+  appearing in a customer letter is an obvious, fixable mistake; deleting it
+  yields a sentence that reads fine and is wrong, and nobody catches it until it
+  has gone to 400 people. `unknownTokensIn()` surfaces them before sending.
+- `[clientfname]` is derived from the first word of `name`, not a new column: a
+  new column is empty for every existing customer, so every letter would open
+  "Dear ,". "Ridgeline Property Group" greets as "Ridgeline" — odd, not wrong.
+- His two estimate documents name the services block with different tokens
+  (`[Bison_Full_Service]`, `[Estimate_Bundle:_Estimate_Description_Only]`). Both
+  resolve to the same block rather than making him standardise on ours.
+
+Verified against his verbatim template text: all four documents render, case
+mixed as he writes it, unknown tokens preserved and reported.
+
+**Still open on this thread**
+- Company-profile and template-editor API + UI; seeding his four documents.
+- The 7 hardcoded "Bison Lawn Care LLC" sites should read the profile.
+- **Per-service acceptance.** His estimate says "check the box corresponding to
+  each service ... uncheck the respective box". Ours accepts the whole estimate.
+  This is now a correctness issue, not only a feature gap: the auto-scheduler
+  creates a job for *every* line, so partial acceptance would schedule work he
+  never sold.
+- Contract / payment-disclosure block below the quote.
+- **The real logo is not the one in the app.** His letterhead is a "B" formed
+  from a bison plus a wordmark; `logo.svg` is a crude arch. Ask him for the
+  artwork — it cannot be recovered from a screenshot.
