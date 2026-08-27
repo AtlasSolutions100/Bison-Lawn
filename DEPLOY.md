@@ -30,8 +30,14 @@ $EDITOR .env.deploy          # every blank must be filled
 a brand new container, so you are choosing it. Generate one:
 
 ```bash
-openssl rand -base64 48
+openssl rand -hex 32
 ```
+
+**Use hex, not base64.** `openssl rand -base64` emits `/` and `+`, and a `/` in
+the password breaks `DATABASE_URL`: `postgres://bison:/abc...@db:5432/x` parses
+the host as `bison` and every query fails with `getaddrinfo EAI_AGAIN bison`.
+The container still reports healthy, because `/api/healthz` does not touch the
+database — so this failure hides behind a green healthcheck.
 
 If port 8080 is taken on this host, set `APP_HOST_PORT` to something free and
 match it in the proxy config.

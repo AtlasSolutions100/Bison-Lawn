@@ -246,3 +246,35 @@ have looked like a failure. Now `grep -n import`.
 
 **Paths:** the SSH key authorises `root`, not `deploy`, so `~` is `/root` while
 takeoff lives at `/home/deploy/takeoff`. All runbook paths made absolute.
+
+## 2026-08-27 — LIVE at https://bisonlawncare.workoptional.tech
+
+Deployed to srv1928610 alongside the takeoff stack. Full record in
+`verify/2026-08-27/production-deploy/`.
+
+takeoff measured unaffected at every step: `takeoff-app-1` untouched for 27h
+with `restarts=0`, its Caddyfile mtime unchanged from when the takeoff side
+wrote it, and `workoptional.studio` returning 200 at every checkpoint including
+three consecutive checks in the seconds after the Caddy reload. Caddy was
+reloaded, never restarted.
+
+**Bug found and fixed: URL-unsafe Postgres password.** Generated with
+`openssl rand -base64`, which emits `/`. That broke `DATABASE_URL` parsing —
+`postgres://bison:/h5e...@db:5432/x` resolves the host as `bison` — and every
+query failed with `getaddrinfo EAI_AGAIN bison`. **The container reported
+`healthy` the whole time**, because `/api/healthz` does not touch the database.
+A green healthcheck on this app does not mean the database is reachable. Fixed
+with `openssl rand -hex 32`; DEPLOY.md and `.env.deploy.example` now say why.
+
+**Live email confirmed by delivered headers:** `From: Koby Stull
+<koby@radiantaisoftware.com>`, `mailed-by: radiantaisoftware.com`. Confirms that
+the consenting account becomes the visible sender, since no `From:` header is
+set anywhere in the code.
+
+**Open / next**
+- Nothing behind sign-in verified on the live hostname (needs a human sign-in).
+- OAuth consent screen is still in "Testing": refresh tokens expire after 7 days.
+  Publish it or email dies silently around 2026-09-03.
+- Sender is currently Koby, not the Bison account. Re-run the setup script signed
+  in as Bison when ready for real customers.
+- GitHub deploy key id 161442430 added to the repo (read-only, this host).
