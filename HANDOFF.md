@@ -10,22 +10,22 @@ level with `origin/main`, working tree clean, takeoff untouched throughout.
 Deploy with one command on the server:
 
 ```
-/root/bisonlawn/deploy/deploy.sh
+bash /root/bisonlawn/deploy/deploy.sh
 ```
 
 See `DEPLOY.md` for why it aborts on a failed fetch (a deploy that pulls then
 builds will otherwise build stale code and report success — that happened once).
 
-## Blocking before Adam uses this for real
+## Environment choices, decided
 
-1. **Clerk is on test keys** — `sk_test_` / `pk_test_`. A development instance is
-   not meant to carry a real business, and 40 of the 42 users in it are
-   `@example.com` accounts left by the test suites. Needs a production Clerk
-   instance, then the same key swap and rebuild done for Intuit.
-2. **The Intuit app logo is broken on the OAuth consent screen** — a
-   broken-image placeholder sits next to the QuickBooks mark on the page where
-   Adam approves access to his real books. Upload the icon on the Intuit
-   dashboard listing.
+- **Clerk is on test keys** (`sk_test_`/`pk_test_`) — a deliberate choice while
+  the app is being tested, not an oversight. Switch to a production Clerk
+  instance before Adam and his crew sign in for real; the procedure is the same
+  shape as the Intuit swap in DEPLOY.md. Note the dev instance is accumulating
+  `@example.com` accounts left by the automated test suites, which are worth
+  clearing out at some point.
+- **The Intuit consent-screen logo** was reported broken on 2026-08-27 and has
+  since been verified working by Koby. Nothing outstanding.
 
 ## Adam's backlog: 9 of 11 done
 
