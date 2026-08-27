@@ -1,26 +1,25 @@
-# Reverse proxy for one client subdomain. Caddy gets TLS certificates
-# automatically — no certbot, no renewal cron.
+# Vhost for bisonlawn.workoptional.tech.
 #
-# If this VPS already runs Caddy, append this block to the existing Caddyfile
-# and reload (`caddy reload --config /etc/caddy/Caddyfile`). If it runs nginx,
-# see DEPLOY.md for the equivalent nginx server block instead — do not run two
-# things that both want ports 80 and 443.
+# This VPS already runs Caddy in a container (takeoff-caddy-1). Append this
+# block to that Caddy's existing Caddyfile — do NOT start a second Caddy, and do
+# not replace the file: the existing site's block has to stay.
+#
+# Because Caddy is containerised, it reaches this app by container name over a
+# shared Docker network, not on 127.0.0.1. That requires starting this stack
+# with docker-compose.proxy.yml (see DEPLOY.md).
 
 bisonlawn.workoptional.tech {
-	# APP_HOST_PORT from .env.deploy. The app binds 127.0.0.1 only, so this is
-	# the sole route in.
-	reverse_proxy 127.0.0.1:8080
+	reverse_proxy bisonlawn-app:8080
 
 	encode gzip zstd
 
-	# Estimate PDFs and the daily weather run can be slow; the default 
-	# read timeout is generous enough, but be explicit rather than surprised.
+	# Estimate PDFs are the largest thing that moves through here.
 	request_body {
 		max_size 25MB
 	}
 
 	log {
-		output file /var/log/caddy/bison.log
+		output stdout
 		format json
 	}
 }

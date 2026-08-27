@@ -101,3 +101,17 @@ Append one line per behaviour-changing turn. Assume the next session has no cont
   bundle and drizzle-kit is needed for schema pushes). Slimmable.
 - `drizzle-kit push` is the only schema mechanism; there are no migration files.
   DEPLOY.md deliberately keeps it a manual step.
+
+## 2026-08-26 — target environment identified
+
+Deploy target is a VPS already running `takeoff-caddy-1` (caddy:2-alpine, owns
+80/443) in front of `takeoff-app-1` (8100/tcp, unpublished). Caddy is
+containerised, so this stack uses `docker-compose.proxy.yml`: no host port, join
+Caddy's network, and Caddy reaches it as `bisonlawn-app:8080`. The existing site
+is not touched.
+
+Domain is `bisonlawn.workoptional.tech` (was written as `bison.` — corrected).
+Container name standardised to `bisonlawn-app`.
+
+Clerk stays on the existing development keys for now — they work on a custom
+domain, with Clerk's dev banner and usage limits. No key rotation needed.

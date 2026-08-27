@@ -17,14 +17,14 @@ services:
       - default
       - proxy
     # Traefik users: uncomment and adjust. Caddy/nginx users ignore these and
-    # add a vhost pointing at http://bison-app:8080 instead.
+    # add a vhost pointing at http://bisonlawn-app:8080 instead.
     # labels:
     #   traefik.enable: "true"
     #   traefik.http.routers.bison.rule: "Host(`bisonlawn.workoptional.tech`)"
     #   traefik.http.routers.bison.entrypoints: "websecure"
     #   traefik.http.routers.bison.tls.certresolver: "letsencrypt"
     #   traefik.http.services.bison.loadbalancer.server.port: "8080"
-    container_name: bison-app
+    container_name: bisonlawn-app
 
 networks:
   proxy:

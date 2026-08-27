@@ -100,13 +100,13 @@ reaches it by container name over a shared network:
 docker compose --env-file .env.deploy   -f docker-compose.yml -f docker-compose.proxy.yml up -d --build
 ```
 
-Then point the proxy at `http://bison-app:8080`:
+Then point the proxy at `http://bisonlawn-app:8080`:
 
 - Traefik — uncomment the labels in `docker-compose.proxy.yml`.
 - Caddy (containerised) — add the block from `deploy/Caddyfile.example` to its
-  Caddyfile, changing `reverse_proxy 127.0.0.1:8080` to `reverse_proxy bison-app:8080`.
+  Caddyfile, changing `reverse_proxy 127.0.0.1:8080` to `reverse_proxy bisonlawn-app:8080`.
 - Nginx Proxy Manager — add a Proxy Host: `bisonlawn.workoptional.tech` →
-  forward to `bison-app` port `8080`, with "Websockets" on and an SSL cert
+  forward to `bisonlawn-app` port `8080`, with "Websockets" on and an SSL cert
   requested. Make sure NPM is on the same network as `PROXY_NETWORK`.
 
 **If it is the application itself** publishing 80/443 directly, a proxy has to be
