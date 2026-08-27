@@ -1,25 +1,34 @@
-# Vhost for bisonlawn.workoptional.tech.
+# The block to APPEND to /home/deploy/takeoff/Caddyfile.
 #
-# This VPS already runs Caddy in a container (takeoff-caddy-1). Append this
-# block to that Caddy's existing Caddyfile — do NOT start a second Caddy, and do
-# not replace the file: the existing site's block has to stay.
+# Append it after the existing {$SITE_HOST} block. Do not modify that block, and
+# do not replace the file. Caddy supports any number of site blocks; there is no
+# global options block in that file, so a new site block at the end is all that
+# is needed.
 #
-# Because Caddy is containerised, it reaches this app by container name over a
-# shared Docker network, not on 127.0.0.1. That requires starting this stack
-# with docker-compose.proxy.yml (see DEPLOY.md).
+# Deliberately matches the house style of the file it is joining:
+#   - `encode zstd gzip` in the same order
+#   - `format console`, because these lines land in the SAME `docker logs
+#     takeoff-caddy-1` stream. Mixing console and json output there would make
+#     the live stack's logs harder to read during an incident.
+#
+# No transport read/write timeouts: those exist in the takeoff block for a
+# measured reason (a 30m report.pdf render). Nothing here is slow, so the stock
+# deadlines apply.
+#
+# 25MB body cap rather than takeoff's 512MB: this app has no large-upload route.
+# The cap is a floor under memory, not a target.
 
 bisonlawn.workoptional.tech {
+	encode zstd gzip
+
 	reverse_proxy bisonlawn-app:8080
 
-	encode gzip zstd
-
-	# Estimate PDFs are the largest thing that moves through here.
 	request_body {
 		max_size 25MB
 	}
 
 	log {
 		output stdout
-		format json
+		format console
 	}
 }

@@ -11,6 +11,7 @@ Written against the actual host as inspected 2026-08-26.
 | Caddyfile | **bind mount, read-only**: host `/home/deploy/takeoff/Caddyfile` → `/etc/caddy/Caddyfile` |
 | Certificates | volume `takeoff_caddy-data` → `/data` |
 | Serving | `workoptional.studio`, live to ~20 clients |
+| Caddyfile shape | one site block, addressed by the **env placeholder `{$SITE_HOST}`**; no global options block; upstream is the alias `app:8100` |
 
 ## The safety properties this relies on
 
@@ -112,27 +113,61 @@ not ready and a vhost pointing at an unreachable upstream just adds noise.
 
 ## 5. Add the vhost
 
-Append to `/home/deploy/takeoff/Caddyfile` — **append, never replace**:
+### 5a. Two checks first
 
+The takeoff site is addressed as `{$SITE_HOST}` — an environment placeholder
+Caddy expands at config-load time. `docker exec` inherits the container's
+environment, so it should resolve, but confirm rather than assume: if it expands
+to empty, `validate` fails on *their* block and the error will look like ours.
+
+```bash
+docker exec takeoff-caddy-1 printenv SITE_HOST     # expect the takeoff hostname
 ```
+
+The Caddyfile lives inside what is probably a git working tree. Find out, because
+it determines whether a future `git pull` silently reverts this edit:
+
+```bash
+cd /home/deploy/takeoff && git status --short Caddyfile 2>/dev/null || echo "not a git repo"
+```
+
+If it is tracked, note it — see *Known fragility*.
+
+### 5b. Append
+
+Append the block from `deploy/Caddyfile.example` to the **end** of
+`/home/deploy/takeoff/Caddyfile`. Do not touch the `{$SITE_HOST}` block. There
+is no global options block in that file, so a trailing site block is correct.
+
+```bash
+cat >> /home/deploy/takeoff/Caddyfile <<'CADDY'
+
 bisonlawn.workoptional.tech {
+	encode zstd gzip
+
 	reverse_proxy bisonlawn-app:8080
-	encode gzip zstd
+
 	request_body {
 		max_size 25MB
 	}
+
 	log {
 		output stdout
-		format json
+		format console
 	}
 }
+CADDY
 ```
 
-Validate, then reload:
+`format console` matches the takeoff block on purpose: both write to the same
+`docker logs takeoff-caddy-1` stream, and mixing console with json would make
+that stream harder to read during an incident.
+
+### 5c. Validate, then reload
 
 ```bash
 docker exec takeoff-caddy-1 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-# only if that exits 0:
+# ONLY if that exits 0:
 docker exec takeoff-caddy-1 caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 ```
 
@@ -169,6 +204,18 @@ docker network rm web-proxy
 Leaves the host exactly as it was found.
 
 ## Known fragility, and which way it points
+
+**The Caddyfile edit lives in takeoff's directory.** If `/home/deploy/takeoff`
+is a git working tree, this appended block is an uncommitted local change there.
+A `git pull`, `git checkout`, or `git stash` during a takeoff deploy will revert
+it — and Caddy will keep serving the old config until something reloads it, at
+which point `bisonlawn.workoptional.tech` starts returning a certificate error
+or a 404. **takeoff is unaffected either way.** Re-append and reload to fix.
+
+There is no way around this without recreating the Caddy container (to mount a
+`conf.d` directory it could `import`), and recreating that container is exactly
+what must not happen while it is serving 20 clients. Editing the file is the
+lower-risk option; this is the price.
 
 If the takeoff stack is ever recreated (`docker compose up -d` in
 `/home/deploy/takeoff`), Compose may drop the manually added `web-proxy` network

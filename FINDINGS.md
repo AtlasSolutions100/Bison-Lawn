@@ -142,3 +142,27 @@ serving `workoptional.studio` to ~20 clients. That constrains the deploy.
 - `docker network connect` attaches a running container with no restart.
 - Remaining fragility: recreating the takeoff stack can drop the manually added
   network from its Caddy container. That 502s bisonlawn, never takeoff.
+
+## 2026-08-26 — takeoff Caddyfile inspected; vhost tailored
+
+The live Caddyfile at `/home/deploy/takeoff/Caddyfile` has one site block
+addressed by the env placeholder `{$SITE_HOST}`, no global options block, and
+proxies to the compose alias `app:8100`.
+
+Consequences folded into the runbook:
+- A trailing site block is the correct place to append; there is no global block
+  to sit above.
+- `{$SITE_HOST}` must resolve inside `docker exec` for `caddy validate` to pass.
+  It should (exec inherits container env) but the runbook verifies it, because a
+  failure there produces an error pointing at *their* block, not ours.
+- Our block matches their `encode zstd gzip` order and uses `format console`,
+  not json: both write to the same `docker logs takeoff-caddy-1` stream.
+- No transport timeouts copied over — theirs exist for a measured 30m report
+  render. Nothing here is slow.
+- 25MB body cap, not their 512MB: no large-upload route exists in this app.
+
+**Unresolved fragility:** the edit is an uncommitted local change inside
+takeoff's git working tree. A `git pull`/`checkout` there reverts it, and
+bisonlawn breaks on the next Caddy reload. takeoff is unaffected. Avoiding this
+would need the Caddy container recreated to mount an importable `conf.d`, which
+is not acceptable while it serves 20 clients.
