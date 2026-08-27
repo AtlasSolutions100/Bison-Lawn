@@ -197,3 +197,78 @@ Clerk application.
   and setting `VITE_CLERK_PROXY_URL` — do not set that with dev keys.
 - **`drizzle-kit push` is not a migration system.** Replace it before the data
   matters.
+
+## Switching QuickBooks from sandbox to production
+
+Do these in order. The order is not cosmetic.
+
+**1. Disconnect the sandbox grant while the development keys are still in place.**
+Use the Disconnect button on /books. The revoke call is signed with whatever
+client credentials the server currently holds, so swapping keys first leaves the
+sandbox grant alive on Intuit's side with nothing pointing at it. Confirm the
+table is empty afterwards:
+
+```
+docker exec <db-container> psql -U bison -d <db> -t -A -c 'select count(*) from quickbooks_connection;'
+```
+
+**2. Register the redirect URI on the PRODUCTION key set.**
+Intuit keeps separate redirect-URI lists for Development and Production keys.
+Configuring the sandbox one does not configure the other, and the failure only
+appears when someone clicks Connect. On the Intuit developer dashboard, open the
+app, switch to the **Production** keys tab, and add exactly:
+
+```
+https://<client-host>/api/quickbooks/callback
+```
+
+No trailing slash. It must match what `resolveRedirectUri()` produces, which is
+`APP_PUBLIC_URL` + `/api/quickbooks/callback` unless `INTUIT_REDIRECT_URI`
+overrides it.
+
+**3. Check the app's display name on the dashboard.** Whatever it is called is
+what the client sees when asked to approve access to their real books. "Test App
+wants to access your QuickBooks data" is not what you want in front of a paying
+customer.
+
+**4. Install the production credentials.** Pipe them over stdin rather than
+putting them in a command line, so they stay out of shell history and process
+lists:
+
+```
+grep -E '^INTUIT_CLIENT_ID=|^INTUIT_CLIENT_SECRET=' .env | tr -d '\r' | ssh <host> '
+umask 077
+cat > /tmp/intuit.new
+cd /root/<project>
+cp .env.deploy .env.deploy.bak-$(date +%s)
+grep -v -E "^INTUIT_CLIENT_ID=|^INTUIT_CLIENT_SECRET=|^INTUIT_ENVIRONMENT=" .env.deploy > /tmp/env.new
+cat /tmp/intuit.new >> /tmp/env.new
+echo "INTUIT_ENVIRONMENT=production" >> /tmp/env.new
+mv /tmp/env.new .env.deploy
+chmod 600 .env.deploy
+rm -f /tmp/intuit.new'
+```
+
+**5. Recreate the container.** `docker compose restart` does NOT re-read
+`env_file` — the old values survive and everything looks fine until the first
+Intuit call fails. Use `up -d`, and pass both compose files so the proxy network
+config is not dropped:
+
+```
+docker compose --env-file .env.deploy -f docker-compose.yml -f docker-compose.proxy.yml up -d app
+docker exec <app-container> printenv INTUIT_ENVIRONMENT
+```
+
+**6. Pre-flight before handing it to the client.** Load /books and click Connect
+yourself. Stop at Intuit's screen — do not authorize. You are checking that
+Intuit accepts the client id and the redirect URI. If either is wrong you get
+`appcenter.intuit.com/app/connect/oauth2/error`, and "View error details (for
+Developers)" names which one. Finding that yourself takes a minute; finding it
+because the client hit it costs a support call and their confidence.
+
+### Why a leftover sandbox row is not dangerous
+
+`/api/quickbooks/status` reports `connection?.environment ?? intuitEnvironment()`,
+so the "these are not your real books" banner follows the grant, not the server
+setting. A stale sandbox connection keeps its banner even after the server is
+switched to production. Sandbox figures cannot silently render as real books.
