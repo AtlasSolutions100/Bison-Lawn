@@ -163,10 +163,13 @@ export async function startHarness(): Promise<Harness> {
   vite.stdout?.on("data", (c) => (viteOutput += String(c)));
   vite.stderr?.on("data", (c) => (viteOutput += String(c)));
 
-  const executablePath = process.env.REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE;
-  if (!executablePath) {
-    throw new Error("REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE is not set; cannot launch a browser");
-  }
+  // Replit supplied a Chromium build via REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE.
+  // Off-platform, prefer PLAYWRIGHT_CHROMIUM_EXECUTABLE if set and otherwise let
+  // Playwright resolve the browser it installed itself (`pnpm exec playwright
+  // install chromium`), which is the normal case on a developer machine or CI.
+  const executablePath =
+    process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ??
+    process.env.REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE;
 
   let browser: Browser | null = null;
   const contexts: BrowserContext[] = [];
@@ -187,7 +190,8 @@ export async function startHarness(): Promise<Harness> {
   try {
     await waitForHttp(webUrl, 90_000);
     browser = await chromium.launch({
-      executablePath,
+      // Undefined means "use Playwright's own installed Chromium".
+      ...(executablePath ? { executablePath } : {}),
       args: ["--no-sandbox", "--disable-dev-shm-usage"],
     });
   } catch (err) {

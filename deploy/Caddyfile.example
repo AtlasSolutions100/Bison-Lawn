@@ -1,0 +1,26 @@
+# Reverse proxy for one client subdomain. Caddy gets TLS certificates
+# automatically — no certbot, no renewal cron.
+#
+# If this VPS already runs Caddy, append this block to the existing Caddyfile
+# and reload (`caddy reload --config /etc/caddy/Caddyfile`). If it runs nginx,
+# see DEPLOY.md for the equivalent nginx server block instead — do not run two
+# things that both want ports 80 and 443.
+
+bisonlawn.workoptional.tech {
+	# APP_HOST_PORT from .env.deploy. The app binds 127.0.0.1 only, so this is
+	# the sole route in.
+	reverse_proxy 127.0.0.1:8080
+
+	encode gzip zstd
+
+	# Estimate PDFs and the daily weather run can be slow; the default 
+	# read timeout is generous enough, but be explicit rather than surprised.
+	request_body {
+		max_size 25MB
+	}
+
+	log {
+		output file /var/log/caddy/bison.log
+		format json
+	}
+}

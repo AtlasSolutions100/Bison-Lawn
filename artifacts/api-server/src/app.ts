@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import express, {
   type Express,
   type Request,
@@ -45,12 +47,19 @@ app.use(
 app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
 
 // Credentialed CORS restricted to this app's own origins (dev + deployed).
+// APP_PUBLIC_URL is the deployment's own origin; APP_EXTRA_ORIGINS is an optional
+// comma-separated list for anything else that must be allowed (a second domain
+// during a DNS cutover, say). Localhost is always allowed below.
 const allowedOrigins = new Set<string>();
-for (const domain of (process.env.REPLIT_DOMAINS ?? "").split(",")) {
-  if (domain.trim()) allowedOrigins.add(`https://${domain.trim()}`);
-}
-if (process.env.REPLIT_DEV_DOMAIN) {
-  allowedOrigins.add(`https://${process.env.REPLIT_DEV_DOMAIN}`);
+for (const value of [process.env.APP_PUBLIC_URL, ...(process.env.APP_EXTRA_ORIGINS ?? "").split(",")]) {
+  const trimmed = value?.trim();
+  if (!trimmed) continue;
+  try {
+    allowedOrigins.add(new URL(trimmed).origin);
+  } catch {
+    // A malformed entry must not widen CORS, and must not stop the app booting.
+    logger.warn({ value: trimmed }, "ignoring unparseable allowed origin");
+  }
 }
 app.use(
   cors({
@@ -90,6 +99,35 @@ app.use(
 app.use(weatherSchedulerRequestHook());
 
 app.use("/api", router);
+
+// On Replit a workspace router served the built web app and forwarded /api to
+// this process, so the browser saw one origin. Off Replit nothing does that, and
+// Clerk's session cookie requires it — so in production this process serves the
+// built SPA itself. In development the Vite dev server proxies /api here instead.
+if (process.env.NODE_ENV === "production") {
+  const webDist =
+    process.env.WEB_DIST_PATH ??
+    path.resolve(import.meta.dirname, "../../bison-crm/dist/public");
+  const indexHtml = path.join(webDist, "index.html");
+
+  if (existsSync(indexHtml)) {
+    // index:false so the fallback below owns "/" too, and every client-side
+    // route resolves through the same code path.
+    app.use(express.static(webDist, { index: false }));
+    app.use((req, res, next) => {
+      if (req.method !== "GET" && req.method !== "HEAD") return next();
+      // /api is already handled above; a miss there is a real 404, not the SPA.
+      if (req.path === "/api" || req.path.startsWith("/api/")) return next();
+      return res.sendFile(indexHtml);
+    });
+    logger.info({ webDist }, "serving web build");
+  } else {
+    // API-only is a valid deployment (a separate static host in front), so warn
+    // rather than refuse to boot — but say so, because the usual cause is that
+    // the web build did not run.
+    logger.warn({ webDist }, "no web build found; serving API only");
+  }
+}
 
 // Without this, anything a route throws — most commonly a request body that fails
 // its schema — falls through to Express's default handler and comes back as an HTML

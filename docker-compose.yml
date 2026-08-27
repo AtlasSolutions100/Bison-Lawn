@@ -1,0 +1,43 @@
+# One stack per client. Copy this file and .env.deploy.example for the next one,
+# change the container names, the volume name, and the published port.
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: bison
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.deploy}
+      POSTGRES_DB: bisonlawn
+    volumes:
+      - bison-db:/var/lib/postgresql/data
+    # Not published to the host: only the app container needs to reach it.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bison -d bisonlawn"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      # Build-time only: Vite bakes these into the JS bundle. Interpolated from
+      # the file passed as `docker compose --env-file .env.deploy`.
+      args:
+        VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY:?set VITE_CLERK_PUBLISHABLE_KEY in .env.deploy}
+        VITE_CLERK_PROXY_URL: ${VITE_CLERK_PROXY_URL:-}
+    restart: unless-stopped
+    env_file: .env.deploy
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      DATABASE_URL: postgres://bison:${POSTGRES_PASSWORD}@db:5432/bisonlawn
+    depends_on:
+      db:
+        condition: service_healthy
+    # Bound to loopback so only a reverse proxy on this host can reach it —
+    # never expose the app port to the internet directly.
+    ports:
+      - "127.0.0.1:${APP_HOST_PORT:-8080}:8080"
+
+volumes:
+  bison-db:

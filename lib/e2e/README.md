@@ -13,7 +13,8 @@ The suite boots everything it needs:
   in `requireAuth` (no Clerk session, no live Clerk needed);
 - a Vite dev server for the web app with `VITE_E2E_AUTH_BYPASS=1` (skips only the
   client-side Clerk gate — dev builds only) and `/api` proxied to that API;
-- headless Chromium from `REPLIT_PLAYWRIGHT_CHROMIUM_EXECUTABLE`.
+- headless Chromium: Playwright's own install (`pnpm exec playwright install chromium`),
+  or an explicit build via `PLAYWRIGHT_CHROMIUM_EXECUTABLE`.
 
 Open-Meteo is stubbed in-process (`setStubForecast`), so weather tests are
 deterministic and make no network calls.

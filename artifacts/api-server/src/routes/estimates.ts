@@ -92,8 +92,8 @@ export function publicAppOrigin() {
   if (process.env.NODE_ENV === "production") {
     throw new Error("APP_PUBLIC_URL is required in production");
   }
-  if (process.env.REPLIT_DEV_DOMAIN) return `https://${process.env.REPLIT_DEV_DOMAIN}`;
-  return "http://localhost:8080";
+  // Development fallback only; production threw above without APP_PUBLIC_URL.
+  return `http://localhost:${process.env.WEB_PORT ?? "5173"}`;
 }
 
 function responsePage(title: string, message: string, success: boolean) {

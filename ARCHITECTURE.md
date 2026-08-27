@@ -10,7 +10,9 @@ Custom CRM + job management for Bison Lawn Care LLC — leads/clients, equation-
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - `pnpm dlx tsx artifacts/api-server/src/seed.ts` — idempotent dev seed
-- Required env: `DATABASE_URL`; Clerk keys auto-provisioned (`CLERK_*`, `VITE_CLERK_PUBLISHABLE_KEY`); `APP_OWNER_EMAIL` securely identifies the primary business owner. Set optional `APP_SECONDARY_OWNER_EMAIL` to grant a second permanent owner account.
+- `node dev.mjs` — run both processes with `.env` loaded and `/api` proxied same-origin
+- `node build.mjs` — production build (typecheck, web, API)
+- Required env: see `.env.example`. `APP_OWNER_EMAIL` securely identifies the primary business owner; optional `APP_SECONDARY_OWNER_EMAIL` grants a second permanent owner account.
 
 ## Stack
 
@@ -48,10 +50,13 @@ Custom CRM + job management for Bison Lawn Care LLC — leads/clients, equation-
 ## Gotchas
 
 - Never edit generated files; change `openapi.yaml` then run codegen, and run `pnpm -w run typecheck:libs` before typechecking apps (project references).
-- Keep `ClerkProvider.proxyUrl` wired unconditionally to `VITE_CLERK_PROXY_URL`; the web artifact provides `/api/__clerk` only during production builds so development remains on Clerk's test endpoint.
+- Keep `ClerkProvider.proxyUrl` wired unconditionally to `VITE_CLERK_PROXY_URL`. The API serves `/api/__clerk` only when `NODE_ENV=production` and `CLERK_SECRET_KEY` is set, so development stays on Clerk's own endpoint. Clerk proxying does not work for development instances — set `VITE_CLERK_PROXY_URL` only alongside a Clerk production instance.
 - Orval v8 emits zod v4 code (`zod.int()`); the workspace catalog must stay on zod ^4.
 - Server routes mount under `/api`; frontend must use generated hooks (base path handled by custom-fetch). Web auth is cookie-based — no bearer tokens in browser code.
+- Cookie auth needs one origin. In development the Vite dev server proxies `/api` to the API process (`API_URL`); in production the API process serves the built SPA itself and falls back to `index.html` for any non-`/api` GET.
+- Outbound email is the Gmail REST API using this deployment's own Google OAuth client (`GOOGLE_CLIENT_ID/SECRET/REFRESH_TOKEN`). Mint the refresh token once with `node scripts/google-oauth-setup.mjs`. Every sender goes through the `GmailProxy` seam in `lib/gmail.ts`, which tests replace.
 
 ## Pointers
 
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+- `README.local.md` — running it on a developer machine
+- `FINDINGS.md` — what changed and what is still open

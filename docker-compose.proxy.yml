@@ -1,0 +1,32 @@
+# Overlay for a VPS that already runs a reverse-proxy container owning 80/443.
+#
+# Instead of publishing a host port, the app joins the proxy's Docker network and
+# the proxy reaches it by container name. Nothing about the existing stack changes.
+#
+#   docker compose --env-file .env.deploy \
+#     -f docker-compose.yml -f docker-compose.proxy.yml up -d --build
+#
+# Set PROXY_NETWORK in .env.deploy to the network the proxy container is on
+# (find it with: docker inspect <proxy-container> --format '{{json .NetworkSettings.Networks}}').
+services:
+  app:
+    # Drop the host port binding from the base file: the proxy is the only
+    # thing that needs to reach this, and it does so over the shared network.
+    ports: !reset []
+    networks:
+      - default
+      - proxy
+    # Traefik users: uncomment and adjust. Caddy/nginx users ignore these and
+    # add a vhost pointing at http://bison-app:8080 instead.
+    # labels:
+    #   traefik.enable: "true"
+    #   traefik.http.routers.bison.rule: "Host(`bisonlawn.workoptional.tech`)"
+    #   traefik.http.routers.bison.entrypoints: "websecure"
+    #   traefik.http.routers.bison.tls.certresolver: "letsencrypt"
+    #   traefik.http.services.bison.loadbalancer.server.port: "8080"
+    container_name: bison-app
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:?set PROXY_NETWORK in .env.deploy to the existing proxy network}

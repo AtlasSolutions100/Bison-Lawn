@@ -1,6 +1,6 @@
 /**
  * One-shot daily weather check, for running the automation from outside the
- * HTTP process (a Replit Scheduled Deployment, cron, or manual ops run):
+ * HTTP process (a cron entry or a manual ops run):
  *
  *   pnpm --filter @workspace/api-server run weather-check
  *

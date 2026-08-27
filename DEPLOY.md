@@ -1,0 +1,192 @@
+# Deploying to a VPS
+
+One Docker Compose stack per client, behind a reverse proxy that terminates TLS.
+The app container binds `127.0.0.1` only, so the proxy is the only route in.
+
+## Before you start
+
+Check the box can take another stack:
+
+```bash
+free -m                                   # this stack idles around 400-600 MB
+df -h /                                   # the image is ~1.6 GB, plus the DB
+docker ps --format '{{.Names}}\t{{.Ports}}'
+ss -tlnp | grep -E ':(80|443|8080) '      # who owns 80/443, and is 8080 free
+```
+
+If something already owns 80/443, do **not** start a second thing that wants
+them — proxy this app from whatever is already there (see *Existing proxy*).
+
+## 1. Get the code and the secrets onto the server
+
+```bash
+git clone https://github.com/AtlasSolutions100/Bison-Lawn.git bison
+cd bison
+cp .env.deploy.example .env.deploy
+$EDITOR .env.deploy          # every blank must be filled
+```
+
+`SESSION_SECRET` and `POSTGRES_PASSWORD` should be fresh random strings:
+
+```bash
+openssl rand -base64 48
+```
+
+If port 8080 is taken on this host, set `APP_HOST_PORT` to something free and
+match it in the proxy config.
+
+## 2. Point DNS at the box
+
+An `A` record for `bisonlawn.workoptional.tech` → the VPS IP. Do this *before*
+starting Caddy, or certificate issuance fails and Caddy backs off for a while.
+
+## 3. Build and start
+
+```bash
+docker compose --env-file .env.deploy up -d --build
+```
+
+`--env-file` is required, not optional: `VITE_CLERK_PUBLISHABLE_KEY` is a
+**build argument**. Vite inlines `import.meta.env.VITE_*` into the JS bundle, so
+it has to exist at build time — supplying it only at runtime produces an app
+that loads with an undefined Clerk key and never signs anyone in.
+
+## 4. Create the database schema
+
+The project has no migration files; `drizzle-kit push` is the only mechanism.
+Run it explicitly, once, after the first start:
+
+```bash
+docker compose --env-file .env.deploy exec app pnpm --filter @workspace/db run push
+```
+
+**Do not wire this into container startup.** `push` diffs the schema against the
+database and will happily drop a column to make them match. Running it by hand
+on each deploy, after reading what it says it will do, is the safeguard until
+real migration files exist.
+
+Optional demo data (safe to skip on a real account):
+
+```bash
+docker compose --env-file .env.deploy exec app pnpm dlx tsx artifacts/api-server/src/seed.ts
+```
+
+## 5. Reverse proxy
+
+### Fresh box, no proxy yet
+
+```bash
+sudo apt install caddy
+sudo cp deploy/Caddyfile.example /etc/caddy/Caddyfile   # edit the hostname
+sudo systemctl reload caddy
+```
+
+### Existing proxy running as a Docker container
+
+If `ss -tlnp | grep -E ':(80|443) '` shows **docker-proxy**, a container already
+owns those ports. Find out which, and what network it is on:
+
+```bash
+docker ps --format '{{.Names}}	{{.Image}}	{{.Ports}}'
+docker inspect <proxy-container> --format '{{json .NetworkSettings.Networks}}'
+```
+
+**If it is a reverse proxy** (Caddy, Traefik, nginx-proxy, Nginx Proxy Manager),
+use the overlay — the app then publishes no host port at all and the proxy
+reaches it by container name over a shared network:
+
+```bash
+# .env.deploy: PROXY_NETWORK=<the proxy container's network>
+docker compose --env-file .env.deploy   -f docker-compose.yml -f docker-compose.proxy.yml up -d --build
+```
+
+Then point the proxy at `http://bison-app:8080`:
+
+- Traefik — uncomment the labels in `docker-compose.proxy.yml`.
+- Caddy (containerised) — add the block from `deploy/Caddyfile.example` to its
+  Caddyfile, changing `reverse_proxy 127.0.0.1:8080` to `reverse_proxy bison-app:8080`.
+- Nginx Proxy Manager — add a Proxy Host: `bisonlawn.workoptional.tech` →
+  forward to `bison-app` port `8080`, with "Websockets" on and an SSL cert
+  requested. Make sure NPM is on the same network as `PROXY_NETWORK`.
+
+**If it is the application itself** publishing 80/443 directly, a proxy has to be
+introduced in front of both apps, which means rebinding that app's ports. Do that
+deliberately, not during a deadline — it takes the existing site down briefly.
+
+### Existing proxy installed on the host
+
+Caddy — append the block from `deploy/Caddyfile.example` to the existing
+Caddyfile and `caddy reload`.
+
+nginx — add a server block and issue a cert with certbot:
+
+```nginx
+server {
+    server_name bisonlawn.workoptional.tech;
+    location / {
+        proxy_pass         http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Forwarded-Host  $host;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        client_max_body_size 25M;
+    }
+}
+```
+
+`X-Forwarded-Host` and `X-Forwarded-Proto` are load-bearing, not boilerplate:
+the Clerk proxy middleware builds its `Clerk-Proxy-Url` from them.
+
+## 6. Check it
+
+```bash
+curl -s https://bisonlawn.workoptional.tech/api/healthz     # {"status":"ok"}
+curl -s -o /dev/null -w '%{http_code}\n' https://bisonlawn.workoptional.tech/dispatch   # 200, not 404
+docker compose --env-file .env.deploy logs -f app
+```
+
+Then sign in in a browser. An account whose **verified** email matches
+`APP_OWNER_EMAIL` or `APP_SECONDARY_OWNER_EMAIL` lands on the admin dashboard.
+Anyone else lands on the contractor job board until an owner promotes them from
+**Team**.
+
+## Updating
+
+```bash
+git pull
+docker compose --env-file .env.deploy up -d --build
+```
+
+Re-run the schema push only when `lib/db/src/schema/` changed, and read its
+output before confirming.
+
+## Backups
+
+Nothing backs the database up automatically. Add a cron entry:
+
+```bash
+0 3 * * * docker compose -f /path/to/bison/docker-compose.yml --env-file /path/to/bison/.env.deploy \
+  exec -T db pg_dump -U bison bisonlawn | gzip > /backups/bison-$(date +\%F).sql.gz
+```
+
+Then actually restore one somewhere before you rely on it.
+
+## Adding the next client
+
+Copy the repo to a new directory, then change in `docker-compose.yml`: the
+volume name (`bison-db`), the Postgres database and user, and `APP_HOST_PORT`.
+Give it its own `.env.deploy` and its own subdomain block in the proxy. Nothing
+is shared between clients — separate database, separate container, separate
+Clerk application.
+
+## Known rough edges
+
+- **Image is ~1.6 GB.** The whole installed tree ships because the API bundle
+  externalises pdfkit and schema pushes need drizzle-kit. Slimmable later; it is
+  not worth the risk of a broken deploy tonight.
+- **Clerk development keys** work on a custom domain but carry Clerk's dev banner
+  and strict usage limits. Moving to a Clerk production instance means new keys
+  and setting `VITE_CLERK_PROXY_URL` — do not set that with dev keys.
+- **`drizzle-kit push` is not a migration system.** Replace it before the data
+  matters.
