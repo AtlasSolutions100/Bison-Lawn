@@ -280,6 +280,104 @@ paths:
               schema:
                 type: array
                 items: { type: string }
+  /document-templates:
+    get:
+      operationId: listDocumentTemplates
+      tags: [settings]
+      summary: The letters and proposals the office sends
+      responses:
+        "200":
+          description: Templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DocumentTemplate"
+    post:
+      operationId: createDocumentTemplate
+      tags: [settings]
+      summary: Add a document template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DocumentTemplateInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentTemplate"
+  /document-templates/{id}:
+    patch:
+      operationId: updateDocumentTemplate
+      tags: [settings]
+      summary: Edit a document template
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DocumentTemplateUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentTemplate"
+    delete:
+      operationId: deleteDocumentTemplate
+      tags: [settings]
+      summary: Delete a document template
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "204":
+          description: Deleted
+  /document-templates/{id}/preview:
+    post:
+      operationId: previewDocumentTemplate
+      tags: [settings]
+      summary: Render a template against a real client
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DocumentPreviewInput"
+      responses:
+        "200":
+          description: Rendered preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentPreview"
+  /services/bulk-price-adjust:
+    post:
+      operationId: bulkAdjustServicePrices
+      tags: [services]
+      summary: Raise or lower every service price at once for the new season
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkPriceAdjustInput"
+      responses:
+        "200":
+          description: What changed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkPriceAdjustResult"
   /clients:
     get:
       operationId: listClients
@@ -2003,6 +2101,83 @@ components:
         email: { type: ["string", "null"] }
         website: { type: ["string", "null"] }
         signatureLine: { type: string }
+    DocumentTemplate:
+      type: object
+      required: [id, key, name, kind, body]
+      properties:
+        id: { type: integer }
+        key: { type: string }
+        name: { type: string }
+        kind: { type: string, enum: [notice, estimate_cover, contract] }
+        serviceId: { type: ["integer", "null"] }
+        serviceName: { type: ["string", "null"] }
+        subject: { type: ["string", "null"] }
+        body: { type: string }
+        isSeeded: { type: boolean }
+        unknownTokens:
+          type: array
+          items: { type: string }
+          description: "Tokens in the body the renderer cannot fill"
+        updatedAt: { type: string }
+    DocumentTemplateInput:
+      type: object
+      required: [name, body]
+      properties:
+        key: { type: string }
+        name: { type: string, minLength: 1 }
+        kind: { type: string, enum: [notice, estimate_cover, contract] }
+        serviceId: { type: ["integer", "null"] }
+        subject: { type: ["string", "null"] }
+        body: { type: string, minLength: 1 }
+    DocumentTemplateUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        kind: { type: string, enum: [notice, estimate_cover, contract] }
+        serviceId: { type: ["integer", "null"] }
+        subject: { type: ["string", "null"] }
+        body: { type: string, minLength: 1 }
+    DocumentPreviewInput:
+      type: object
+      properties:
+        clientId: { type: ["integer", "null"] }
+    DocumentPreview:
+      type: object
+      required: [subject, body, unknownTokens]
+      properties:
+        subject: { type: ["string", "null"] }
+        body: { type: string }
+        clientName: { type: ["string", "null"] }
+        unknownTokens:
+          type: array
+          items: { type: string }
+    BulkPriceAdjustInput:
+      type: object
+      required: [mode, amount]
+      properties:
+        mode: { type: string, enum: [percent, fixed] }
+        amount: { type: number }
+        serviceIds:
+          type: ["array", "null"]
+          items: { type: integer }
+          description: "Limit to these services. Null or omitted means every service."
+        roundTo: { type: ["number", "null"], description: "Round each new price to this increment, e.g. 5" }
+        apply: { type: boolean, description: "False previews without writing" }
+    BulkPriceAdjustResult:
+      type: object
+      required: [applied, changes]
+      properties:
+        applied: { type: boolean }
+        changes:
+          type: array
+          items:
+            type: object
+            required: [serviceId, serviceName, from, to]
+            properties:
+              serviceId: { type: integer }
+              serviceName: { type: string }
+              from: { type: number }
+              to: { type: number }
     Client:
       type: object
       required: [id, name, status, accountBalance]
@@ -2379,6 +2554,11 @@ components:
         sentAt: { type: ["string", "null"] }
         sentToEmail: { type: ["string", "null"] }
         respondedAt: { type: ["string", "null"] }
+        acceptedLines:
+          type: ["array", "null"]
+          items: { type: integer }
+          description: "Indexes into lines the customer accepted. Null means every line."
+        acceptedTotal: { type: ["number", "null"] }
         deliveryAttempts: { type: integer }
         deliveryState: { type: string, enum: [idle, sending, provider_accepted, sent, failed] }
         providerAcceptedAt: { type: ["string", "null"] }

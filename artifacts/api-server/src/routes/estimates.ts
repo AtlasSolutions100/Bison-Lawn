@@ -24,6 +24,7 @@ import { calculatePrice, logAudit } from "../lib/helpers";
 import { createEstimateEmailHtml, createEstimatePdf } from "../lib/estimateDocument";
 import { sendEstimateViaGmail } from "../lib/estimateDelivery";
 import { scheduleAcceptedEstimate } from "../lib/schedulingRules";
+import { getCompanyProfile } from "../lib/companyProfile";
 import {
   claimEstimateDelivery,
   finalizeEstimateDelivery,
@@ -97,19 +98,122 @@ export function publicAppOrigin() {
   return `http://localhost:${process.env.WEB_PORT ?? "5173"}`;
 }
 
-function responsePage(title: string, message: string, success: boolean) {
+function responsePage(title: string, message: string, success: boolean, companyName = "Bison Lawn Care LLC") {
   return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>
   <style>body{margin:0;background:#f7f5f1;color:#2b2118;font-family:Arial,sans-serif;display:grid;min-height:100vh;place-items:center}.card{background:#fff;border:1px solid #e7e2dc;border-radius:16px;padding:42px;max-width:520px;text-align:center;box-shadow:0 12px 40px #2b211814}.mark{width:64px;height:64px;border-radius:50%;display:grid;place-items:center;margin:0 auto 20px;background:${success ? "#eaf3ee" : "#f3ece8"};color:${success ? "#176b45" : "#864f36"};font-size:30px}h1{margin:0 0 12px}p{color:#6f675f;line-height:1.6}</style></head>
-  <body><main class="card"><div class="mark">${success ? "✓" : "×"}</div><h1>${title}</h1><p>${message}</p><p>Bison Lawn Care LLC</p></main></body></html>`;
+  <body><main class="card"><div class="mark">${success ? "✓" : "×"}</div><h1>${title}</h1><p>${message}</p><p>${escapeHtml(companyName)}</p></main></body></html>`;
 }
 
-function responseConfirmationPage(token: string, action: "accept" | "decline", estimateId: number) {
+const escapeHtml = (value: string) =>
+  value.replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!,
+  );
+
+const asMoney = (n: number) =>
+  n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+
+/**
+ * The lines a customer may choose between, with their index into `lines`.
+ *
+ * Only priced lines are offered. A zero-priced line is usually a recorded
+ * measurement (gate code, "Dog: yes") rather than something to buy, and putting
+ * a checkbox beside it invites a customer to "decline" a fact about their own
+ * property.
+ */
+function selectableLines(lines: EstimateLine[]) {
+  return lines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => (line.calculatedPrice ?? 0) !== 0);
+}
+
+function responseConfirmationPage(
+  token: string,
+  action: "accept" | "decline",
+  estimateId: number,
+  lines: EstimateLine[],
+  companyName: string,
+) {
   const accepting = action === "accept";
+  const selectable = selectableLines(lines);
+
+  /*
+   * Per-line checkboxes, because his proposal promises them: "check the box
+   * corresponding to each service ... uncheck the respective box".
+   *
+   * Every box starts checked, so a customer who simply confirms accepts the
+   * whole estimate — identical to the behaviour before this existed. Unchecking
+   * is purely additive, which means this cannot regress an estimate that would
+   * have been accepted in full.
+   *
+   * Plain form controls with no JavaScript: this page opens from a link in an
+   * email, on whatever browser the customer's mail app hands it to, and a quote
+   * that silently fails to submit is a lost sale.
+   *
+   * The hidden "hadlines" field marks a form that carried checkboxes. Browsers
+   * omit unchecked boxes entirely, so "every box unticked" and "this form never
+   * had boxes" both arrive as a missing line field — without the marker,
+   * unticking everything reads as accepting everything, which is exactly the
+   * wrong way for that ambiguity to fall.
+   */
+  const lineRows = selectable
+    .map(
+      ({ line, index }) => `
+      <label class="line">
+        <input type="checkbox" name="line" value="${index}" checked>
+        <span class="label">${escapeHtml(line.label)}${line.value ? ` <em>(${escapeHtml(line.value)})</em>` : ""}</span>
+        <span class="price">${asMoney(line.calculatedPrice ?? 0)}</span>
+      </label>`,
+    )
+    .join("");
+
+  const total = selectable.reduce((sum, { line }) => sum + (line.calculatedPrice ?? 0), 0);
+
   return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Respond to estimate</title>
-  <style>body{margin:0;background:#f7f5f1;color:#2b2118;font-family:Arial,sans-serif;display:grid;min-height:100vh;place-items:center}.card{background:#fff;border:1px solid #e7e2dc;border-radius:16px;padding:42px;max-width:520px;text-align:center;box-shadow:0 12px 40px #2b211814}h1{margin:0 0 12px}p{color:#6f675f;line-height:1.6}.button{border:0;border-radius:7px;padding:14px 26px;font-size:16px;font-weight:bold;cursor:pointer;background:${accepting ? "#176b45" : "#864f36"};color:#fff}</style></head>
-  <body><main class="card"><h1>${accepting ? "Accept" : "Decline"} estimate #${estimateId}?</h1><p>Please confirm your response below. Your choice cannot be changed through this link after it is submitted.</p>
-  <form method="post" action="/api/public/estimates/${encodeURIComponent(token)}/respond"><input type="hidden" name="action" value="${action}"><button class="button" type="submit">Confirm ${accepting ? "Acceptance" : "Decline"}</button></form>
-  <p>Bison Lawn Care LLC</p></main></body></html>`;
+  <style>body{margin:0;background:#f7f5f1;color:#2b2118;font-family:Arial,sans-serif;display:grid;min-height:100vh;place-items:center;padding:24px}.card{background:#fff;border:1px solid #e7e2dc;border-radius:16px;padding:42px;max-width:560px;width:100%;box-shadow:0 12px 40px #2b211814}h1{margin:0 0 12px;text-align:center}p{color:#6f675f;line-height:1.6}.line{display:flex;align-items:center;gap:12px;padding:12px 4px;border-bottom:1px solid #f0ece7}.line:last-of-type{border-bottom:0}.line input{width:20px;height:20px;flex:none}.label{flex:1}.label em{color:#6f675f;font-style:normal;font-size:14px}.price{font-weight:bold;white-space:nowrap}.total{display:flex;justify-content:space-between;padding:14px 4px;border-top:2px solid #2b2118;font-weight:bold;margin-top:4px}.button{border:0;border-radius:7px;padding:14px 26px;font-size:16px;font-weight:bold;cursor:pointer;background:${accepting ? "#215343" : "#864f36"};color:#fff;width:100%;margin-top:20px}.foot{text-align:center;margin-top:24px}</style></head>
+  <body><main class="card"><h1>${accepting ? "Accept" : "Decline"} estimate #${estimateId}?</h1>
+  ${
+    accepting && selectable.length > 0
+      ? `<p>Everything below is included. Uncheck anything you would rather not go ahead with, then confirm.</p>
+         <form method="post" action="/api/public/estimates/${encodeURIComponent(token)}/respond">
+         <input type="hidden" name="action" value="accept">
+         <input type="hidden" name="hadlines" value="1">
+         ${lineRows}
+         <div class="total"><span>Total as quoted</span><span>${asMoney(total)}</span></div>
+         <p style="font-size:13px">If you uncheck an item, your total will be lower than the figure above. Your choice cannot be changed through this link once submitted.</p>
+         <button class="button" type="submit">Confirm Acceptance</button></form>`
+      : `<p>Please confirm your response below. Your choice cannot be changed through this link after it is submitted.</p>
+         <form method="post" action="/api/public/estimates/${encodeURIComponent(token)}/respond">
+         <input type="hidden" name="action" value="${action}">
+         <button class="button" type="submit">Confirm ${accepting ? "Acceptance" : "Decline"}</button></form>`
+  }
+  <p class="foot">${escapeHtml(companyName)}</p></main></body></html>`;
+}
+
+/**
+ * Which line indexes the customer left ticked.
+ *
+ * Returns null when the form carried no `line` field at all — an estimate with
+ * nothing selectable, or a client that stripped the inputs. Null means "all of
+ * them", matching what accepting meant before this feature existed; treating a
+ * missing field as "none selected" would silently cancel a sale the customer
+ * thought they had just agreed to.
+ */
+function parseSelectedLines(
+  raw: unknown,
+  lines: EstimateLine[],
+  formHadCheckboxes: boolean,
+): number[] | null {
+  // A form that offered checkboxes and came back with none ticked really means
+  // none — browsers omit unchecked boxes entirely, so the absent field is the
+  // only evidence, and only the marker tells it apart from a form that never
+  // had boxes at all.
+  if (raw === undefined) return formHadCheckboxes ? [] : null;
+  const values = Array.isArray(raw) ? raw : [raw];
+  const valid = new Set(selectableLines(lines).map(({ index }) => index));
+  const chosen = values
+    .map((v) => Number(v))
+    .filter((n) => Number.isInteger(n) && valid.has(n));
+  return [...new Set(chosen)].sort((a, b) => a - b);
 }
 
 // Public customer response routes. Tokens are random, only their SHA-256 hashes are stored.
@@ -132,7 +236,16 @@ router.get("/public/estimates/:token/respond", async (req, res) => {
       ),
     );
   }
-  return res.send(responseConfirmationPage(req.params.token, action, estimate.id));
+  const company = await getCompanyProfile();
+  return res.send(
+    responseConfirmationPage(
+      req.params.token,
+      action,
+      estimate.id,
+      estimate.lines as EstimateLine[],
+      company.name,
+    ),
+  );
 });
 
 router.post("/public/estimates/:token/respond", async (req, res) => {
@@ -154,6 +267,44 @@ router.post("/public/estimates/:token/respond", async (req, res) => {
   }
   const status = action === "accept" ? "accepted" : "declined";
   const providerAccepted = data.tokenSource === "provider_accepted";
+
+  const lines = estimate.lines as EstimateLine[];
+  const selectable = selectableLines(lines);
+  const formHadCheckboxes = req.body.hadlines === "1";
+  const selected =
+    action === "accept" ? parseSelectedLines(req.body.line, lines, formHadCheckboxes) : null;
+
+  // Unticking everything is a decline in all but name. Recording it as an
+  // acceptance worth $0 would leave the office chasing a sale that does not
+  // exist, so send them back rather than guessing which they meant.
+  if (action === "accept" && selected !== null && selected.length === 0 && selectable.length > 0) {
+    const company = await getCompanyProfile();
+    return res.send(
+      responseConfirmationPage(
+        req.params.token,
+        "accept",
+        estimate.id,
+        lines,
+        company.name,
+      ).replace(
+        "Everything below is included.",
+        "Please keep at least one item ticked, or use the decline link in your email if you do not want any of it.",
+      ),
+    );
+  }
+
+  const acceptedLines = action === "accept" ? selected : null;
+  const acceptedTotal =
+    action === "accept"
+      ? acceptedLines === null
+        ? estimate.total
+        : lines.reduce(
+            (sum, line, index) =>
+              acceptedLines.includes(index) ? sum + (line.calculatedPrice ?? 0) : sum,
+            0,
+          )
+      : null;
+
   const [updated] = await db
     .update(estimatesTable)
     .set(
@@ -164,8 +315,10 @@ router.post("/public/estimates/:token/respond", async (req, res) => {
             responseTokenHash: data.hash,
             pendingResponseTokenHash: null,
             deliveryState: "sent",
+            acceptedLines,
+            acceptedTotal,
           }
-        : { status, respondedAt: new Date() },
+        : { status, respondedAt: new Date(), acceptedLines, acceptedTotal },
     )
     .where(
       providerAccepted
@@ -195,7 +348,19 @@ router.post("/public/estimates/:token/respond", async (req, res) => {
     clientId: estimate.clientId,
     actorName: data.client.name,
     action: `estimate_${status}`,
-    description: `${status === "accepted" ? "Accepted" : "Declined"} estimate #${estimate.id}`,
+    // Naming the declined items matters more than the accepted ones: a partial
+    // acceptance is the office's cue to follow up on what was turned down.
+    description:
+      status === "accepted"
+        ? acceptedLines === null || acceptedLines.length === selectable.length
+          ? `Accepted estimate #${estimate.id} in full`
+          : `Accepted estimate #${estimate.id} in part (${acceptedLines.length} of ${selectable.length} items, ` +
+            `${asMoney(acceptedTotal ?? 0)} of ${asMoney(estimate.total)}). Declined: ` +
+            selectable
+              .filter(({ index }) => !acceptedLines.includes(index))
+              .map(({ line }) => line.label)
+              .join(", ")
+        : `Declined estimate #${estimate.id}`,
   });
   // Auto-scheduling lives behind the conditional update above: only the single
   // request that actually flipped "sent" → "accepted" gets here, so a prefetched

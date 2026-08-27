@@ -182,9 +182,27 @@ export async function scheduleAcceptedEstimate(
   estimate: Estimate,
   options: { clientName?: string | null; acceptedOn?: string } = {},
 ): Promise<ScheduledFromEstimate[]> {
-  const lines = (estimate.lines as EstimateLine[]).filter(
-    (line): line is EstimateLine & { serviceId: number } => line.serviceId != null,
-  );
+  /*
+   * Only what the customer actually ticked.
+   *
+   * `acceptedLines` holds indexes into the ORIGINAL `lines` array, so the
+   * filter has to run before any other filtering reindexes it — computing
+   * indexes after dropping the non-service lines would shift every one of them
+   * and schedule the wrong work.
+   *
+   * NULL means every line: that is what an estimate accepted before per-service
+   * selection existed means, and what a form submission with no checkboxes
+   * means. Treating NULL as "nothing selected" would silently stop scheduling
+   * work that was genuinely sold.
+   */
+  const accepted = estimate.acceptedLines as number[] | null;
+  const lines = (estimate.lines as EstimateLine[])
+    .map((line, index) => ({ line, index }))
+    .filter(({ index }) => accepted === null || accepted.includes(index))
+    .map(({ line }) => line)
+    .filter(
+      (line): line is EstimateLine & { serviceId: number } => line.serviceId != null,
+    );
   if (lines.length === 0) return [];
 
   const rules = await db

@@ -200,6 +200,19 @@ export const estimatesTable = pgTable("estimates", {
   // Optimistic-concurrency counter for admin edits: every accepted edit of the
   // draft's contents bumps it, so a PATCH built from an older snapshot fails.
   version: integer("version").notNull().default(1),
+  // Which lines the customer actually accepted, as indexes into `lines`.
+  //
+  // His proposal invites exactly this: "check the box corresponding to each
+  // service ... uncheck the respective box". Stored separately from `lines`
+  // rather than mutating them, so the estimate still shows what was quoted
+  // alongside what was bought — the office needs both to understand a decline.
+  //
+  // NULL means "every line", which is what an estimate accepted before this
+  // existed means. Anything reading it must treat NULL as all-accepted or it
+  // will silently drop work that was genuinely sold.
+  acceptedLines: jsonb("accepted_lines").$type<number[] | null>(),
+  // What they agreed to pay, which is `total` only when nothing was unchecked.
+  acceptedTotal: doublePrecision("accepted_total"),
   sentAt: timestamp("sent_at"),
   sentToEmail: text("sent_to_email"),
   responseTokenHash: text("response_token_hash").unique(),

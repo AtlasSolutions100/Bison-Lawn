@@ -377,6 +377,141 @@ export const ListMergeTokensResponse = zod.array(ListMergeTokensResponseItem)
 
 
 /**
+ * @summary The letters and proposals the office sends
+ */
+export const ListDocumentTemplatesResponseItem = zod.object({
+  "id": zod.int(),
+  "key": zod.string(),
+  "name": zod.string(),
+  "kind": zod.enum(['notice', 'estimate_cover', 'contract']),
+  "serviceId": zod.int().nullish(),
+  "serviceName": zod.string().nullish(),
+  "subject": zod.string().nullish(),
+  "body": zod.string(),
+  "isSeeded": zod.boolean().optional(),
+  "unknownTokens": zod.array(zod.string()).optional().describe('Tokens in the body the renderer cannot fill'),
+  "updatedAt": zod.string().optional()
+})
+export const ListDocumentTemplatesResponse = zod.array(ListDocumentTemplatesResponseItem)
+
+
+/**
+ * @summary Add a document template
+ */
+
+
+
+
+export const CreateDocumentTemplateBody = zod.object({
+  "key": zod.string().optional(),
+  "name": zod.string().min(1),
+  "kind": zod.enum(['notice', 'estimate_cover', 'contract']).optional(),
+  "serviceId": zod.int().nullish(),
+  "subject": zod.string().nullish(),
+  "body": zod.string().min(1)
+})
+
+export const CreateDocumentTemplateResponse = zod.object({
+  "id": zod.int(),
+  "key": zod.string(),
+  "name": zod.string(),
+  "kind": zod.enum(['notice', 'estimate_cover', 'contract']),
+  "serviceId": zod.int().nullish(),
+  "serviceName": zod.string().nullish(),
+  "subject": zod.string().nullish(),
+  "body": zod.string(),
+  "isSeeded": zod.boolean().optional(),
+  "unknownTokens": zod.array(zod.string()).optional().describe('Tokens in the body the renderer cannot fill'),
+  "updatedAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Edit a document template
+ */
+export const UpdateDocumentTemplateParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+
+
+
+
+export const UpdateDocumentTemplateBody = zod.object({
+  "name": zod.string().min(1).optional(),
+  "kind": zod.enum(['notice', 'estimate_cover', 'contract']).optional(),
+  "serviceId": zod.int().nullish(),
+  "subject": zod.string().nullish(),
+  "body": zod.string().min(1).optional()
+})
+
+export const UpdateDocumentTemplateResponse = zod.object({
+  "id": zod.int(),
+  "key": zod.string(),
+  "name": zod.string(),
+  "kind": zod.enum(['notice', 'estimate_cover', 'contract']),
+  "serviceId": zod.int().nullish(),
+  "serviceName": zod.string().nullish(),
+  "subject": zod.string().nullish(),
+  "body": zod.string(),
+  "isSeeded": zod.boolean().optional(),
+  "unknownTokens": zod.array(zod.string()).optional().describe('Tokens in the body the renderer cannot fill'),
+  "updatedAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Delete a document template
+ */
+export const DeleteDocumentTemplateParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const DeleteDocumentTemplateResponse = zod.void()
+
+
+/**
+ * @summary Render a template against a real client
+ */
+export const PreviewDocumentTemplateParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const PreviewDocumentTemplateBody = zod.object({
+  "clientId": zod.int().nullish()
+})
+
+export const PreviewDocumentTemplateResponse = zod.object({
+  "subject": zod.string().nullable(),
+  "body": zod.string(),
+  "clientName": zod.string().nullish(),
+  "unknownTokens": zod.array(zod.string())
+})
+
+
+/**
+ * @summary Raise or lower every service price at once for the new season
+ */
+export const BulkAdjustServicePricesBody = zod.object({
+  "mode": zod.enum(['percent', 'fixed']),
+  "amount": zod.number(),
+  "serviceIds": zod.array(zod.int()).nullish().describe('Limit to these services. Null or omitted means every service.'),
+  "roundTo": zod.number().nullish().describe('Round each new price to this increment, e.g. 5'),
+  "apply": zod.boolean().optional().describe('False previews without writing')
+})
+
+export const BulkAdjustServicePricesResponse = zod.object({
+  "applied": zod.boolean(),
+  "changes": zod.array(zod.object({
+  "serviceId": zod.int(),
+  "serviceName": zod.string(),
+  "from": zod.number(),
+  "to": zod.number()
+}))
+})
+
+
+/**
  * @summary List clients/leads with optional filters
  */
 export const ListClientsQueryParams = zod.object({
@@ -1213,6 +1348,8 @@ export const ListEstimatesResponseItem = zod.object({
   "sentAt": zod.string().nullish(),
   "sentToEmail": zod.string().nullish(),
   "respondedAt": zod.string().nullish(),
+  "acceptedLines": zod.array(zod.int()).nullish().describe('Indexes into lines the customer accepted. Null means every line.'),
+  "acceptedTotal": zod.number().nullish(),
   "deliveryAttempts": zod.int(),
   "deliveryState": zod.enum(['idle', 'sending', 'provider_accepted', 'sent', 'failed']),
   "providerAcceptedAt": zod.string().nullish(),
@@ -1259,6 +1396,8 @@ export const CreateEstimateResponse = zod.object({
   "sentAt": zod.string().nullish(),
   "sentToEmail": zod.string().nullish(),
   "respondedAt": zod.string().nullish(),
+  "acceptedLines": zod.array(zod.int()).nullish().describe('Indexes into lines the customer accepted. Null means every line.'),
+  "acceptedTotal": zod.number().nullish(),
   "deliveryAttempts": zod.int(),
   "deliveryState": zod.enum(['idle', 'sending', 'provider_accepted', 'sent', 'failed']),
   "providerAcceptedAt": zod.string().nullish(),
@@ -1293,6 +1432,8 @@ export const GetEstimateResponse = zod.object({
   "sentAt": zod.string().nullish(),
   "sentToEmail": zod.string().nullish(),
   "respondedAt": zod.string().nullish(),
+  "acceptedLines": zod.array(zod.int()).nullish().describe('Indexes into lines the customer accepted. Null means every line.'),
+  "acceptedTotal": zod.number().nullish(),
   "deliveryAttempts": zod.int(),
   "deliveryState": zod.enum(['idle', 'sending', 'provider_accepted', 'sent', 'failed']),
   "providerAcceptedAt": zod.string().nullish(),
@@ -1344,6 +1485,8 @@ export const UpdateEstimateResponse = zod.object({
   "sentAt": zod.string().nullish(),
   "sentToEmail": zod.string().nullish(),
   "respondedAt": zod.string().nullish(),
+  "acceptedLines": zod.array(zod.int()).nullish().describe('Indexes into lines the customer accepted. Null means every line.'),
+  "acceptedTotal": zod.number().nullish(),
   "deliveryAttempts": zod.int(),
   "deliveryState": zod.enum(['idle', 'sending', 'provider_accepted', 'sent', 'failed']),
   "providerAcceptedAt": zod.string().nullish(),
@@ -1403,6 +1546,8 @@ export const SendEstimateResponse = zod.object({
   "sentAt": zod.string().nullish(),
   "sentToEmail": zod.string().nullish(),
   "respondedAt": zod.string().nullish(),
+  "acceptedLines": zod.array(zod.int()).nullish().describe('Indexes into lines the customer accepted. Null means every line.'),
+  "acceptedTotal": zod.number().nullish(),
   "deliveryAttempts": zod.int(),
   "deliveryState": zod.enum(['idle', 'sending', 'provider_accepted', 'sent', 'failed']),
   "providerAcceptedAt": zod.string().nullish(),
@@ -1440,6 +1585,8 @@ export const ReconcileEstimateDeliveryResponse = zod.object({
   "sentAt": zod.string().nullish(),
   "sentToEmail": zod.string().nullish(),
   "respondedAt": zod.string().nullish(),
+  "acceptedLines": zod.array(zod.int()).nullish().describe('Indexes into lines the customer accepted. Null means every line.'),
+  "acceptedTotal": zod.number().nullish(),
   "deliveryAttempts": zod.int(),
   "deliveryState": zod.enum(['idle', 'sending', 'provider_accepted', 'sent', 'failed']),
   "providerAcceptedAt": zod.string().nullish(),

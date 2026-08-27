@@ -310,6 +310,127 @@ export interface CompanyProfileInput {
   signatureLine?: string;
 }
 
+export type DocumentTemplateKind = typeof DocumentTemplateKind[keyof typeof DocumentTemplateKind];
+
+
+export const DocumentTemplateKind = {
+  notice: 'notice',
+  estimate_cover: 'estimate_cover',
+  contract: 'contract',
+} as const;
+
+export interface DocumentTemplate {
+  id: number;
+  key: string;
+  name: string;
+  kind: DocumentTemplateKind;
+  /** @nullable */
+  serviceId?: number | null;
+  /** @nullable */
+  serviceName?: string | null;
+  /** @nullable */
+  subject?: string | null;
+  body: string;
+  isSeeded?: boolean;
+  /** Tokens in the body the renderer cannot fill */
+  unknownTokens?: string[];
+  updatedAt?: string;
+}
+
+export type DocumentTemplateInputKind = typeof DocumentTemplateInputKind[keyof typeof DocumentTemplateInputKind];
+
+
+export const DocumentTemplateInputKind = {
+  notice: 'notice',
+  estimate_cover: 'estimate_cover',
+  contract: 'contract',
+} as const;
+
+export interface DocumentTemplateInput {
+  key?: string;
+  /** @minLength 1 */
+  name: string;
+  kind?: DocumentTemplateInputKind;
+  /** @nullable */
+  serviceId?: number | null;
+  /** @nullable */
+  subject?: string | null;
+  /** @minLength 1 */
+  body: string;
+}
+
+export type DocumentTemplateUpdateKind = typeof DocumentTemplateUpdateKind[keyof typeof DocumentTemplateUpdateKind];
+
+
+export const DocumentTemplateUpdateKind = {
+  notice: 'notice',
+  estimate_cover: 'estimate_cover',
+  contract: 'contract',
+} as const;
+
+export interface DocumentTemplateUpdate {
+  /** @minLength 1 */
+  name?: string;
+  kind?: DocumentTemplateUpdateKind;
+  /** @nullable */
+  serviceId?: number | null;
+  /** @nullable */
+  subject?: string | null;
+  /** @minLength 1 */
+  body?: string;
+}
+
+export interface DocumentPreviewInput {
+  /** @nullable */
+  clientId?: number | null;
+}
+
+export interface DocumentPreview {
+  /** @nullable */
+  subject: string | null;
+  body: string;
+  /** @nullable */
+  clientName?: string | null;
+  unknownTokens: string[];
+}
+
+export type BulkPriceAdjustInputMode = typeof BulkPriceAdjustInputMode[keyof typeof BulkPriceAdjustInputMode];
+
+
+export const BulkPriceAdjustInputMode = {
+  percent: 'percent',
+  fixed: 'fixed',
+} as const;
+
+export interface BulkPriceAdjustInput {
+  mode: BulkPriceAdjustInputMode;
+  amount: number;
+  /**
+     * Limit to these services. Null or omitted means every service.
+     * @nullable
+     */
+  serviceIds?: number[] | null;
+  /**
+     * Round each new price to this increment, e.g. 5
+     * @nullable
+     */
+  roundTo?: number | null;
+  /** False previews without writing */
+  apply?: boolean;
+}
+
+export type BulkPriceAdjustResultChangesItem = {
+  serviceId: number;
+  serviceName: string;
+  from: number;
+  to: number;
+};
+
+export interface BulkPriceAdjustResult {
+  applied: boolean;
+  changes: BulkPriceAdjustResultChangesItem[];
+}
+
 export type ClientStatus = typeof ClientStatus[keyof typeof ClientStatus];
 
 
@@ -941,6 +1062,13 @@ export interface Estimate {
   sentToEmail?: string | null;
   /** @nullable */
   respondedAt?: string | null;
+  /**
+     * Indexes into lines the customer accepted. Null means every line.
+     * @nullable
+     */
+  acceptedLines?: number[] | null;
+  /** @nullable */
+  acceptedTotal?: number | null;
   deliveryAttempts: number;
   deliveryState: EstimateDeliveryState;
   /** @nullable */

@@ -30,6 +30,7 @@ import WebRequests from '@/pages/web-requests';
 import Automation from '@/pages/automation';
 import Team from '@/pages/team';
 import FeedbackPage from '@/pages/feedback';
+import Settings from '@/pages/settings';
 import MyJobs from '@/pages/my-jobs';
 import MyRoute from '@/pages/my-route';
 
@@ -339,6 +340,7 @@ function ClerkProviderWithRoutes() {
               <Route path="/automation"><SignedIn><AdminRoute component={Automation} /></SignedIn></Route>
               <Route path="/team"><SignedIn><AdminRoute component={Team} /></SignedIn></Route>
               <Route path="/feedback"><SignedIn><AdminRoute component={FeedbackPage} /></SignedIn></Route>
+              <Route path="/settings"><SignedIn><AdminRoute component={Settings} /></SignedIn></Route>
 
               {/* Contractor Routes */}
               <Route path="/my/jobs"><SignedIn><ContractorRoute component={MyJobs} /></SignedIn></Route>

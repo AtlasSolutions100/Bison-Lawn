@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  useBulkAdjustServicePrices,
   useGetLetterTemplate,
   getPreviewSpringLetterQueryKey,
   useListServices,
@@ -9,9 +10,11 @@ import {
   useSendSpringLetters,
   useUpdateLetterTemplate,
   useUpdateService,
+  BulkPriceAdjustInputMode,
+  type BulkPriceAdjustInput,
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, CheckCircle2, DollarSign, Mail, RefreshCw, Save, Send } from 'lucide-react';
+import { AlertCircle, Calculator, CheckCircle2, DollarSign, Mail, RefreshCw, Save, Send, TrendingUp } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -20,6 +23,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 
@@ -36,6 +40,7 @@ export default function SpringLetters() {
   const clientsQuery = useListSpringLetterClients();
   const templateQuery = useGetLetterTemplate();
   const updateService = useUpdateService();
+  const bulkAdjust = useBulkAdjustServicePrices();
   const renewClients = useRenewSpringLetterClients();
   const updateTemplate = useUpdateLetterTemplate();
   const sendLetters = useSendSpringLetters();
@@ -50,6 +55,13 @@ export default function SpringLetters() {
   const [pricingError, setPricingError] = useState<string | null>(null);
   const [renewalResult, setRenewalResult] = useState<Awaited<ReturnType<typeof renewClients.mutateAsync>> | null>(null);
   const [sendResult, setSendResult] = useState<Awaited<ReturnType<typeof sendLetters.mutateAsync>> | null>(null);
+
+  const [bulkMode, setBulkMode] = useState<BulkPriceAdjustInputMode>(BulkPriceAdjustInputMode.percent);
+  const [bulkAmount, setBulkAmount] = useState('');
+  const [bulkRoundTo, setBulkRoundTo] = useState('');
+  const [bulkExcluded, setBulkExcluded] = useState<Set<number>>(new Set());
+  const [bulkPreview, setBulkPreview] = useState<Awaited<ReturnType<typeof bulkAdjust.mutateAsync>> | null>(null);
+  const [bulkPreviewedKey, setBulkPreviewedKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (!servicesQuery.data) return;
@@ -90,6 +102,31 @@ export default function SpringLetters() {
     const value = Number(rates[service.id]);
     return rates[service.id]?.trim() === '' || !Number.isFinite(value) || value < 0;
   });
+
+  // Every service is included unless explicitly unchecked, so the common case
+  // ("raise everything 6%") needs no selection step at all.
+  const bulkServiceIds = (servicesQuery.data ?? [])
+    .filter((service) => !bulkExcluded.has(service.id))
+    .map((service) => service.id);
+  const bulkAllSelected = bulkServiceIds.length === (servicesQuery.data ?? []).length;
+  const bulkAmountValue = Number(bulkAmount);
+  const bulkRoundToValue = bulkRoundTo.trim() === '' ? null : Number(bulkRoundTo);
+  const bulkAmountValid = bulkAmount.trim() !== '' && Number.isFinite(bulkAmountValue);
+  const bulkRoundToValid = bulkRoundTo.trim() === '' || (Number.isFinite(bulkRoundToValue) && (bulkRoundToValue as number) > 0);
+  const bulkParamsValid = bulkAmountValid && bulkRoundToValid && bulkServiceIds.length > 0;
+  const bulkPayload: BulkPriceAdjustInput = {
+    mode: bulkMode,
+    amount: bulkAmountValue,
+    serviceIds: bulkAllSelected ? null : bulkServiceIds,
+    roundTo: bulkRoundToValue,
+    apply: false,
+  };
+  // Any change to the inputs below invalidates a stale preview automatically —
+  // Apply only lights up again once a fresh preview matches these exact params.
+  const bulkParamsKey = JSON.stringify(bulkPayload);
+  const bulkCanApply = bulkParamsValid && bulkPreview != null && bulkPreviewedKey === bulkParamsKey;
+  const bulkStale = bulkPreview != null && bulkPreviewedKey !== bulkParamsKey;
+
   const selectedIds = [...selected];
   const previewQuery = usePreviewSpringLetter(previewClientId ?? 0, {
     query: {
@@ -104,6 +141,51 @@ export default function SpringLetters() {
       if (next.has(clientId)) next.delete(clientId);
       else next.add(clientId);
       return next;
+    });
+  };
+
+  const toggleBulkService = (serviceId: number) => {
+    setBulkExcluded((current) => {
+      const next = new Set(current);
+      if (next.has(serviceId)) next.delete(serviceId);
+      else next.add(serviceId);
+      return next;
+    });
+  };
+
+  const previewBulkAdjustment = () => {
+    bulkAdjust.mutate({ data: bulkPayload }, {
+      onSuccess: (result) => { setBulkPreview(result); setBulkPreviewedKey(bulkParamsKey); },
+      onError: (error) => toast({ title: 'Preview could not be calculated', description: errorMessage(error), variant: 'destructive' }),
+    });
+  };
+
+  const applyBulkAdjustment = () => {
+    bulkAdjust.mutate({ data: { ...bulkPayload, apply: true } }, {
+      onSuccess: async (result) => {
+        setBulkPreview(result);
+        // Applied — a stale key forces a fresh preview before the next apply.
+        setBulkPreviewedKey(null);
+        const changedIds = new Set(result.changes.map((change) => change.serviceId));
+        const fresh = await servicesQuery.refetch();
+        if (fresh.data) {
+          setRates((current) => {
+            const next = { ...current };
+            for (const service of fresh.data) {
+              if (changedIds.has(service.id)) next[service.id] = String(service.rate);
+            }
+            return next;
+          });
+        }
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['/api/spring-letters/clients'] }),
+          ...(previewClientId != null
+            ? [queryClient.invalidateQueries({ queryKey: getPreviewSpringLetterQueryKey(previewClientId) })]
+            : []),
+        ]);
+        toast({ title: 'Seasonal pricing applied', description: `${result.changes.length} service${result.changes.length === 1 ? '' : 's'} updated.` });
+      },
+      onError: (error) => toast({ title: 'Bulk adjustment failed', description: errorMessage(error), variant: 'destructive' }),
     });
   };
 
@@ -190,17 +272,108 @@ export default function SpringLetters() {
           {servicesQuery.isLoading ? <Skeleton className="h-28 w-full" /> : servicesQuery.isError ? (
             <Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertTitle>Pricing could not be loaded</AlertTitle><AlertDescription>{errorMessage(servicesQuery.error)}</AlertDescription></Alert>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {servicesQuery.data?.map((service) => (
-                <div key={service.id} className="rounded-lg border bg-card p-3">
-                  <Label htmlFor={`rate-${service.id}`} className="block truncate mb-2">{service.name}</Label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-2 text-muted-foreground">$</span>
-                    <Input id={`rate-${service.id}`} className="pl-7" type="number" min="0" step="0.01" value={rates[service.id] ?? ''} onChange={(event) => setRates((current) => ({ ...current, [service.id]: event.target.value }))} />
-                  </div>
+            <>
+              <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4 text-primary" />
+                  <h3 className="font-semibold">Bulk seasonal adjustment</h3>
                 </div>
-              ))}
-            </div>
+                <p className="text-sm text-muted-foreground">Raise or lower every service at once instead of editing them one by one. Uncheck a service below to leave it out.</p>
+                <div className="flex flex-wrap items-end gap-3">
+                  <div>
+                    <Label htmlFor="bulk-mode">Adjustment</Label>
+                    <select
+                      id="bulk-mode"
+                      className="mt-1 flex h-10 w-40 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={bulkMode}
+                      onChange={(event) => setBulkMode(event.target.value as BulkPriceAdjustInputMode)}
+                    >
+                      <option value={BulkPriceAdjustInputMode.percent}>Percent</option>
+                      <option value={BulkPriceAdjustInputMode.fixed}>Fixed amount</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label htmlFor="bulk-amount">{bulkMode === BulkPriceAdjustInputMode.percent ? 'Percent increase' : 'Amount to add'}</Label>
+                    <div className="relative mt-1 w-36">
+                      {bulkMode === BulkPriceAdjustInputMode.fixed && <span className="absolute left-3 top-2 text-muted-foreground">$</span>}
+                      <Input
+                        id="bulk-amount"
+                        className={bulkMode === BulkPriceAdjustInputMode.fixed ? 'pl-7' : 'pr-7'}
+                        type="number"
+                        step="0.01"
+                        placeholder={bulkMode === BulkPriceAdjustInputMode.percent ? 'e.g. 6' : 'e.g. 10'}
+                        value={bulkAmount}
+                        onChange={(event) => setBulkAmount(event.target.value)}
+                      />
+                      {bulkMode === BulkPriceAdjustInputMode.percent && <span className="absolute right-3 top-2 text-muted-foreground">%</span>}
+                    </div>
+                  </div>
+                  <div>
+                    <Label htmlFor="bulk-round-to">Round to nearest (optional)</Label>
+                    <div className="relative mt-1 w-32">
+                      <span className="absolute left-3 top-2 text-muted-foreground">$</span>
+                      <Input id="bulk-round-to" className="pl-7" type="number" min="0" step="1" placeholder="e.g. 5" value={bulkRoundTo} onChange={(event) => setBulkRoundTo(event.target.value)} />
+                    </div>
+                  </div>
+                  <Button variant="outline" onClick={previewBulkAdjustment} disabled={!bulkParamsValid || bulkAdjust.isPending}>
+                    <Calculator className="mr-2 h-4 w-4" />{bulkAdjust.isPending ? 'Calculating…' : 'Preview'}
+                  </Button>
+                  <Button onClick={applyBulkAdjustment} disabled={!bulkCanApply || bulkAdjust.isPending}>
+                    <TrendingUp className="mr-2 h-4 w-4" />{bulkAdjust.isPending ? 'Applying…' : `Apply to ${bulkServiceIds.length} service${bulkServiceIds.length === 1 ? '' : 's'}`}
+                  </Button>
+                </div>
+                {bulkPreview && (
+                  <div className="space-y-2">
+                    <div className="overflow-x-auto rounded-md border bg-background">
+                      <Table>
+                        <TableHeader>
+                          <TableRow><TableHead>Service</TableHead><TableHead>From</TableHead><TableHead>To</TableHead></TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {bulkPreview.changes.map((change) => (
+                            <TableRow key={change.serviceId}>
+                              <TableCell>{change.serviceName}</TableCell>
+                              <TableCell>{money(change.from)}</TableCell>
+                              <TableCell className="font-medium text-primary">{money(change.to)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    {bulkPreview.applied ? (
+                      <p className="text-sm text-muted-foreground">Applied — these are the new prices.</p>
+                    ) : bulkStale ? (
+                      <p className="text-sm text-muted-foreground">Inputs changed since this preview. Preview again before applying.</p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Preview only — nothing has been saved yet. Review the numbers, then Apply.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {servicesQuery.data?.map((service) => (
+                  <div key={service.id} className="rounded-lg border bg-card p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <Label htmlFor={`rate-${service.id}`} className="truncate">{service.name}</Label>
+                      <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground" title="Include in bulk seasonal adjustment">
+                        <Checkbox
+                          className="h-3.5 w-3.5"
+                          checked={!bulkExcluded.has(service.id)}
+                          onCheckedChange={() => toggleBulkService(service.id)}
+                          aria-label={`Include ${service.name} in bulk adjustment`}
+                        />
+                        Bulk
+                      </label>
+                    </div>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2 text-muted-foreground">$</span>
+                      <Input id={`rate-${service.id}`} className="pl-7" type="number" min="0" step="0.01" value={rates[service.id] ?? ''} onChange={(event) => setRates((current) => ({ ...current, [service.id]: event.target.value }))} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
           {pricingError && <Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertTitle>Some rates were not saved</AlertTitle><AlertDescription>{pricingError}</AlertDescription></Alert>}
           <Button onClick={savePricing} disabled={!changedServices.length || invalidRate || updateService.isPending}>

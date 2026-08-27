@@ -471,3 +471,46 @@ services a customer will decline. The workable equivalent, and what his current
 system does, is to default every box checked so that clicking Accept with no
 changes accepts everything — identical to today's behaviour, with unchecking
 purely additive.
+
+## 2026-08-27 — per-service acceptance, and the scheduler honouring it
+
+His proposal has always promised the customer a choice: "check the box
+corresponding to each service ... uncheck the respective box". The app accepted
+or declined the whole estimate. Once the auto-scheduler shipped this stopped
+being only a missing feature — the scheduler created a job for **every** line,
+so partial acceptance would have scheduled work he never sold. The two had to
+land together.
+
+**Built.** `estimates.acceptedLines` (indexes into `lines`) and `acceptedTotal`,
+stored alongside the quote rather than mutating it — the office needs to see what
+was quoted next to what was bought to understand a decline. The public
+confirmation page now renders a checkbox per priced line, every box pre-ticked,
+using plain form controls with **no JavaScript**: that page opens from an email
+link in whatever browser the customer's mail app hands it to, and a quote that
+silently fails to submit is a lost sale. The scheduler filters to accepted lines
+before any other filtering, because `acceptedLines` indexes the original array
+and reindexing it first would schedule the wrong work.
+
+**A real bug the verification caught.** Browsers omit unchecked boxes entirely,
+so "the customer unticked everything" and "this form never had checkboxes" both
+arrive as a missing `line` field. My first version treated both as "all lines" —
+meaning unticking every box accepted the entire estimate. Fixed with a hidden
+marker on forms that carried checkboxes, so the two are distinguishable; an
+empty selection is now refused and re-prompted rather than guessed at.
+
+Separately, an HTML comment containing backticks inside a template literal
+terminated the string. Caught by the typechecker, but worth remembering when
+documenting generated markup.
+
+**Six cases measured end to end over real HTTP:**
+
+| Case | Result |
+|---|---|
+| Checkboxes rendered, all pre-ticked, no JS | 3/3 correct |
+| Accept lines 0 and 2 | acceptedLines `[0,2]`, acceptedTotal 355, quoted 485 preserved |
+| Scheduling | 2 jobs; the declined mowing was **not** scheduled |
+| Legacy `acceptedLines = null` | scheduled all 3 — sold work not dropped |
+| Every box unticked | refused, status stays `sent`, customer re-prompted |
+| Old-style submit with no marker | still accepts in full |
+
+Gate: full typecheck clean, 94/94 tests.

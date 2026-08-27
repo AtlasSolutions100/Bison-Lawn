@@ -15,7 +15,7 @@ import {
   Menu,
   SprayCan,
   Mail,
-  Globe, MessageSquarePlus } from 'lucide-react';
+  Globe, MessageSquarePlus , Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
 import { FeedbackButton } from '@/components/feedback-button';
@@ -35,6 +35,7 @@ const ADMIN_NAV = [
   { name: 'Automation', href: '/automation', icon: CloudSun },
   { name: 'Team', href: '/team', icon: UserCog },
   { name: 'Feedback', href: '/feedback', icon: MessageSquarePlus },
+  { name: 'Settings', href: '/settings', icon: Settings2 },
 ];
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {

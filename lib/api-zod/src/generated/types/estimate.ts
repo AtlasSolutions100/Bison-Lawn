@@ -31,6 +31,13 @@ export interface Estimate {
   sentToEmail?: string | null;
   /** @nullable */
   respondedAt?: string | null;
+  /**
+     * Indexes into lines the customer accepted. Null means every line.
+     * @nullable
+     */
+  acceptedLines?: number[] | null;
+  /** @nullable */
+  acceptedTotal?: number | null;
   deliveryAttempts: number;
   deliveryState: EstimateDeliveryState;
   /** @nullable */
