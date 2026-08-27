@@ -91,6 +91,20 @@ export default function FeedbackPage() {
                   {f.message}
                 </p>
 
+                {/* What was done about it. Stored since the table was added but
+                    never shown, which made the reply invisible to the person who
+                    raised it — the half of the loop that actually closes it. */}
+                {f.adminNote && (
+                  <div className="mt-3 rounded-md border-l-2 border-primary bg-primary/5 py-2 pl-3 pr-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-primary">
+                      {f.status === 'done' ? 'What we did' : 'Where this stands'}
+                    </span>
+                    <p className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                      {f.adminNote}
+                    </p>
+                  </div>
+                )}
+
                 <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                   {f.page && (
                     <span>
