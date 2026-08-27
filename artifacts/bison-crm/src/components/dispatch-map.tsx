@@ -169,35 +169,51 @@ export function DispatchMap({
     // Dragging has to go while drawing, or the map pans under the pointer and
     // the shape ends up somewhere the user never traced.
     m.dragging.disable();
-    const points: [number, number][] = [];
-    let drawing = false;
+    let corner: L.LatLng | null = null;
+
+    // A dragged rectangle, not a freehand trace. It is the gesture his own
+    // system uses (its shape has corner handles), it is what "select an area"
+    // makes people reach for, and it cannot fail the way freehand does: a quick
+    // straight drag yields two points, too few to be a polygon, so the whole
+    // selection silently did nothing.
+    const rectangle = (a: L.LatLng, b: L.LatLng): [number, number][] => [
+      [a.lat, a.lng],
+      [a.lat, b.lng],
+      [b.lat, b.lng],
+      [b.lat, a.lng],
+    ];
 
     const down = (e: L.LeafletMouseEvent) => {
-      drawing = true;
-      points.length = 0;
+      corner = e.latlng;
       lassoLayer.current?.remove();
-      lassoLayer.current = L.polyline([], { color: '#b45309', weight: 2, dashArray: '4 4' }).addTo(m);
-      points.push([e.latlng.lat, e.latlng.lng]);
+      lassoLayer.current = L.polygon(rectangle(e.latlng, e.latlng) as unknown as L.LatLngExpression[], {
+        color: '#b45309',
+        weight: 2,
+        dashArray: '4 4',
+        fillOpacity: 0.08,
+      }).addTo(m);
     };
     const move = (e: L.LeafletMouseEvent) => {
-      if (!drawing) return;
-      points.push([e.latlng.lat, e.latlng.lng]);
-      (lassoLayer.current as L.Polyline)?.setLatLngs(points as unknown as L.LatLngExpression[]);
+      if (!corner) return;
+      (lassoLayer.current as L.Polygon)?.setLatLngs(
+        rectangle(corner, e.latlng) as unknown as L.LatLngExpression[],
+      );
     };
-    const up = () => {
-      if (!drawing) return;
-      drawing = false;
-      if (points.length > 2) {
+    const up = (e: L.LeafletMouseEvent) => {
+      if (!corner) return;
+      const box = rectangle(corner, e.latlng);
+      corner = null;
+      // A stray click is not an area. Selecting nothing is the honest response.
+      const dragged =
+        Math.abs(box[0][0] - box[2][0]) > 1e-5 || Math.abs(box[0][1] - box[2][1]) > 1e-5;
+      if (dragged) {
+        (lassoLayer.current as L.Polygon)?.setStyle({ dashArray: undefined });
+        setSelectedIds(
+          shown.filter((j) => insidePolygon([j.clientLat!, j.clientLng!], box)).map((j) => j.id),
+        );
+      } else {
         lassoLayer.current?.remove();
-        lassoLayer.current = L.polygon(points as unknown as L.LatLngExpression[], {
-          color: '#b45309',
-          weight: 2,
-          fillOpacity: 0.08,
-        }).addTo(m);
-        const hits = shown
-          .filter((j) => insidePolygon([j.clientLat!, j.clientLng!], points))
-          .map((j) => j.id);
-        setSelectedIds(hits);
+        lassoLayer.current = null;
       }
       setLassoing(false);
     };
@@ -240,7 +256,7 @@ export function DispatchMap({
             lassoing ? 'border-amber-600 bg-amber-600 text-white' : 'bg-background hover:border-primary/50'
           }`}
         >
-          {lassoing ? 'Drawing — drag on the map' : 'Select an area'}
+          {lassoing ? 'Drag a box on the map' : 'Select an area'}
         </button>
         <span className="text-xs text-muted-foreground">or click pins to build a route in order</span>
         {selectedIds.length > 0 && (
