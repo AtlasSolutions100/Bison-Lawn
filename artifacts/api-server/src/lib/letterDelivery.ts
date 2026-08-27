@@ -115,7 +115,7 @@ const escapeHtml = (s: string) =>
  * plain text renders worst, since name and amount drift apart at any width the
  * reader's mail client happens to use.
  */
-function servicesTableHtml(services: { name: string; amount: number }[]) {
+function servicesTableHtml(services: { name: string; amount: number }[], includeTotal: boolean) {
   if (!services.length) {
     return `<p style="margin:0 0 18px;color:#6f675f">No services assigned</p>`;
   }
@@ -129,12 +129,24 @@ function servicesTableHtml(services: { name: string; amount: number }[]) {
     )
     .join("");
   const total = roundMoney(services.reduce((sum, service) => sum + service.amount, 0));
+  const totalRow = includeTotal
+    ? `<tr>` +
+      `<td style="padding:14px 0 0;font-weight:bold">Total</td>` +
+      `<td style="padding:14px 0 0;text-align:right;font-weight:bold;font-size:18px;color:#215343;white-space:nowrap">${escapeHtml(currency(total))}</td>` +
+      `</tr>`
+    : "";
   return (
     `<table role="presentation" width="100%" style="border-collapse:collapse;margin:0 0 20px;font-size:15px">` +
-    `<tbody>${rows}` +
-    `<tr>` +
-    `<td style="padding:14px 0 0;font-weight:bold">Total</td>` +
-    `<td style="padding:14px 0 0;text-align:right;font-weight:bold;font-size:18px;color:#215343;white-space:nowrap">${escapeHtml(currency(total))}</td>` +
+    `<tbody>${rows}${totalRow}</tbody></table>`
+  );
+}
+
+/** The author's own total line, given the weight the table's total row would have had. */
+function totalLineHtml(label: string, total: string) {
+  return (
+    `<table role="presentation" width="100%" style="border-collapse:collapse;margin:0 0 18px;font-size:15px"><tbody><tr>` +
+    `<td style="font-weight:bold">${escapeHtml(label)}</td>` +
+    `<td style="text-align:right;font-weight:bold;font-size:18px;color:#215343;white-space:nowrap">${escapeHtml(total)}</td>` +
     `</tr></tbody></table>`
   );
 }
@@ -151,11 +163,26 @@ function servicesTableHtml(services: { name: string; amount: number }[]) {
  * mail clients recover from it unpredictably.
  */
 function bodyHtml(body: string, tokens: Record<string, string>, services: { name: string; amount: number }[]) {
+  // Whether the table carries the total depends on whether the author already
+  // placed one. The default template writes "Total: {{total}}" on its own line,
+  // so a table that always totalled would print the figure twice for everyone —
+  // and a letter that states a customer's price twice invites the reply "which
+  // one is it?". Keyed on the token rather than on the wording around it, so
+  // rephrasing the line cannot resurrect the duplicate.
+  const authorPlacesTotal = body.replace("{{servicesTable}}", "").includes("{{total}}");
+
   return body
     .trim()
     .split(/\n\s*\n/)
     .map((block) => {
-      if (block.trim() === "{{servicesTable}}") return servicesTableHtml(services);
+      if (block.trim() === "{{servicesTable}}") return servicesTableHtml(services, !authorPlacesTotal);
+
+      // A block that is only a label and the total token is the author's total
+      // line; give it the weight it would have had inside the table.
+      const totalOnly = block.trim().match(/^(.*?):?\s*\{\{total\}\}$/);
+      if (totalOnly && !totalOnly[1].includes("{{")) {
+        return totalLineHtml(totalOnly[1].trim() || "Total", tokens.total ?? "");
+      }
       let html = escapeHtml(block).replace(/\r?\n/g, "<br />");
       for (const [token, replacement] of Object.entries(tokens)) {
         if (token === "servicesTable") continue;
