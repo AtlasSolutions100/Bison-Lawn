@@ -392,3 +392,53 @@ Confirm with:
 ```
 docker exec bisonlawn-app sh -c 'touch /data/uploads/.probe && echo writable && rm /data/uploads/.probe'
 ```
+
+### The proxy overlay is not optional, and forgetting it 502s silently
+
+`docker-compose.proxy.yml` is what removes the host port, attaches the app to the
+`web-proxy` network, and pins the container name to `bisonlawn-app` — the name
+Caddy's vhost points at. Run compose without it and you get a container called
+`bisonlawn-app-1` on the default network. Every container reports **healthy**,
+nothing errors, and the site returns **502** because Caddy is proxying to a name
+that no longer resolves.
+
+This happened on 2026-08-27. It is the nastiest failure mode in this stack: the
+deploy looks like it worked.
+
+Guarded by `COMPOSE_FILE` in `.env.deploy` (which `.env` symlinks to, and which
+compose reads for itself):
+
+```
+COMPOSE_FILE=docker-compose.yml:docker-compose.proxy.yml
+```
+
+With that set, a bare `docker compose up -d` resolves both files automatically.
+Verify after any compose command that the container is named `bisonlawn-app`:
+
+```
+docker ps --format '{{.Names}}' | grep bisonlawn
+curl -s -o /dev/null -w '%{http_code}\n' https://bisonlawncare.workoptional.tech/api/healthz
+```
+
+`deploy.sh` already checks the public endpoint through Caddy rather than the
+container, so it catches this. Hand-run compose commands are what to watch.
+
+### A warning about backticks in remote commands
+
+Writing that comment block into `.env.deploy` over ssh, the backticks inside it
+were substituted by the *remote* shell, which executed a bare
+`docker compose up -d` and took the site down a second time. Anything sent to a
+remote shell should be single-quoted end to end, or written with a quoted
+heredoc. Prefer editing files locally and `scp`-ing them.
+
+## The reports assistant
+
+`XAI_API_KEY` enables the plain-English question box on the Reports page.
+`XAI_MODEL` is optional and defaults to `grok-3` (xAI currently resolves that to
+grok-4.3 on their side). Without a key the reports work in full and only the
+question box is hidden.
+
+The model never writes SQL and never produces a figure. It picks one of the
+curated reports in `lib/analytics.ts` and writes prose around the rows that query
+returned; the rows render beneath the answer so it can be checked. A question no
+report covers is declined rather than answered from the model's own knowledge.
