@@ -11,6 +11,7 @@ import type { Estimate, EstimateLine, SchedulingRule } from "@workspace/db";
 import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
 import { haversineKm, logAudit } from "./helpers";
 import { addDaysISO } from "./weatherCheck";
+import { notifyAssignedSub } from "./subNotification";
 import { localDateOf } from "./weatherScheduler";
 
 /**
@@ -292,6 +293,19 @@ export async function scheduleAcceptedEstimate(
     const [assignee] = assignedToId
       ? await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, assignedToId))
       : [];
+
+    // Tell the sub their day changed. Not awaited and never throwing: a missed
+    // email must not be able to fail the acceptance that produced this job.
+    void notifyAssignedSub(assignedToId, {
+      jobId: job.id,
+      serviceName,
+      clientName: client?.name ?? null,
+      clientAddress: client?.serviceAddress ?? null,
+      scheduledDate,
+      windowStart,
+      windowEnd,
+      amount: line.calculatedPrice ?? 0,
+    });
 
     created.push({
       jobId: job.id,

@@ -514,3 +514,21 @@ documenting generated markup.
 | Old-style submit with no marker | still accepts in full |
 
 Gate: full typecheck clean, 94/94 tests.
+
+## 2026-08-27 — sub notification closes the last half of the auto-scheduler ask
+
+The owner asked for auto-scheduling with "(notification to sub that new job has
+been added)". The scheduler shipped writing an audit event, which the office
+sees and the sub does not — so a job could appear on someone's route overnight
+with nothing telling them.
+
+`lib/subNotification.ts` emails the assigned sub when a job is created from an
+accepted estimate: service, customer, address, date or window, amount. Fire and
+forget, and non-throwing for the same reason the feedback notifier is — an
+exception here unwinds into the acceptance path, and losing a customer's
+approval to a failed email would be far worse than a sub finding the job on
+their board unannounced.
+
+Measured: unassigned job sends nothing; an assigned sub with an email gets
+exactly one; a phone-only sub with no address on file sends nothing and does not
+error (the normal case, not a fault); a 500 from the provider is contained.

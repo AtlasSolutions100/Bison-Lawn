@@ -54,3 +54,7 @@ Thumbs.db
 
 # Deployment secrets
 .env.deploy
+
+# Agent scratch files
+_*.ts
+tmp-*.ts
