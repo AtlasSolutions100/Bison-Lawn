@@ -239,6 +239,16 @@ function JobCard({ job, index }: { job: Job, index: number }) {
  */
 const ACCESS_LABEL = /gate|code|lock|key|alarm|dog|access|entry|combo/i;
 
+/**
+ * A measurement fits beside its label; directions do not. Judged on the value
+ * rather than the label so a field nobody anticipated still lands in the right
+ * place — 30 characters is about where a value stops fitting the narrow column
+ * on a phone.
+ */
+function isLongDetail(value: string) {
+  return value.length > 30 || value.includes('\n');
+}
+
 function PropertyDetails({ data }: { data?: Record<string, string> | null }) {
   const details = Object.entries(data ?? {}).filter(
     ([, value]) => value != null && String(value).trim() !== '',
@@ -278,14 +288,25 @@ function PropertyDetails({ data }: { data?: Record<string, string> | null }) {
           <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
             Property Details
           </span>
+          {/* Two columns suit "Turf Sqft 6200". They ruin a sentence: the timer
+              and valve directions arrived squeezed into a 130px column with the
+              label truncated to "Spr...", which is unreadable on a phone in a
+              yard — the one place it has to be read. Anything long, or written
+              across lines, gets the full width and its label above it. */}
           <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
-            {rest.map(([label, value]) => (
+            {rest.filter(([, value]) => !isLongDetail(value)).map(([label, value]) => (
               <div key={label} className="flex items-baseline justify-between gap-2">
                 <span className="truncate text-xs text-muted-foreground">{label}</span>
                 <span className="text-sm font-medium tabular-nums">{value}</span>
               </div>
             ))}
           </div>
+          {rest.filter(([, value]) => isLongDetail(value)).map(([label, value]) => (
+            <div key={label} className="mt-2">
+              <span className="text-xs text-muted-foreground">{label}</span>
+              <p className="mt-0.5 whitespace-pre-wrap text-sm font-medium leading-snug">{value}</p>
+            </div>
+          ))}
         </div>
       )}
     </div>
