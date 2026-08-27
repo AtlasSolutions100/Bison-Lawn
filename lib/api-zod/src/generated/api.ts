@@ -602,6 +602,8 @@ export const ListClientsResponseItem = zod.object({
   "phone": zod.string().nullish(),
   "additionalContact": zod.string().nullish(),
   "mapNote": zod.string().nullish(),
+  "mapCode": zod.string().nullish().describe('Route zone shorthand, e.g. PF'),
+  "waterDistrict": zod.string().nullish().describe('Water purveyor serving the property'),
   "propertyData": zod.record(zod.string(), zod.string()).optional(),
   "lastServiceDate": zod.string().nullish(),
   "unappliedCredit": zod.number().optional().describe('Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice.'),
@@ -626,6 +628,8 @@ export const CreateClientBody = zod.object({
   "email": zod.string().optional(),
   "phone": zod.string().optional(),
   "additionalContact": zod.string().optional(),
+  "mapCode": zod.string().optional(),
+  "waterDistrict": zod.string().optional(),
   "mapNote": zod.string().optional(),
   "propertyData": zod.record(zod.string(), zod.string()).optional()
 })
@@ -646,6 +650,8 @@ export const CreateClientResponse = zod.object({
   "phone": zod.string().nullish(),
   "additionalContact": zod.string().nullish(),
   "mapNote": zod.string().nullish(),
+  "mapCode": zod.string().nullish().describe('Route zone shorthand, e.g. PF'),
+  "waterDistrict": zod.string().nullish().describe('Water purveyor serving the property'),
   "propertyData": zod.record(zod.string(), zod.string()).optional(),
   "lastServiceDate": zod.string().nullish(),
   "unappliedCredit": zod.number().optional().describe('Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice.'),
@@ -673,6 +679,8 @@ export const GetClientResponse = zod.object({
   "phone": zod.string().nullish(),
   "additionalContact": zod.string().nullish(),
   "mapNote": zod.string().nullish(),
+  "mapCode": zod.string().nullish().describe('Route zone shorthand, e.g. PF'),
+  "waterDistrict": zod.string().nullish().describe('Water purveyor serving the property'),
   "propertyData": zod.record(zod.string(), zod.string()).optional(),
   "lastServiceDate": zod.string().nullish(),
   "unappliedCredit": zod.number().optional().describe('Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice.'),
@@ -701,6 +709,8 @@ export const UpdateClientBody = zod.object({
   "phone": zod.string().nullish(),
   "additionalContact": zod.string().nullish(),
   "mapNote": zod.string().nullish(),
+  "mapCode": zod.string().nullish().describe('Route zone shorthand, e.g. PF'),
+  "waterDistrict": zod.string().nullish().describe('Water purveyor serving the property'),
   "propertyData": zod.record(zod.string(), zod.string()).optional()
 })
 
@@ -720,6 +730,8 @@ export const UpdateClientResponse = zod.object({
   "phone": zod.string().nullish(),
   "additionalContact": zod.string().nullish(),
   "mapNote": zod.string().nullish(),
+  "mapCode": zod.string().nullish().describe('Route zone shorthand, e.g. PF'),
+  "waterDistrict": zod.string().nullish().describe('Water purveyor serving the property'),
   "propertyData": zod.record(zod.string(), zod.string()).optional(),
   "lastServiceDate": zod.string().nullish(),
   "unappliedCredit": zod.number().optional().describe('Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice.'),
@@ -3216,6 +3228,223 @@ export const ReceiveWebRequestResponse = zod.object({
   "id": zod.int(),
   "status": zod.string(),
   "duplicate": zod.boolean()
+})
+
+
+/**
+ * @summary Start a time entry on a job, recording where the phone was
+ */
+export const ClockInToJobParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ClockInToJobBody = zod.object({
+  "lat": zod.number().nullish(),
+  "lng": zod.number().nullish(),
+  "note": zod.string().nullish()
+}).describe('Coordinates are optional. A phone can refuse location and the work still happened, so a missing fix must never stop a crew clocking in or out.')
+
+export const ClockInToJobResponse = zod.object({
+  "id": zod.int(),
+  "jobId": zod.int(),
+  "userId": zod.int(),
+  "userName": zod.string().nullish(),
+  "clockInAt": zod.string(),
+  "clockOutAt": zod.string().nullish().describe('Null means still on site'),
+  "clockInLat": zod.number().nullish(),
+  "clockInLng": zod.number().nullish(),
+  "clockOutLat": zod.number().nullish(),
+  "clockOutLng": zod.number().nullish(),
+  "minutes": zod.number().nullish().describe('Elapsed minutes, null while still open'),
+  "note": zod.string().nullish()
+})
+
+
+/**
+ * @summary Close the open time entry on a job
+ */
+export const ClockOutOfJobParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ClockOutOfJobBody = zod.object({
+  "lat": zod.number().nullish(),
+  "lng": zod.number().nullish(),
+  "note": zod.string().nullish()
+}).describe('Coordinates are optional. A phone can refuse location and the work still happened, so a missing fix must never stop a crew clocking in or out.')
+
+export const ClockOutOfJobResponse = zod.object({
+  "id": zod.int(),
+  "jobId": zod.int(),
+  "userId": zod.int(),
+  "userName": zod.string().nullish(),
+  "clockInAt": zod.string(),
+  "clockOutAt": zod.string().nullish().describe('Null means still on site'),
+  "clockInLat": zod.number().nullish(),
+  "clockInLng": zod.number().nullish(),
+  "clockOutLat": zod.number().nullish(),
+  "clockOutLng": zod.number().nullish(),
+  "minutes": zod.number().nullish().describe('Elapsed minutes, null while still open'),
+  "note": zod.string().nullish()
+})
+
+
+/**
+ * @summary Every clock-in and clock-out on this job, newest first
+ */
+export const ListJobTimeEntriesParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ListJobTimeEntriesResponseItem = zod.object({
+  "id": zod.int(),
+  "jobId": zod.int(),
+  "userId": zod.int(),
+  "userName": zod.string().nullish(),
+  "clockInAt": zod.string(),
+  "clockOutAt": zod.string().nullish().describe('Null means still on site'),
+  "clockInLat": zod.number().nullish(),
+  "clockInLng": zod.number().nullish(),
+  "clockOutLat": zod.number().nullish(),
+  "clockOutLng": zod.number().nullish(),
+  "minutes": zod.number().nullish().describe('Elapsed minutes, null while still open'),
+  "note": zod.string().nullish()
+})
+export const ListJobTimeEntriesResponse = zod.array(ListJobTimeEntriesResponseItem)
+
+
+/**
+ * @summary Photos taken on this job
+ */
+export const ListJobPhotosParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ListJobPhotosResponseItem = zod.object({
+  "id": zod.int(),
+  "jobId": zod.int().nullish(),
+  "clientId": zod.int(),
+  "uploadedById": zod.int().nullish(),
+  "uploadedByName": zod.string().nullish(),
+  "contentType": zod.string(),
+  "byteSize": zod.int(),
+  "kind": zod.enum(['before', 'after', 'other']),
+  "caption": zod.string().nullish(),
+  "takenAt": zod.string(),
+  "url": zod.string().describe('Authenticated path to the bytes')
+})
+export const ListJobPhotosResponse = zod.array(ListJobPhotosResponseItem)
+
+
+/**
+ * @summary Attach a photo to a job
+ */
+export const UploadJobPhotoParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const uploadJobPhotoBodyKindDefault = `other`;
+
+export const UploadJobPhotoBody = zod.object({
+  "contentType": zod.enum(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']),
+  "dataBase64": zod.string().describe('The file, base64 encoded'),
+  "kind": zod.enum(['before', 'after', 'other']).default(uploadJobPhotoBodyKindDefault),
+  "caption": zod.string().nullish()
+})
+
+export const UploadJobPhotoResponse = zod.object({
+  "id": zod.int(),
+  "jobId": zod.int().nullish(),
+  "clientId": zod.int(),
+  "uploadedById": zod.int().nullish(),
+  "uploadedByName": zod.string().nullish(),
+  "contentType": zod.string(),
+  "byteSize": zod.int(),
+  "kind": zod.enum(['before', 'after', 'other']),
+  "caption": zod.string().nullish(),
+  "takenAt": zod.string(),
+  "url": zod.string().describe('Authenticated path to the bytes')
+})
+
+
+/**
+ * @summary Every photo on this customer, across all their jobs
+ */
+export const ListClientPhotosParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ListClientPhotosResponseItem = zod.object({
+  "id": zod.int(),
+  "jobId": zod.int().nullish(),
+  "clientId": zod.int(),
+  "uploadedById": zod.int().nullish(),
+  "uploadedByName": zod.string().nullish(),
+  "contentType": zod.string(),
+  "byteSize": zod.int(),
+  "kind": zod.enum(['before', 'after', 'other']),
+  "caption": zod.string().nullish(),
+  "takenAt": zod.string(),
+  "url": zod.string().describe('Authenticated path to the bytes')
+})
+export const ListClientPhotosResponse = zod.array(ListClientPhotosResponseItem)
+
+
+/**
+ * @summary Delete a photo and the bytes behind it
+ */
+export const DeletePhotoParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const DeletePhotoResponse = zod.void()
+
+
+/**
+ * @summary The image bytes, behind the same auth as the rest of the app
+ */
+export const GetPhotoContentParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const GetPhotoContentResponse = zod.unknown()
+
+
+/**
+ * Previews by default. Nothing is scheduled unless apply is true, so the office can see which jobs would be pulled and how many would be left behind before committing four hundred blow-outs to a date.
+ * @summary Cut a route out of the waiting list, capped by money, stops or hours
+ */
+export const buildRouteFromWaitingListBodyApplyDefault = false;
+
+export const BuildRouteFromWaitingListBody = zod.object({
+  "scheduledDate": zod.string().describe('yyyy-mm-dd the route is for'),
+  "serviceId": zod.int().nullish().describe('Restrict to one service, e.g. Sprinkler Blowout'),
+  "mapCode": zod.string().nullish().describe('Restrict to one route zone'),
+  "city": zod.string().nullish(),
+  "assignedToId": zod.int().nullish().describe('Who the route is for'),
+  "maxStops": zod.int().nullish().describe('Cap by number of jobs'),
+  "maxDollars": zod.number().nullish().describe('Cap by total value'),
+  "maxHours": zod.number().nullish().describe('Cap by budgeted hours'),
+  "apply": zod.boolean().default(buildRouteFromWaitingListBodyApplyDefault).describe('False previews; true schedules the chosen jobs and leaves the rest on the waiting list')
+})
+
+export const BuildRouteFromWaitingListResponse = zod.object({
+  "applied": zod.boolean(),
+  "selected": zod.array(zod.object({
+  "jobId": zod.int(),
+  "clientId": zod.int(),
+  "clientName": zod.string(),
+  "address": zod.string().nullish(),
+  "mapCode": zod.string().nullish(),
+  "serviceName": zod.string().nullish(),
+  "amount": zod.number(),
+  "budgetedHours": zod.number().nullish(),
+  "routeOrder": zod.int()
+})),
+  "skipped": zod.int().describe('How many matching jobs did not fit the cap and stayed on the waiting list'),
+  "totalAmount": zod.number(),
+  "totalHours": zod.number(),
+  "limitedBy": zod.string().nullish().describe('Which cap stopped the route (stops, dollars or hours); null if everything matching fitted')
 })
 
 

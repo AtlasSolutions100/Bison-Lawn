@@ -35,6 +35,16 @@ export interface Client {
   additionalContact?: string | null;
   /** @nullable */
   mapNote?: string | null;
+  /**
+     * Route zone shorthand, e.g. PF
+     * @nullable
+     */
+  mapCode?: string | null;
+  /**
+     * Water purveyor serving the property
+     * @nullable
+     */
+  waterDistrict?: string | null;
   propertyData?: ClientPropertyData;
   /** @nullable */
   lastServiceDate?: string | null;

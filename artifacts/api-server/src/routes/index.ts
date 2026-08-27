@@ -16,6 +16,9 @@ import webRequestsRouter from "./web-requests";
 import feedbackRouter from "./feedback";
 import settingsRouter from "./settings";
 import quickbooksRouter from "./quickbooks";
+import timeTrackingRouter from "./time-tracking";
+import photosRouter from "./photos";
+import routeBuilderRouter from "./route-builder";
 
 const router: IRouter = Router();
 
@@ -45,6 +48,9 @@ router.use(dashboardRouter);
 router.use(vendorRunsRouter);
 router.use(lettersRouter);
 router.use(feedbackRouter);
+router.use(timeTrackingRouter);
+router.use(photosRouter);
+router.use(routeBuilderRouter);
 router.use(settingsRouter);
 
 export default router;

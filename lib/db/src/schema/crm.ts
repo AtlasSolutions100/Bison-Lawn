@@ -61,6 +61,13 @@ export const clientsTable = pgTable("clients", {
   phone: text("phone"),
   additionalContact: text("additional_contact"),
   mapNote: text("map_note"),
+  // Route zone shorthand, e.g. "PF" for Post Falls. His old system put this on
+  // the client card and colour-coded the board by it, so it is a first-class
+  // column rather than another property detail: routing reads it constantly.
+  mapCode: text("map_code"),
+  // Which water purveyor serves the property. Drives backflow-test paperwork and
+  // blow-out scheduling, since each district sets its own rules and deadlines.
+  waterDistrict: text("water_district"),
   propertyData: jsonb("property_data").$type<Record<string, string>>().notNull().default({}),
   lastServiceDate: text("last_service_date"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -690,3 +697,63 @@ export type BillingSettings = typeof billingSettingsTable.$inferSelect;
 
 export type AutomationRun = typeof automationRunsTable.$inferSelect;
 export type UserIdentity = typeof userIdentitiesTable.$inferSelect;
+
+// ---------- time on site ----------
+/**
+ * One clock-in/clock-out pair for one person on one job.
+ *
+ * Asked for as "clock in and out with time stamp of them being there". The
+ * coordinates are the reason it is worth more than a pair of times: a timestamp
+ * alone proves someone pressed a button, not that anyone went to the property.
+ * Both are nullable because a phone can refuse location and the work still
+ * happened — a missing fix must never block a crew from clocking in.
+ *
+ * clockOutAt null means still on site. A row is never deleted on clock-out; the
+ * open row is closed, so the history stays auditable.
+ */
+export const jobTimeEntriesTable = pgTable("job_time_entries", {
+  id: serial("id").primaryKey(),
+  jobId: integer("job_id").notNull().references(() => jobsTable.id, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  clockInAt: timestamp("clock_in_at").notNull().defaultNow(),
+  clockOutAt: timestamp("clock_out_at"),
+  clockInLat: doublePrecision("clock_in_lat"),
+  clockInLng: doublePrecision("clock_in_lng"),
+  clockOutLat: doublePrecision("clock_out_lat"),
+  clockOutLng: doublePrecision("clock_out_lng"),
+  note: text("note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type JobTimeEntry = typeof jobTimeEntriesTable.$inferSelect;
+
+// ---------- job photos ----------
+/**
+ * A photo taken on a job, kept so it can be found again later.
+ *
+ * clientId is denormalised from the job on purpose: the owner's ask was to
+ * "take pictures that we can come back to later in the future", and later means
+ * after the job is long closed — most often while looking at the customer, not
+ * the visit. Copying it keeps that lookup a single index instead of a join
+ * through a job that may since have been deleted.
+ *
+ * `kind` exists because before/after is the pair he wants to send customers; it
+ * is a label on the photo rather than two tables, since which one a photo is
+ * only becomes clear once both exist.
+ *
+ * The bytes live in the file store, not here. storageKey is the handle.
+ */
+export const jobPhotosTable = pgTable("job_photos", {
+  id: serial("id").primaryKey(),
+  jobId: integer("job_id").references(() => jobsTable.id, { onDelete: "set null" }),
+  clientId: integer("client_id").notNull().references(() => clientsTable.id, { onDelete: "cascade" }),
+  uploadedById: integer("uploaded_by_id").references(() => usersTable.id, { onDelete: "set null" }),
+  storageKey: text("storage_key").notNull(),
+  contentType: text("content_type").notNull(),
+  byteSize: integer("byte_size").notNull(),
+  // before | after | other
+  kind: text("kind").notNull().default("other"),
+  caption: text("caption"),
+  takenAt: timestamp("taken_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type JobPhoto = typeof jobPhotosTable.$inferSelect;

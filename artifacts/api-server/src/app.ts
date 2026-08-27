@@ -82,8 +82,12 @@ app.use(
     },
   }),
 );
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// 25MB rather than the 100kb default: photos arrive base64-encoded in JSON,
+// which inflates them by about a third, so the 15MB file cap in fileStorage
+// needs roughly 20MB of headroom here. Without this the upload fails as a
+// generic "entity too large" long before the size check that could explain it.
+app.use(express.json({ limit: "25mb" }));
+app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
 app.use(
   clerkMiddleware((req) => ({

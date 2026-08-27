@@ -42,6 +42,7 @@ import type {
   ClientServiceInput,
   ClientServiceUpdate,
   ClientUpdate,
+  ClockInput,
   CompanyProfile,
   CompanyProfileInput,
   ContractorEarnings,
@@ -78,8 +79,10 @@ import type {
   InvoiceUpdate,
   Job,
   JobInput,
+  JobPhoto,
   JobProduct,
   JobProductInput,
+  JobTimeEntry,
   JobUpdate,
   LetterPreview,
   LetterTemplate,
@@ -102,10 +105,13 @@ import type {
   OnSitePaymentInput,
   Payment,
   PaymentInput,
+  PhotoUploadInput,
   PriceQueryInput,
   PriceResult,
   QuickbooksReport,
   QuickbooksStatus,
+  RouteBuildInput,
+  RouteBuildResult,
   RouteResult,
   SchedulingRule,
   SchedulingRuleInput,
@@ -9457,5 +9463,701 @@ export const useReceiveWebRequest = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getReceiveWebRequestMutationOptions(options));
+    }
+
+export const getClockInToJobUrl = (id: number,) => {
+
+
+
+
+  return `/api/jobs/${id}/clock-in`
+}
+
+/**
+ * @summary Start a time entry on a job, recording where the phone was
+ */
+export const clockInToJob = async (id: number,
+    clockInput?: ClockInput, options?: Parameters<typeof customFetch>[1]): Promise<JobTimeEntry> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<JobTimeEntry>(getClockInToJobUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(clockInput)
+  }
+);}
+
+
+
+
+
+export const getClockInToJobMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clockInToJob>>, TError,ClockInToJobMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof clockInToJob>>, TError,ClockInToJobMutationVariables, TContext> => {
+
+const mutationKey = ['clockInToJob'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clockInToJob>>, ClockInToJobMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  clockInToJob(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClockInToJobMutationResult = NonNullable<Awaited<ReturnType<typeof clockInToJob>>>
+    export type ClockInToJobMutationBody = BodyType<ClockInput> | undefined
+    export type ClockInToJobMutationError = ErrorType<void>
+    export type ClockInToJobMutationVariables = {id: number;data?: BodyType<ClockInput>}
+
+    /**
+ * @summary Start a time entry on a job, recording where the phone was
+ */
+export const useClockInToJob = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clockInToJob>>, TError,ClockInToJobMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof clockInToJob>>,
+        TError,
+        ClockInToJobMutationVariables,
+        TContext
+      > => {
+      return useMutation(getClockInToJobMutationOptions(options));
+    }
+
+export const getClockOutOfJobUrl = (id: number,) => {
+
+
+
+
+  return `/api/jobs/${id}/clock-out`
+}
+
+/**
+ * @summary Close the open time entry on a job
+ */
+export const clockOutOfJob = async (id: number,
+    clockInput?: ClockInput, options?: Parameters<typeof customFetch>[1]): Promise<JobTimeEntry> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<JobTimeEntry>(getClockOutOfJobUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(clockInput)
+  }
+);}
+
+
+
+
+
+export const getClockOutOfJobMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clockOutOfJob>>, TError,ClockOutOfJobMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof clockOutOfJob>>, TError,ClockOutOfJobMutationVariables, TContext> => {
+
+const mutationKey = ['clockOutOfJob'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clockOutOfJob>>, ClockOutOfJobMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  clockOutOfJob(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClockOutOfJobMutationResult = NonNullable<Awaited<ReturnType<typeof clockOutOfJob>>>
+    export type ClockOutOfJobMutationBody = BodyType<ClockInput> | undefined
+    export type ClockOutOfJobMutationError = ErrorType<void>
+    export type ClockOutOfJobMutationVariables = {id: number;data?: BodyType<ClockInput>}
+
+    /**
+ * @summary Close the open time entry on a job
+ */
+export const useClockOutOfJob = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clockOutOfJob>>, TError,ClockOutOfJobMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof clockOutOfJob>>,
+        TError,
+        ClockOutOfJobMutationVariables,
+        TContext
+      > => {
+      return useMutation(getClockOutOfJobMutationOptions(options));
+    }
+
+export const getListJobTimeEntriesUrl = (id: number,) => {
+
+
+
+
+  return `/api/jobs/${id}/time-entries`
+}
+
+/**
+ * @summary Every clock-in and clock-out on this job, newest first
+ */
+export const listJobTimeEntries = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<JobTimeEntry[]> => {
+
+  return customFetch<JobTimeEntry[]>(getListJobTimeEntriesUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListJobTimeEntriesQueryKey = (id: number,) => {
+    return [
+    `/api/jobs/${id}/time-entries`
+    ] as const;
+    }
+
+
+export const getListJobTimeEntriesQueryOptions = <TData = Awaited<ReturnType<typeof listJobTimeEntries>>, TError = ErrorType<unknown>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listJobTimeEntries>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListJobTimeEntriesQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listJobTimeEntries>>> = ({ signal }) => listJobTimeEntries(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listJobTimeEntries>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListJobTimeEntriesQueryResult = NonNullable<Awaited<ReturnType<typeof listJobTimeEntries>>>
+export type ListJobTimeEntriesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Every clock-in and clock-out on this job, newest first
+ */
+
+export function useListJobTimeEntries<TData = Awaited<ReturnType<typeof listJobTimeEntries>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listJobTimeEntries>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListJobTimeEntriesQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListJobPhotosUrl = (id: number,) => {
+
+
+
+
+  return `/api/jobs/${id}/photos`
+}
+
+/**
+ * @summary Photos taken on this job
+ */
+export const listJobPhotos = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<JobPhoto[]> => {
+
+  return customFetch<JobPhoto[]>(getListJobPhotosUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListJobPhotosQueryKey = (id: number,) => {
+    return [
+    `/api/jobs/${id}/photos`
+    ] as const;
+    }
+
+
+export const getListJobPhotosQueryOptions = <TData = Awaited<ReturnType<typeof listJobPhotos>>, TError = ErrorType<unknown>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listJobPhotos>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListJobPhotosQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listJobPhotos>>> = ({ signal }) => listJobPhotos(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listJobPhotos>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListJobPhotosQueryResult = NonNullable<Awaited<ReturnType<typeof listJobPhotos>>>
+export type ListJobPhotosQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Photos taken on this job
+ */
+
+export function useListJobPhotos<TData = Awaited<ReturnType<typeof listJobPhotos>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listJobPhotos>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListJobPhotosQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUploadJobPhotoUrl = (id: number,) => {
+
+
+
+
+  return `/api/jobs/${id}/photos`
+}
+
+/**
+ * @summary Attach a photo to a job
+ */
+export const uploadJobPhoto = async (id: number,
+    photoUploadInput: PhotoUploadInput, options?: Parameters<typeof customFetch>[1]): Promise<JobPhoto> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<JobPhoto>(getUploadJobPhotoUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(photoUploadInput)
+  }
+);}
+
+
+
+
+
+export const getUploadJobPhotoMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadJobPhoto>>, TError,UploadJobPhotoMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof uploadJobPhoto>>, TError,UploadJobPhotoMutationVariables, TContext> => {
+
+const mutationKey = ['uploadJobPhoto'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof uploadJobPhoto>>, UploadJobPhotoMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  uploadJobPhoto(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UploadJobPhotoMutationResult = NonNullable<Awaited<ReturnType<typeof uploadJobPhoto>>>
+    export type UploadJobPhotoMutationBody = BodyType<PhotoUploadInput>
+    export type UploadJobPhotoMutationError = ErrorType<void>
+    export type UploadJobPhotoMutationVariables = {id: number;data: BodyType<PhotoUploadInput>}
+
+    /**
+ * @summary Attach a photo to a job
+ */
+export const useUploadJobPhoto = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadJobPhoto>>, TError,UploadJobPhotoMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof uploadJobPhoto>>,
+        TError,
+        UploadJobPhotoMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUploadJobPhotoMutationOptions(options));
+    }
+
+export const getListClientPhotosUrl = (id: number,) => {
+
+
+
+
+  return `/api/clients/${id}/photos`
+}
+
+/**
+ * @summary Every photo on this customer, across all their jobs
+ */
+export const listClientPhotos = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<JobPhoto[]> => {
+
+  return customFetch<JobPhoto[]>(getListClientPhotosUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListClientPhotosQueryKey = (id: number,) => {
+    return [
+    `/api/clients/${id}/photos`
+    ] as const;
+    }
+
+
+export const getListClientPhotosQueryOptions = <TData = Awaited<ReturnType<typeof listClientPhotos>>, TError = ErrorType<unknown>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listClientPhotos>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListClientPhotosQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listClientPhotos>>> = ({ signal }) => listClientPhotos(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listClientPhotos>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListClientPhotosQueryResult = NonNullable<Awaited<ReturnType<typeof listClientPhotos>>>
+export type ListClientPhotosQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Every photo on this customer, across all their jobs
+ */
+
+export function useListClientPhotos<TData = Awaited<ReturnType<typeof listClientPhotos>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listClientPhotos>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListClientPhotosQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDeletePhotoUrl = (id: number,) => {
+
+
+
+
+  return `/api/photos/${id}`
+}
+
+/**
+ * @summary Delete a photo and the bytes behind it
+ */
+export const deletePhoto = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDeletePhotoUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeletePhotoMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deletePhoto>>, TError,DeletePhotoMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deletePhoto>>, TError,DeletePhotoMutationVariables, TContext> => {
+
+const mutationKey = ['deletePhoto'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deletePhoto>>, DeletePhotoMutationVariables> = (props) => {
+          const {id} = props ?? {};
+
+          return  deletePhoto(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeletePhotoMutationResult = NonNullable<Awaited<ReturnType<typeof deletePhoto>>>
+
+    export type DeletePhotoMutationError = ErrorType<unknown>
+    export type DeletePhotoMutationVariables = {id: number}
+
+    /**
+ * @summary Delete a photo and the bytes behind it
+ */
+export const useDeletePhoto = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deletePhoto>>, TError,DeletePhotoMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deletePhoto>>,
+        TError,
+        DeletePhotoMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDeletePhotoMutationOptions(options));
+    }
+
+export const getGetPhotoContentUrl = (id: number,) => {
+
+
+
+
+  return `/api/photos/${id}/content`
+}
+
+/**
+ * @summary The image bytes, behind the same auth as the rest of the app
+ */
+export const getPhotoContent = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getGetPhotoContentUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPhotoContentQueryKey = (id: number,) => {
+    return [
+    `/api/photos/${id}/content`
+    ] as const;
+    }
+
+
+export const getGetPhotoContentQueryOptions = <TData = Awaited<ReturnType<typeof getPhotoContent>>, TError = ErrorType<unknown>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPhotoContent>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPhotoContentQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPhotoContent>>> = ({ signal }) => getPhotoContent(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPhotoContent>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPhotoContentQueryResult = NonNullable<Awaited<ReturnType<typeof getPhotoContent>>>
+export type GetPhotoContentQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary The image bytes, behind the same auth as the rest of the app
+ */
+
+export function useGetPhotoContent<TData = Awaited<ReturnType<typeof getPhotoContent>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPhotoContent>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPhotoContentQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getBuildRouteFromWaitingListUrl = () => {
+
+
+
+
+  return `/api/waiting-list/build-route`
+}
+
+/**
+ * Previews by default. Nothing is scheduled unless apply is true, so the office can see which jobs would be pulled and how many would be left behind before committing four hundred blow-outs to a date.
+ * @summary Cut a route out of the waiting list, capped by money, stops or hours
+ */
+export const buildRouteFromWaitingList = async (routeBuildInput: RouteBuildInput, options?: Parameters<typeof customFetch>[1]): Promise<RouteBuildResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<RouteBuildResult>(getBuildRouteFromWaitingListUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(routeBuildInput)
+  }
+);}
+
+
+
+
+
+export const getBuildRouteFromWaitingListMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof buildRouteFromWaitingList>>, TError,BuildRouteFromWaitingListMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof buildRouteFromWaitingList>>, TError,BuildRouteFromWaitingListMutationVariables, TContext> => {
+
+const mutationKey = ['buildRouteFromWaitingList'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof buildRouteFromWaitingList>>, BuildRouteFromWaitingListMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  buildRouteFromWaitingList(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BuildRouteFromWaitingListMutationResult = NonNullable<Awaited<ReturnType<typeof buildRouteFromWaitingList>>>
+    export type BuildRouteFromWaitingListMutationBody = BodyType<RouteBuildInput>
+    export type BuildRouteFromWaitingListMutationError = ErrorType<void>
+    export type BuildRouteFromWaitingListMutationVariables = {data: BodyType<RouteBuildInput>}
+
+    /**
+ * @summary Cut a route out of the waiting list, capped by money, stops or hours
+ */
+export const useBuildRouteFromWaitingList = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof buildRouteFromWaitingList>>, TError,BuildRouteFromWaitingListMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof buildRouteFromWaitingList>>,
+        TError,
+        BuildRouteFromWaitingListMutationVariables,
+        TContext
+      > => {
+      return useMutation(getBuildRouteFromWaitingListMutationOptions(options));
     }
 

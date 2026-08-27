@@ -25,6 +25,8 @@ export interface ClientInput {
   email?: string;
   phone?: string;
   additionalContact?: string;
+  mapCode?: string;
+  waterDistrict?: string;
   mapNote?: string;
   propertyData?: ClientInputPropertyData;
 }

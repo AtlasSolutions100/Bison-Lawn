@@ -5,6 +5,172 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+/**
+ * Coordinates are optional. A phone can refuse location and the work still happened, so a missing fix must never stop a crew clocking in or out.
+ */
+export interface ClockInput {
+  /** @nullable */
+  lat?: number | null;
+  /** @nullable */
+  lng?: number | null;
+  /** @nullable */
+  note?: string | null;
+}
+
+export interface JobTimeEntry {
+  id: number;
+  jobId: number;
+  userId: number;
+  /** @nullable */
+  userName?: string | null;
+  clockInAt: string;
+  /**
+     * Null means still on site
+     * @nullable
+     */
+  clockOutAt?: string | null;
+  /** @nullable */
+  clockInLat?: number | null;
+  /** @nullable */
+  clockInLng?: number | null;
+  /** @nullable */
+  clockOutLat?: number | null;
+  /** @nullable */
+  clockOutLng?: number | null;
+  /**
+     * Elapsed minutes, null while still open
+     * @nullable
+     */
+  minutes?: number | null;
+  /** @nullable */
+  note?: string | null;
+}
+
+export type PhotoUploadInputContentType = typeof PhotoUploadInputContentType[keyof typeof PhotoUploadInputContentType];
+
+
+export const PhotoUploadInputContentType = {
+  'image/jpeg': 'image/jpeg',
+  'image/png': 'image/png',
+  'image/webp': 'image/webp',
+  'application/pdf': 'application/pdf',
+} as const;
+
+export type PhotoUploadInputKind = typeof PhotoUploadInputKind[keyof typeof PhotoUploadInputKind];
+
+
+export const PhotoUploadInputKind = {
+  before: 'before',
+  after: 'after',
+  other: 'other',
+} as const;
+
+export interface PhotoUploadInput {
+  contentType: PhotoUploadInputContentType;
+  /** The file, base64 encoded */
+  dataBase64: string;
+  kind?: PhotoUploadInputKind;
+  /** @nullable */
+  caption?: string | null;
+}
+
+export type JobPhotoKind = typeof JobPhotoKind[keyof typeof JobPhotoKind];
+
+
+export const JobPhotoKind = {
+  before: 'before',
+  after: 'after',
+  other: 'other',
+} as const;
+
+export interface JobPhoto {
+  id: number;
+  /** @nullable */
+  jobId?: number | null;
+  clientId: number;
+  /** @nullable */
+  uploadedById?: number | null;
+  /** @nullable */
+  uploadedByName?: string | null;
+  contentType: string;
+  byteSize: number;
+  kind: JobPhotoKind;
+  /** @nullable */
+  caption?: string | null;
+  takenAt: string;
+  /** Authenticated path to the bytes */
+  url: string;
+}
+
+export interface RouteBuildInput {
+  /** yyyy-mm-dd the route is for */
+  scheduledDate: string;
+  /**
+     * Restrict to one service, e.g. Sprinkler Blowout
+     * @nullable
+     */
+  serviceId?: number | null;
+  /**
+     * Restrict to one route zone
+     * @nullable
+     */
+  mapCode?: string | null;
+  /** @nullable */
+  city?: string | null;
+  /**
+     * Who the route is for
+     * @nullable
+     */
+  assignedToId?: number | null;
+  /**
+     * Cap by number of jobs
+     * @nullable
+     */
+  maxStops?: number | null;
+  /**
+     * Cap by total value
+     * @nullable
+     */
+  maxDollars?: number | null;
+  /**
+     * Cap by budgeted hours
+     * @nullable
+     */
+  maxHours?: number | null;
+  /** False previews; true schedules the chosen jobs and leaves the rest on the waiting list */
+  apply?: boolean;
+}
+
+export interface RouteBuildStop {
+  jobId: number;
+  clientId: number;
+  clientName: string;
+  /** @nullable */
+  address?: string | null;
+  /** @nullable */
+  mapCode?: string | null;
+  /** @nullable */
+  serviceName?: string | null;
+  amount: number;
+  /** @nullable */
+  budgetedHours?: number | null;
+  routeOrder: number;
+}
+
+export interface RouteBuildResult {
+  applied: boolean;
+  selected: RouteBuildStop[];
+  /** How many matching jobs did not fit the cap and stayed on the waiting list */
+  skipped: number;
+  totalAmount: number;
+  totalHours: number;
+  /**
+     * Which cap stopped the route (stops, dollars or hours); null if everything matching fitted
+     * @nullable
+     */
+  limitedBy?: string | null;
+}
+
 export interface HealthStatus {
   status: string;
 }
@@ -510,6 +676,16 @@ export interface Client {
   additionalContact?: string | null;
   /** @nullable */
   mapNote?: string | null;
+  /**
+     * Route zone shorthand, e.g. PF
+     * @nullable
+     */
+  mapCode?: string | null;
+  /**
+     * Water purveyor serving the property
+     * @nullable
+     */
+  waterDistrict?: string | null;
   propertyData?: ClientPropertyData;
   /** @nullable */
   lastServiceDate?: string | null;
@@ -546,6 +722,8 @@ export interface ClientInput {
   email?: string;
   phone?: string;
   additionalContact?: string;
+  mapCode?: string;
+  waterDistrict?: string;
   mapNote?: string;
   propertyData?: ClientInputPropertyData;
 }
@@ -587,6 +765,16 @@ export interface ClientUpdate {
   additionalContact?: string | null;
   /** @nullable */
   mapNote?: string | null;
+  /**
+     * Route zone shorthand, e.g. PF
+     * @nullable
+     */
+  mapCode?: string | null;
+  /**
+     * Water purveyor serving the property
+     * @nullable
+     */
+  waterDistrict?: string | null;
   propertyData?: ClientUpdatePropertyData;
 }
 

@@ -31,6 +31,12 @@ services:
     # an array"; this form is accepted everywhere and costs nothing.
     env_file:
       - .env.deploy
+    volumes:
+      # Uploaded photos and documents. A named volume, not a bind mount into the
+      # build context, and emphatically not container-local storage: every deploy
+      # rebuilds and recreates this container, which would take the customer's
+      # before-and-after photos with it.
+      - bison-uploads:/data/uploads
     environment:
       NODE_ENV: production
       PORT: 8080
@@ -45,3 +51,4 @@ services:
 
 volumes:
   bison-db:
+  bison-uploads:

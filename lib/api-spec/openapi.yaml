@@ -2006,6 +2006,156 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WebRequestReceipt"
+  /jobs/{id}/clock-in:
+    post:
+      operationId: clockInToJob
+      tags: [jobs]
+      summary: Start a time entry on a job, recording where the phone was
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ClockInput" }
+      responses:
+        "201":
+          description: Clocked in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobTimeEntry" }
+        "409":
+          description: Already clocked in to this job
+  /jobs/{id}/clock-out:
+    post:
+      operationId: clockOutOfJob
+      tags: [jobs]
+      summary: Close the open time entry on a job
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ClockInput" }
+      responses:
+        "200":
+          description: Clocked out
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobTimeEntry" }
+        "409":
+          description: Not clocked in
+  /jobs/{id}/time-entries:
+    get:
+      operationId: listJobTimeEntries
+      tags: [jobs]
+      summary: Every clock-in and clock-out on this job, newest first
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Time entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/JobTimeEntry" }
+  /jobs/{id}/photos:
+    get:
+      operationId: listJobPhotos
+      tags: [photos]
+      summary: Photos taken on this job
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Photos
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/JobPhoto" }
+    post:
+      operationId: uploadJobPhoto
+      tags: [photos]
+      summary: Attach a photo to a job
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PhotoUploadInput" }
+      responses:
+        "201":
+          description: Stored
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobPhoto" }
+        "400":
+          description: Unsupported type, empty, or over the size limit
+  /clients/{id}/photos:
+    get:
+      operationId: listClientPhotos
+      tags: [photos]
+      summary: Every photo on this customer, across all their jobs
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Photos
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/JobPhoto" }
+  /photos/{id}:
+    delete:
+      operationId: deletePhoto
+      tags: [photos]
+      summary: Delete a photo and the bytes behind it
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "204":
+          description: Deleted
+  /photos/{id}/content:
+    get:
+      operationId: getPhotoContent
+      tags: [photos]
+      summary: The image bytes, behind the same auth as the rest of the app
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Image
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+  /waiting-list/build-route:
+    post:
+      operationId: buildRouteFromWaitingList
+      tags: [routing]
+      summary: Cut a route out of the waiting list, capped by money, stops or hours
+      description: >-
+        Previews by default. Nothing is scheduled unless apply is true, so the
+        office can see which jobs would be pulled and how many would be left
+        behind before committing four hundred blow-outs to a date.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RouteBuildInput" }
+      responses:
+        "200":
+          description: The proposed route
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RouteBuildResult" }
+        "400":
+          description: Invalid cap or date
+
 components:
   parameters:
     IdParam:
@@ -2015,6 +2165,99 @@ components:
       schema:
         type: integer
   schemas:
+    ClockInput:
+      type: object
+      properties:
+        lat: { type: ["number", "null"] }
+        lng: { type: ["number", "null"] }
+        note: { type: ["string", "null"] }
+      description: >-
+        Coordinates are optional. A phone can refuse location and the work still
+        happened, so a missing fix must never stop a crew clocking in or out.
+    JobTimeEntry:
+      type: object
+      required: [id, jobId, userId, clockInAt]
+      properties:
+        id: { type: integer }
+        jobId: { type: integer }
+        userId: { type: integer }
+        userName: { type: ["string", "null"] }
+        clockInAt: { type: string }
+        clockOutAt: { type: ["string", "null"], description: "Null means still on site" }
+        clockInLat: { type: ["number", "null"] }
+        clockInLng: { type: ["number", "null"] }
+        clockOutLat: { type: ["number", "null"] }
+        clockOutLng: { type: ["number", "null"] }
+        minutes: { type: ["number", "null"], description: "Elapsed minutes, null while still open" }
+        note: { type: ["string", "null"] }
+    PhotoUploadInput:
+      type: object
+      required: [contentType, dataBase64]
+      properties:
+        contentType: { type: string, enum: ["image/jpeg", "image/png", "image/webp", "application/pdf"] }
+        dataBase64: { type: string, description: "The file, base64 encoded" }
+        kind: { type: string, enum: [before, after, other], default: other }
+        caption: { type: ["string", "null"] }
+    JobPhoto:
+      type: object
+      required: [id, clientId, contentType, byteSize, kind, takenAt, url]
+      properties:
+        id: { type: integer }
+        jobId: { type: ["integer", "null"] }
+        clientId: { type: integer }
+        uploadedById: { type: ["integer", "null"] }
+        uploadedByName: { type: ["string", "null"] }
+        contentType: { type: string }
+        byteSize: { type: integer }
+        kind: { type: string, enum: [before, after, other] }
+        caption: { type: ["string", "null"] }
+        takenAt: { type: string }
+        url: { type: string, description: "Authenticated path to the bytes" }
+    RouteBuildInput:
+      type: object
+      required: [scheduledDate]
+      properties:
+        scheduledDate: { type: string, description: "yyyy-mm-dd the route is for" }
+        serviceId: { type: ["integer", "null"], description: "Restrict to one service, e.g. Sprinkler Blowout" }
+        mapCode: { type: ["string", "null"], description: "Restrict to one route zone" }
+        city: { type: ["string", "null"] }
+        assignedToId: { type: ["integer", "null"], description: "Who the route is for" }
+        maxStops: { type: ["integer", "null"], description: "Cap by number of jobs" }
+        maxDollars: { type: ["number", "null"], description: "Cap by total value" }
+        maxHours: { type: ["number", "null"], description: "Cap by budgeted hours" }
+        apply:
+          type: boolean
+          default: false
+          description: "False previews; true schedules the chosen jobs and leaves the rest on the waiting list"
+    RouteBuildResult:
+      type: object
+      required: [selected, skipped, totalAmount, totalHours, applied]
+      properties:
+        applied: { type: boolean }
+        selected:
+          type: array
+          items: { $ref: "#/components/schemas/RouteBuildStop" }
+        skipped:
+          type: integer
+          description: "How many matching jobs did not fit the cap and stayed on the waiting list"
+        totalAmount: { type: number }
+        totalHours: { type: number }
+        limitedBy:
+          type: ["string", "null"]
+          description: "Which cap stopped the route (stops, dollars or hours); null if everything matching fitted"
+    RouteBuildStop:
+      type: object
+      required: [jobId, clientId, clientName, amount, routeOrder]
+      properties:
+        jobId: { type: integer }
+        clientId: { type: integer }
+        clientName: { type: string }
+        address: { type: ["string", "null"] }
+        mapCode: { type: ["string", "null"] }
+        serviceName: { type: ["string", "null"] }
+        amount: { type: number }
+        budgetedHours: { type: ["number", "null"] }
+        routeOrder: { type: integer }
     HealthStatus:
       type: object
       properties:
@@ -2297,6 +2540,8 @@ components:
         phone: { type: ["string", "null"] }
         additionalContact: { type: ["string", "null"] }
         mapNote: { type: ["string", "null"] }
+        mapCode: { type: ["string", "null"], description: "Route zone shorthand, e.g. PF" }
+        waterDistrict: { type: ["string", "null"], description: "Water purveyor serving the property" }
         propertyData:
           type: object
           additionalProperties: { type: string }
@@ -2323,6 +2568,8 @@ components:
         email: { type: string }
         phone: { type: string }
         additionalContact: { type: string }
+        mapCode: { type: string }
+        waterDistrict: { type: string }
         mapNote: { type: string }
         propertyData:
           type: object
@@ -2343,6 +2590,8 @@ components:
         phone: { type: ["string", "null"] }
         additionalContact: { type: ["string", "null"] }
         mapNote: { type: ["string", "null"] }
+        mapCode: { type: ["string", "null"], description: "Route zone shorthand, e.g. PF" }
+        waterDistrict: { type: ["string", "null"], description: "Water purveyor serving the property" }
         propertyData:
           type: object
           additionalProperties: { type: string }
