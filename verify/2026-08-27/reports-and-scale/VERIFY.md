@@ -73,3 +73,54 @@ optional `XAI_MODEL` (default `grok-3`) switch it on.
   seeded jobs with synthetic clock entries; the arithmetic is proven, the shape
   of real-world data is not.
 - The costing queries have no automated tests.
+
+---
+
+# The assistant, once the key was set
+
+`XAI_API_KEY` installed on the server. Key accepted by xAI directly (HTTP 200).
+Note: the request asks for `grok-3` and xAI resolves it to `grok-4.3`.
+
+## Asked in the UI
+
+> which crew is running over the time I priced the work for?
+
+> **Dale Reyes crew ran over the budgeted time. They used 8.7 actual hours
+> against 6 budgeted hours. Data is missing for Marcus Webb crew.**
+> Read from: Budgeted vs actual hours by crew
+
+Both figures match the table and the database. It routed to the right report, and
+it volunteered the missing-data caveat rather than treating Marcus Webb's
+unclocked work as zero — the failure this whole design exists to prevent.
+
+## Negative test
+
+| question | routed to | outcome |
+|---|---|---|
+| "what is the weather forecast for next Tuesday?" | **null** | declined, listed what it can answer, invented nothing |
+| "what work have I finished but not billed yet?" | `unbilled_completed_work` | 2 rows, figures matching the tables |
+
+Latency: 2.9s to decline (one call), 6.2s for a full answer (two calls).
+
+## Two outages today, both worth recording
+
+**Cause.** Compose was run without `docker-compose.proxy.yml`. That creates
+`bisonlawn-app-1` on the default network instead of `bisonlawn-app` on
+`web-proxy`. Every container reported healthy, nothing errored, and the site
+returned 502 because Caddy proxies to a container name that no longer existed.
+The deploy looks like it worked, which is what makes it dangerous.
+
+**My contribution.** Symlinking `.env` earlier removed the loud failure: before
+that, a bare `docker compose up -d` aborted on missing interpolation variables.
+After it, the same command succeeded and produced a broken topology. I made a
+noisy failure quiet.
+
+**The second outage was mine outright.** Writing the fix into `.env.deploy` over
+ssh, backticks inside a comment were substituted by the remote shell, which
+executed a bare `docker compose up -d` and recreated the broken container.
+
+**Fixed** with `COMPOSE_FILE=docker-compose.yml:docker-compose.proxy.yml` in
+`.env.deploy`, so a bare compose command resolves both files. Verified: a bare
+`docker compose up -d` now produces `bisonlawn-app` and a 200.
+
+takeoff was unaffected throughout — 200 at every check.
