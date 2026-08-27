@@ -5,6 +5,36 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+export interface BulkAssignInput {
+  /** @minItems 1 */
+  jobIds: number[];
+  /**
+     * Crew to assign. Omit to leave alone; null to unassign.
+     * @nullable
+     */
+  assignedToId?: number | null;
+  /**
+     * yyyy-mm-dd. Omit to leave alone.
+     * @nullable
+     */
+  scheduledDate?: string | null;
+  /**
+     * Omit to leave alone. True moves waiting-list work onto the board.
+     * @nullable
+     */
+  dispatched?: boolean | null;
+  /**
+     * Number the selection sequentially from here, in the order the ids were given, so the dispatcher's own ordering is what gets written.
+     * @nullable
+     */
+  routeOrderFrom?: number | null;
+}
+
+export interface BulkAssignResult {
+  updated: number;
+  jobIds?: number[];
+}
+
 export interface CostingRow {
   key: string;
   label: string;

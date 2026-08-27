@@ -15,6 +15,8 @@ export * from './appUserUpdateRole';
 export * from './auditEvent';
 export * from './billingSettings';
 export * from './billingSettingsUpdate';
+export * from './bulkAssignInput';
+export * from './bulkAssignResult';
 export * from './bulkPriceAdjustInput';
 export * from './bulkPriceAdjustInputMode';
 export * from './bulkPriceAdjustResult';

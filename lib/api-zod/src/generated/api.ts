@@ -3540,3 +3540,24 @@ export const AskReportQuestionResponse = zod.object({
 })
 
 
+/**
+ * What the dispatch map's group selection commits. One transaction: either every job in the selection moves or none does, because a half-applied change across forty stops is not something a dispatcher can unpick. Fields left out are left alone, so assigning a crew does not clear a date somebody set.
+ * @summary Move, assign or re-order several jobs at once
+ */
+
+
+
+export const BulkAssignJobsBody = zod.object({
+  "jobIds": zod.array(zod.int()).min(1),
+  "assignedToId": zod.int().nullish().describe('Crew to assign. Omit to leave alone; null to unassign.'),
+  "scheduledDate": zod.string().nullish().describe('yyyy-mm-dd. Omit to leave alone.'),
+  "dispatched": zod.boolean().nullish().describe('Omit to leave alone. True moves waiting-list work onto the board.'),
+  "routeOrderFrom": zod.int().nullish().describe('Number the selection sequentially from here, in the order the ids were given, so the dispatcher\'s own ordering is what gets written.')
+})
+
+export const BulkAssignJobsResponse = zod.object({
+  "updated": zod.int(),
+  "jobIds": zod.array(zod.int()).optional()
+})
+
+

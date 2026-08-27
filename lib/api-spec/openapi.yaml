@@ -2198,6 +2198,31 @@ paths:
         "503":
           description: No assistant is configured on this server
 
+  /jobs/bulk-assign:
+    post:
+      operationId: bulkAssignJobs
+      tags: [jobs]
+      summary: Move, assign or re-order several jobs at once
+      description: >-
+        What the dispatch map's group selection commits. One transaction: either
+        every job in the selection moves or none does, because a half-applied
+        change across forty stops is not something a dispatcher can unpick.
+        Fields left out are left alone, so assigning a crew does not clear a date
+        somebody set.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BulkAssignInput" }
+      responses:
+        "200":
+          description: What changed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BulkAssignResult" }
+        "400":
+          description: No job ids, or an invalid date
+
 components:
   parameters:
     IdParam:
@@ -2207,6 +2232,36 @@ components:
       schema:
         type: integer
   schemas:
+    BulkAssignInput:
+      type: object
+      required: [jobIds]
+      properties:
+        jobIds:
+          type: array
+          items: { type: integer }
+          minItems: 1
+        assignedToId:
+          type: ["integer", "null"]
+          description: "Crew to assign. Omit to leave alone; null to unassign."
+        scheduledDate:
+          type: ["string", "null"]
+          description: "yyyy-mm-dd. Omit to leave alone."
+        dispatched:
+          type: ["boolean", "null"]
+          description: "Omit to leave alone. True moves waiting-list work onto the board."
+        routeOrderFrom:
+          type: ["integer", "null"]
+          description: >-
+            Number the selection sequentially from here, in the order the ids
+            were given, so the dispatcher's own ordering is what gets written.
+    BulkAssignResult:
+      type: object
+      required: [updated]
+      properties:
+        updated: { type: integer }
+        jobIds:
+          type: array
+          items: { type: integer }
     CostingRow:
       type: object
       required: [key, label, jobs, measuredJobs, revenue]

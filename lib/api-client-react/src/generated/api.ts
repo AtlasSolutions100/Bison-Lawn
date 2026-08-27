@@ -27,6 +27,8 @@ import type {
   AuditEvent,
   BillingSettings,
   BillingSettingsUpdate,
+  BulkAssignInput,
+  BulkAssignResult,
   BulkPriceAdjustInput,
   BulkPriceAdjustResult,
   ChargePreset,
@@ -10326,5 +10328,84 @@ export const useAskReportQuestion = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getAskReportQuestionMutationOptions(options));
+    }
+
+export const getBulkAssignJobsUrl = () => {
+
+
+
+
+  return `/api/jobs/bulk-assign`
+}
+
+/**
+ * What the dispatch map's group selection commits. One transaction: either every job in the selection moves or none does, because a half-applied change across forty stops is not something a dispatcher can unpick. Fields left out are left alone, so assigning a crew does not clear a date somebody set.
+ * @summary Move, assign or re-order several jobs at once
+ */
+export const bulkAssignJobs = async (bulkAssignInput: BulkAssignInput, options?: Parameters<typeof customFetch>[1]): Promise<BulkAssignResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<BulkAssignResult>(getBulkAssignJobsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(bulkAssignInput)
+  }
+);}
+
+
+
+
+
+export const getBulkAssignJobsMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bulkAssignJobs>>, TError,BulkAssignJobsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof bulkAssignJobs>>, TError,BulkAssignJobsMutationVariables, TContext> => {
+
+const mutationKey = ['bulkAssignJobs'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof bulkAssignJobs>>, BulkAssignJobsMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  bulkAssignJobs(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BulkAssignJobsMutationResult = NonNullable<Awaited<ReturnType<typeof bulkAssignJobs>>>
+    export type BulkAssignJobsMutationBody = BodyType<BulkAssignInput>
+    export type BulkAssignJobsMutationError = ErrorType<void>
+    export type BulkAssignJobsMutationVariables = {data: BodyType<BulkAssignInput>}
+
+    /**
+ * @summary Move, assign or re-order several jobs at once
+ */
+export const useBulkAssignJobs = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bulkAssignJobs>>, TError,BulkAssignJobsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof bulkAssignJobs>>,
+        TError,
+        BulkAssignJobsMutationVariables,
+        TContext
+      > => {
+      return useMutation(getBulkAssignJobsMutationOptions(options));
     }
 

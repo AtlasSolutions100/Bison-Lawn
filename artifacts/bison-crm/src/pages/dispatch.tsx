@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
+import { DispatchMap } from '@/components/dispatch-map';
 import { 
   useListJobs, useUpdateJob, useCompleteJob, useDeleteJob, useCreateJob, useGetJob,
   useListUsers, useAddJobProduct, useDeleteJobProduct, Job,
-  useListClients, useListServices
+  useListClients, useListServices, useBulkAssignJobs
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
@@ -28,8 +29,20 @@ export default function Dispatch() {
 
   const { data: jobs, isLoading } = useListJobs(queryParams);
   const { data: users } = useListUsers();
+  const queryClientForBoard = useQueryClient();
   
   const contractors = users?.filter(u => u.role === 'contractor') || [];
+
+  // Hidden by default. He asked for the map, but the table is still how most of
+  // a day gets worked, and 400 pins on load is not what someone checking one
+  // job's status came for.
+  const [showMap, setShowMap] = useState(false);
+  const bulkAssign = useBulkAssignJobs();
+  const applyToSelection = (input: Parameters<typeof bulkAssign.mutate>[0]['data']) => {
+    bulkAssign.mutate({ data: input }, {
+      onSuccess: () => queryClientForBoard.invalidateQueries({ queryKey: ['/api/jobs'] }),
+    });
+  };
 
   // Satisfy useGetJob hook requirement
   const _ = useGetJob(1, { query: { enabled: false, queryKey: ['/api/jobs', 1] } });
@@ -63,9 +76,21 @@ export default function Dispatch() {
             <Input type="text" placeholder="Filter city..." value={city} onChange={e => setCity(e.target.value)} className="w-40" />
           </div>
           
+          <Button variant={showMap ? 'default' : 'outline'} onClick={() => setShowMap(v => !v)}>
+            <MapPin className="mr-1 h-4 w-4" /> {showMap ? 'Hide Map' : 'Show Map'}
+          </Button>
           <NewJobDialog date={date} contractors={contractors} />
         </div>
       </div>
+
+      {showMap && (
+        <DispatchMap
+          jobs={jobs ?? []}
+          contractors={contractors}
+          onCommit={applyToSelection}
+          busy={bulkAssign.isPending}
+        />
+      )}
 
       <SubLoadSummary
         date={date}
@@ -124,10 +149,10 @@ const MAX_MAP_STOPS = 10;
  * this one" but not "what order should I drive these in" — the question the
  * board is actually for.
  *
- * Deliberately not a map we draw ourselves. He already routes in Google Maps on
- * a phone in a truck, and it holds the live traffic and the reorder handles
- * that make manual routing worth doing. Sending him there with the stops
- * already loaded beats a worse map inside the app.
+ * This is the *driving* link, not the planning map — the two answer different
+ * questions and both earn their place. Show Map above is where the office
+ * decides who takes which stops and in what order; this hands the finished day
+ * to a driver in the app that has live traffic and turn-by-turn.
  *
  * Stops in routeOrder, falling back to the order the board shows. Jobs without
  * an address are skipped: Maps would silently resolve a blank waypoint to
