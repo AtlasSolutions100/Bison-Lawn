@@ -24,6 +24,14 @@ router.use(healthRouter);
 // request that reaches it. The QuickBooks OAuth callback has to stay reachable
 // without a session — Intuit sends the browser to it, not the app.
 router.use(quickbooksRouter);
+// Same reason, and it cost a real outage: webRequestsRouter carries the public
+// Squarespace webhook at /inbound/web-request, which authenticates with a shared
+// secret header instead of a session. Mounted after jobsRouter it was shadowed
+// by that blanket requireAuth, so every form submission got 401 no matter what
+// secret was sent — the router's own guard on /web-requests never got a say.
+// Its authed paths are guarded inside the router by path, so mounting it early
+// widens nothing.
+router.use(webRequestsRouter);
 router.use(usersRouter);
 router.use(clientsRouter);
 router.use(servicesRouter);
@@ -36,7 +44,6 @@ router.use(automationRouter);
 router.use(dashboardRouter);
 router.use(vendorRunsRouter);
 router.use(lettersRouter);
-router.use(webRequestsRouter);
 router.use(feedbackRouter);
 router.use(settingsRouter);
 

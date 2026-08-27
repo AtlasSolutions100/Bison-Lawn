@@ -2759,6 +2759,14 @@ components:
         assignedToId: { type: ["integer", "null"] }
         assignedToName: { type: ["string", "null"] }
         mapNote: { type: ["string", "null"] }
+        clientPropertyData:
+          type: object
+          additionalProperties: { type: string }
+          description: >-
+            The client's saved property details, keyed by field label (Gate
+            Code, Sprinkler Zones, Turf Sqft). Carried on the job so the crew
+            can read access details from the job card without opening the
+            client record, which a contractor cannot do.
         lastServiceDate: { type: ["string", "null"] }
         budgetedHours: { type: ["number", "null"] }
         amount: { type: number }

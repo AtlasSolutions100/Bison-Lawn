@@ -64,6 +64,14 @@ async function hydrateJobs(rows: JobRow[]) {
       city: c?.city ?? null,
       lastServiceDate: c?.lastServiceDate ?? null,
       mapNote: r.mapNote ?? c?.mapNote ?? null,
+      // Saved property details, keyed by field label — "Gate Code",
+      // "Sprinkler Zones", "Turf Sqft". Reported by a sub: the gate code was on
+      // the client page but not on his job card, so he had to ring the office
+      // from the driveway. These are facts about the property the person
+      // standing at it needs, and there is nothing financial in here, so the
+      // whole map goes rather than a hand-picked list of labels — a new detail
+      // Adam adds tomorrow should reach the crew without a code change.
+      clientPropertyData: (c?.propertyData ?? {}) as Record<string, string>,
       serviceName: r.serviceId ? (sMap.get(r.serviceId)?.name ?? null) : null,
       assignedToName: r.assignedToId ? (uMap.get(r.assignedToId)?.name ?? null) : null,
       products: products.filter((p) => p.jobId === r.id),

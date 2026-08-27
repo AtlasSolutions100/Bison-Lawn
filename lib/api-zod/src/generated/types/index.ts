@@ -95,6 +95,7 @@ export * from './invoiceStatus';
 export * from './invoiceUpdate';
 export * from './invoiceUpdateStatus';
 export * from './job';
+export * from './jobClientPropertyData';
 export * from './jobInput';
 export * from './jobProduct';
 export * from './jobProductInput';

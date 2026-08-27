@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { 
   useListJobs, useUpdateJob, useCompleteJob, useDeleteJob, useCreateJob, useGetJob,
   useListUsers, useAddJobProduct, useDeleteJobProduct, Job,
@@ -67,6 +67,15 @@ export default function Dispatch() {
         </div>
       </div>
 
+      <SubLoadSummary
+        date={date}
+        status={status}
+        city={city}
+        contractors={contractors}
+        activeContractorId={contractorId}
+        onPick={setContractorId}
+      />
+
       <div className="bg-card border rounded-lg shadow-sm flex-1 overflow-hidden flex flex-col">
         <div className="overflow-auto flex-1">
           <Table className="min-w-[2000px]">
@@ -100,6 +109,149 @@ export default function Dispatch() {
           </Table>
         </div>
       </div>
+    </div>
+  );
+}
+
+const money = (n: number) =>
+  `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/**
+ * Per-sub load for the selected day: stops, dollars and budgeted hours.
+ *
+ * Asked for directly — "see the route order and the dollar total for each sub
+ * right on this screen, so I can tell at a glance whether someone is loaded too
+ * heavy". The board already shows a route Order per row, but the row view can
+ * never answer "too heavy compared to whom", because that is a question about
+ * the subs side by side.
+ */
+function SubLoadSummary({
+  date,
+  status,
+  city,
+  contractors,
+  activeContractorId,
+  onPick,
+}: {
+  date: string;
+  status: string;
+  city: string;
+  contractors: any[];
+  activeContractorId: string;
+  onPick: (id: string) => void;
+}) {
+  // Deliberately ignores the contractor filter. Filtering to one sub and then
+  // reading their total tells you nothing about whether it is heavy — the
+  // comparison is the whole point, so this always loads the full day.
+  const { data: jobs } = useListJobs({
+    date,
+    ...(status && { status: status as any }),
+    ...(city && { city }),
+  });
+
+  const buckets = useMemo(() => {
+    if (!jobs?.length) return [];
+    const byId = new Map<number | null, {
+      id: number | null;
+      name: string;
+      stops: number;
+      amount: number;
+      hours: number;
+      skipped: number;
+    }>();
+
+    for (const job of jobs) {
+      const id = job.assignedToId ?? null;
+      let bucket = byId.get(id);
+      if (!bucket) {
+        bucket = {
+          id,
+          name: id == null
+            ? 'Unassigned'
+            : job.assignedToName
+              ?? contractors.find(c => c.id === id)?.name
+              ?? `User #${id}`,
+          stops: 0,
+          amount: 0,
+          hours: 0,
+          skipped: 0,
+        };
+        byId.set(id, bucket);
+      }
+      bucket.stops += 1;
+      bucket.amount += job.amount ?? 0;
+      bucket.hours += job.budgetedHours ?? 0;
+      if (job.status === 'skipped') bucket.skipped += 1;
+    }
+
+    // Heaviest first: the one at risk of being overloaded is the one worth
+    // seeing without scanning. Unassigned is pinned last — it is a to-do, not a
+    // workload, and it would otherwise sit in the middle of the comparison.
+    return [...byId.values()].sort((a, b) => {
+      if (a.id == null) return 1;
+      if (b.id == null) return -1;
+      return b.amount - a.amount;
+    });
+  }, [jobs, contractors]);
+
+  if (!buckets.length) return null;
+
+  const heaviest = Math.max(...buckets.filter(b => b.id != null).map(b => b.amount), 0);
+
+  return (
+    <div className="flex gap-3 overflow-x-auto pb-1">
+      {buckets.map(bucket => {
+        const key = bucket.id == null ? 'unassigned' : String(bucket.id);
+        const active = activeContractorId === key;
+        // Share of the heaviest sub's dollars. Not a share of the day's total:
+        // "half of what the busiest guy has" is the comparison being made.
+        const share = heaviest > 0 && bucket.id != null ? bucket.amount / heaviest : 0;
+        return (
+          <button
+            key={key}
+            type="button"
+            // Unassigned has no contractor id to filter by, so it stays a
+            // read-only tile rather than a button that looks live and does
+            // nothing.
+            onClick={() => bucket.id != null && onPick(active ? '' : key)}
+            disabled={bucket.id == null}
+            title={bucket.id == null
+              ? 'Jobs with nobody assigned yet'
+              : active
+                ? 'Show all contractors'
+                : `Show only ${bucket.name}`}
+            className={`min-w-44 shrink-0 rounded-lg border bg-card p-3 text-left shadow-sm transition ${
+              bucket.id == null
+                ? 'border-dashed opacity-90'
+                : active
+                  ? 'border-primary ring-2 ring-primary/30'
+                  : 'hover:border-primary/50 hover:shadow'
+            }`}
+          >
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="truncate text-sm font-semibold">{bucket.name}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {bucket.stops} {bucket.stops === 1 ? 'stop' : 'stops'}
+              </span>
+            </div>
+            <div className="mt-1 text-lg font-bold tabular-nums">{money(bucket.amount)}</div>
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              {bucket.hours > 0 ? `${bucket.hours.toLocaleString(undefined, { maximumFractionDigits: 1 })} hrs budgeted` : 'No hours budgeted'}
+              {bucket.skipped > 0 && (
+                <span className="ml-1 font-medium text-orange-700">· {bucket.skipped} skipped</span>
+              )}
+            </div>
+            {bucket.id != null && (
+              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                <div
+                  className={`h-full rounded-full ${share >= 0.999 ? 'bg-primary' : 'bg-primary/50'}`}
+                  style={{ width: `${Math.max(share * 100, 2)}%` }}
+                />
+              </div>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }

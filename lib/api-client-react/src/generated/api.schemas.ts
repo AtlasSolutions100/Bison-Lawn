@@ -1198,6 +1198,11 @@ export const JobStatus = {
   skipped: 'skipped',
 } as const;
 
+/**
+ * The client's saved property details, keyed by field label (Gate Code, Sprinkler Zones, Turf Sqft). Carried on the job so the crew can read access details from the job card without opening the client record, which a contractor cannot do.
+ */
+export type JobClientPropertyData = {[key: string]: string};
+
 export interface Job {
   id: number;
   clientId: number;
@@ -1235,6 +1240,8 @@ export interface Job {
   assignedToName?: string | null;
   /** @nullable */
   mapNote?: string | null;
+  /** The client's saved property details, keyed by field label (Gate Code, Sprinkler Zones, Turf Sqft). Carried on the job so the crew can read access details from the job card without opening the client record, which a contractor cannot do. */
+  clientPropertyData?: JobClientPropertyData;
   /** @nullable */
   lastServiceDate?: string | null;
   /** @nullable */

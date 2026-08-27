@@ -143,6 +143,8 @@ function JobCard({ job, index }: { job: Job, index: number }) {
             </div>
           )}
 
+          <PropertyDetails data={job.clientPropertyData} />
+
           {job.products && job.products.length > 0 && (
             <div className="mt-3 pt-3 border-t">
               <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1 mb-2">
@@ -210,6 +212,75 @@ function JobCard({ job, index }: { job: Job, index: number }) {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Anything the crew needs to get onto the property, or to know before walking
+ * in. Access details get the loud treatment; the rest are still shown.
+ *
+ * Reported by a sub: "Gate code did not show up on the job card this morning,
+ * had to call the office. It is on the client page though." A contractor cannot
+ * open the client page — that view is admin-only — so for him the code may as
+ * well not have existed.
+ *
+ * The pattern below only decides what gets *emphasised*. Every saved detail
+ * renders either way, so a label the pattern does not recognise still reaches
+ * the person standing at the gate. Getting the emphasis wrong costs a glance;
+ * hiding the value costs a phone call.
+ */
+const ACCESS_LABEL = /gate|code|lock|key|alarm|dog|access|entry|combo/i;
+
+function PropertyDetails({ data }: { data?: Record<string, string> | null }) {
+  const details = Object.entries(data ?? {}).filter(
+    ([, value]) => value != null && String(value).trim() !== '',
+  );
+  if (!details.length) return null;
+
+  const access = details.filter(([label]) => ACCESS_LABEL.test(label));
+  const rest = details.filter(([label]) => !ACCESS_LABEL.test(label));
+
+  return (
+    <div className="mt-3 space-y-2 border-t pt-3">
+      {access.length > 0 && (
+        <div>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-primary">
+            Access
+          </span>
+          <div className="mt-1 space-y-1">
+            {access.map(([label, value]) => (
+              <div
+                key={label}
+                className="flex items-baseline justify-between gap-3 rounded-md border border-primary/25 bg-primary/10 p-2"
+              >
+                <span className="text-xs font-medium text-muted-foreground">{label}</span>
+                {/* Selectable and monospaced: this gets read off a phone at a
+                    keypad, and 0/O and 1/l have to be tellable apart. */}
+                <span className="select-all font-mono text-base font-bold tracking-wider">
+                  {value}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {rest.length > 0 && (
+        <div>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            Property Details
+          </span>
+          <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
+            {rest.map(([label, value]) => (
+              <div key={label} className="flex items-baseline justify-between gap-2">
+                <span className="truncate text-xs text-muted-foreground">{label}</span>
+                <span className="text-sm font-medium tabular-nums">{value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

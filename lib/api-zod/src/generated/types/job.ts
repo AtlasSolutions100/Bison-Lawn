@@ -5,6 +5,7 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+import type { JobClientPropertyData } from './jobClientPropertyData';
 import type { JobProduct } from './jobProduct';
 import type { JobStatus } from './jobStatus';
 
@@ -45,6 +46,8 @@ export interface Job {
   assignedToName?: string | null;
   /** @nullable */
   mapNote?: string | null;
+  /** The client's saved property details, keyed by field label (Gate Code, Sprinkler Zones, Turf Sqft). Carried on the job so the crew can read access details from the job card without opening the client record, which a contractor cannot do. */
+  clientPropertyData?: JobClientPropertyData;
   /** @nullable */
   lastServiceDate?: string | null;
   /** @nullable */
