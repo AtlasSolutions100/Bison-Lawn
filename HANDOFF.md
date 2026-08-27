@@ -27,23 +27,29 @@ builds will otherwise build stale code and report success — that happened once
 - **The Intuit consent-screen logo** was reported broken on 2026-08-27 and has
   since been verified working by Koby. Nothing outstanding.
 
-## Adam's backlog: 9 of 11 done
+## Adam backlog: 19 of 20 done
 
-Loaded into the Feedback screen under his own address with a "What we did" note
-on each, so the Done tab doubles as his progress report.
+All twenty items are in the Feedback screen with a "What we did" note on each,
+so the Done tab is his progress report. Nineteen are done; one is honestly
+half-done and marked Read rather than Done:
 
-Not done, deliberately not marked Done:
+- **Notification email with documents and photos** (id 19). Attaching documents
+  and before/after photos to an **estimate** works and is tested end to end.
+  Sending a plain notification email from the customer page with the same
+  attachments is a separate send and is not built. The note on the item asks him
+  which he meant.
 
-- **Documents sent with an estimate** (marked Read, half done). Picking services
-  and packages works. Attaching his service-description and meet-and-greet
-  documents does not: `estimateDelivery.ts` builds a multipart message with
-  exactly one attachment, the estimate PDF, and `documentTemplatesTable` is
-  referenced only by `settings.ts`. The templates can be written but never reach
-  a customer.
-- **Matrix input horizontal** (marked New). Not started. His note pointed at
-  "Screenshot 1", which is not in the Replit export, so the screen he means is
-  genuinely ambiguous — ask him to point at it rather than guess at a layout he
-  will use daily.
+Two answers are worth chasing with him:
+
+- **Route builder** (id 24): jobs that do not fit a cap stay on the **Waiting
+  List**. He wrote "put the rest back on dispatch board", which may mean he wants
+  the remainder pushed onto the board instead. Flagged in the note.
+- **Map routing** (id 25): he mentioned emailing a screenshot that never arrived.
+  We shipped a multi-stop Google Maps link per crew; if he meant dragging stops
+  on a map inside the app, that is a different build.
+
+Adam has now signed in himself (bisonlawncarellc@gmail.com, admin, user 5) and
+is submitting feedback from inside the app.
 
 ## Known, not yet acted on
 
