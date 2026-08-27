@@ -278,3 +278,39 @@ set anywhere in the code.
 - Sender is currently Koby, not the Bison account. Re-run the setup script signed
   in as Bison when ready for real customers.
 - GitHub deploy key id 161442430 added to the repo (read-only, this host).
+
+## 2026-08-27 — Phase 1: shared surfaces for the feature batch
+
+Per `.agents/memory/parallel-file-ownership.md`, every contended file changed
+once, serially, before any parallel work starts.
+
+**Schema** (`lib/db/src/schema/crm.ts`, pushed; 26 tables now)
+- `jobs.status` gains `skipped`, plus `skip_reason` / `skipped_at`. Skipped is
+  terminal for the visit but explicitly not completed — it must never raise an
+  invoice, so it must not go through the complete endpoint.
+- `services.pricing_field_id` → `estimate_fields`. Null keeps today's behaviour
+  (turf sqft), so every existing service is unchanged. Set it and the same
+  equations evaluate against that field instead — a blow-out priced per
+  sprinkler zone. The equation keys are still named `*Sqft`; read them as
+  "units of the selected field".
+- `invitations` table. Deliberately **not** placeholder rows in `users`:
+  `.agents/memory/user-account-identity.md` forbids accounts without a verified
+  email, and a pending invite is by definition unverified. Signing up with a
+  matching verified email grants the invited role as `owner_assigned`, reusing
+  the existing tested path. Inviting an address grants nothing on its own.
+- `scheduling_rules` table. Rules are rows, not code, so the office can change
+  what happens on estimate acceptance without a deploy. Actions: `dispatch`,
+  `route_fit`, `waiting_list`, `none`. Null `service_id` is the catch-all.
+
+**Contract** (`lib/api-spec/openapi.yaml`, codegen run)
+- Job status enum in 3 places; `skipReason`/`skippedAt` on Job; `skipReason` on
+  JobUpdate; `pricingFieldId` on Service/Input/Update.
+- New: `/invitations`, `/invitations/{id}`, `/scheduling-rules`,
+  `/scheduling-rules/{id}`. 73 paths, 96 schemas, all parse.
+
+**Side effect of the earlier lockfile regeneration, found here.** orval floated
+from its old pin to 8.26.0, which now emits `Object.fromEntries(h.entries())`.
+`Headers.entries()` is standard but is declared in `dom.iterable`, which
+`lib/api-client-react/tsconfig.json` did not include — 47 type errors in
+generated code. Fixed by adding `dom.iterable` to that lib list. Worth knowing
+that regenerating the lockfile can change generated code, not just dependencies.

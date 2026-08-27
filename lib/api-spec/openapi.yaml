@@ -81,6 +81,107 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AppUser"
+  /invitations:
+    get:
+      operationId: listInvitations
+      tags: [team]
+      summary: List pending and accepted invitations
+      responses:
+        "200":
+          description: Invitations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Invitation"
+    post:
+      operationId: createInvitation
+      tags: [team]
+      summary: Invite someone by email to join the team
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvitationInput"
+      responses:
+        "201":
+          description: Created invitation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invitation"
+  /invitations/{id}:
+    delete:
+      operationId: revokeInvitation
+      tags: [team]
+      summary: Revoke an invitation that has not been accepted
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "204":
+          description: Revoked
+  /scheduling-rules:
+    get:
+      operationId: listSchedulingRules
+      tags: [automation]
+      summary: What happens automatically when an estimate is accepted
+      responses:
+        "200":
+          description: Rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SchedulingRule"
+    post:
+      operationId: createSchedulingRule
+      tags: [automation]
+      summary: Add a scheduling rule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SchedulingRuleInput"
+      responses:
+        "201":
+          description: Created rule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchedulingRule"
+  /scheduling-rules/{id}:
+    patch:
+      operationId: updateSchedulingRule
+      tags: [automation]
+      summary: Change a scheduling rule
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SchedulingRuleUpdate"
+      responses:
+        "200":
+          description: Updated rule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchedulingRule"
+    delete:
+      operationId: deleteSchedulingRule
+      tags: [automation]
+      summary: Delete a scheduling rule
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "204":
+          description: Deleted
   /clients:
     get:
       operationId: listClients
@@ -719,7 +820,7 @@ paths:
           schema: { type: integer }
         - name: status
           in: query
-          schema: { type: string, enum: [scheduled, on_the_way, in_progress, completed] }
+          schema: { type: string, enum: [scheduled, on_the_way, in_progress, completed, skipped] }
         - name: city
           in: query
           schema: { type: string }
@@ -1683,6 +1784,71 @@ components:
         baseAddress: { type: ["string", "null"] }
         baseLat: { type: ["number", "null"] }
         baseLng: { type: ["number", "null"] }
+    Invitation:
+      type: object
+      required: [id, email, role, createdAt]
+      properties:
+        id: { type: integer }
+        email: { type: string }
+        role: { type: string, enum: [admin, contractor] }
+        invitedById: { type: ["integer", "null"] }
+        invitedByName: { type: ["string", "null"] }
+        note: { type: ["string", "null"] }
+        acceptedAt: { type: ["string", "null"] }
+        acceptedByUserId: { type: ["integer", "null"] }
+        createdAt: { type: string }
+    InvitationInput:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, minLength: 3 }
+        role: { type: string, enum: [admin, contractor] }
+        note: { type: ["string", "null"] }
+    SchedulingRule:
+      type: object
+      required: [id, enabled, action, offsetDays, sortOrder]
+      properties:
+        id: { type: integer }
+        serviceId: { type: ["integer", "null"] }
+        serviceName: { type: ["string", "null"] }
+        enabled: { type: boolean }
+        action:
+          type: string
+          enum: [dispatch, route_fit, waiting_list, none]
+          description: "dispatch = straight to the board offsetDays out; route_fit = dispatch and let the optimiser place it; waiting_list = hold in the window; none = record only"
+        offsetDays: { type: integer }
+        windowStartMonthDay: { type: ["string", "null"], description: "MM-DD" }
+        windowEndMonthDay: { type: ["string", "null"], description: "MM-DD" }
+        assignedToId: { type: ["integer", "null"] }
+        assignedToName: { type: ["string", "null"] }
+        jobNote: { type: ["string", "null"] }
+        sortOrder: { type: integer }
+        updatedAt: { type: string }
+    SchedulingRuleInput:
+      type: object
+      required: [action]
+      properties:
+        serviceId: { type: ["integer", "null"] }
+        enabled: { type: boolean }
+        action: { type: string, enum: [dispatch, route_fit, waiting_list, none] }
+        offsetDays: { type: integer, minimum: 0 }
+        windowStartMonthDay: { type: ["string", "null"] }
+        windowEndMonthDay: { type: ["string", "null"] }
+        assignedToId: { type: ["integer", "null"] }
+        jobNote: { type: ["string", "null"] }
+        sortOrder: { type: integer }
+    SchedulingRuleUpdate:
+      type: object
+      properties:
+        serviceId: { type: ["integer", "null"] }
+        enabled: { type: boolean }
+        action: { type: string, enum: [dispatch, route_fit, waiting_list, none] }
+        offsetDays: { type: integer, minimum: 0 }
+        windowStartMonthDay: { type: ["string", "null"] }
+        windowEndMonthDay: { type: ["string", "null"] }
+        assignedToId: { type: ["integer", "null"] }
+        jobNote: { type: ["string", "null"] }
+        sortOrder: { type: integer }
     Client:
       type: object
       required: [id, name, status, accountBalance]
@@ -1800,6 +1966,9 @@ components:
         vendorName:
           type: ["string", "null"]
           description: "Outside company that performs this work and invoices us; null means our own crew"
+        pricingFieldId:
+          type: ["integer", "null"]
+          description: "Estimate field whose value drives the pricing equations. Null means turf square footage."
     ServiceInput:
       type: object
       required: [name]
@@ -1821,6 +1990,9 @@ components:
         contractorOfferable: { type: boolean }
         contractorPrice: { type: ["number", "null"] }
         vendorName: { type: ["string", "null"] }
+        pricingFieldId:
+          type: ["integer", "null"]
+          description: "Estimate field whose value drives the pricing equations. Null means turf square footage."
     ServiceUpdate:
       type: object
       properties:
@@ -1841,6 +2013,9 @@ components:
         contractorOfferable: { type: boolean }
         contractorPrice: { type: ["number", "null"] }
         vendorName: { type: ["string", "null"] }
+        pricingFieldId:
+          type: ["integer", "null"]
+          description: "Estimate field whose value drives the pricing equations. Null means turf square footage."
     PriceQueryInput:
       type: object
       required: [sqft]
@@ -2132,7 +2307,7 @@ components:
         clientServiceId: { type: ["integer", "null"] }
         serviceId: { type: ["integer", "null"] }
         serviceName: { type: ["string", "null"] }
-        status: { type: string, enum: [scheduled, on_the_way, in_progress, completed] }
+        status: { type: string, enum: [scheduled, on_the_way, in_progress, completed, skipped] }
         dispatched: { type: boolean }
         scheduledDate: { type: ["string", "null"] }
         windowStart: { type: ["string", "null"] }
@@ -2153,6 +2328,8 @@ components:
             $ref: "#/components/schemas/JobProduct"
         invoiceId: { type: ["integer", "null"] }
         completedAt: { type: ["string", "null"] }
+        skipReason: { type: ["string", "null"] }
+        skippedAt: { type: ["string", "null"] }
     JobInput:
       type: object
       required: [clientId, amount]
@@ -2172,7 +2349,10 @@ components:
     JobUpdate:
       type: object
       properties:
-        status: { type: string, enum: [scheduled, on_the_way, in_progress, completed] }
+        status: { type: string, enum: [scheduled, on_the_way, in_progress, completed, skipped] }
+        skipReason:
+          type: ["string", "null"]
+          description: "Why the visit was skipped. Only meaningful with status=skipped."
         scheduledDate: { type: ["string", "null"] }
         routeOrder: { type: ["integer", "null"] }
         assignedToId: { type: ["integer", "null"] }

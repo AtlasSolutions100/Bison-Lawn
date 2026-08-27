@@ -110,6 +110,16 @@ export const servicesTable = pgTable("services", {
   // invoices the office. Those jobs are never worked by our own crew, so they are
   // completed in bulk from the vendor's own invoice rather than from a phone.
   vendorName: text("vendor_name"),
+  // Which property measurement drives this service's pricing equations. Null
+  // means turf square footage, which is what every equation meant before this
+  // column existed — so existing services keep behaving exactly as they did.
+  // Set it to e.g. the "Sprinkler Zones" field and the same equations are then
+  // evaluated against zone count instead: a blow-out is priced per zone, not
+  // per square foot. The equation columns are still named *Sqft for that
+  // reason; read them as "units of the selected field".
+  pricingFieldId: integer("pricing_field_id").references(() => estimateFieldsTable.id, {
+    onDelete: "set null",
+  }),
 });
 export type Service = typeof servicesTable.$inferSelect;
 
@@ -225,7 +235,17 @@ export const jobsTable = pgTable("jobs", {
   clientId: integer("client_id").notNull().references(() => clientsTable.id, { onDelete: "cascade" }),
   clientServiceId: integer("client_service_id").references(() => clientServicesTable.id, { onDelete: "set null" }),
   serviceId: integer("service_id").references(() => servicesTable.id),
-  status: text("status").notNull().default("scheduled"), // scheduled | on_the_way | in_progress | completed
+  // scheduled | on_the_way | in_progress | completed | skipped
+  //
+  // "skipped" means the crew was there (or was due) and deliberately did not do
+  // the work — too wet, gate locked, dog out. It is terminal for this visit but
+  // explicitly NOT completed: no invoice is raised, so a skipped job must never
+  // go through the complete endpoint.
+  status: text("status").notNull().default("scheduled"),
+  // Why it was skipped, and when. Kept on the job rather than in a note because
+  // the office needs to see it on the dispatch board without opening anything.
+  skipReason: text("skip_reason"),
+  skippedAt: timestamp("skipped_at"),
   dispatched: boolean("dispatched").notNull().default(false),
   scheduledDate: text("scheduled_date"),
   windowStart: text("window_start"),
@@ -439,6 +459,72 @@ export const webRequestsTable = pgTable("web_requests", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 export type WebRequest = typeof webRequestsTable.$inferSelect;
+
+// ---------- invitations ----------
+// An owner invites someone by email before that person has ever signed in.
+//
+// Deliberately NOT a placeholder row in `users`: an app account represents a
+// person identified by a Clerk-*verified* email, and a row created from an
+// address nobody has proved they control would be exactly the unverified
+// account the identity model forbids. Instead the invitation sits here until
+// someone signs up whose verified primary email matches, at which point they
+// are provisioned with the invited role (as `owner_assigned`, since an owner
+// did assign it) and the invitation is marked accepted.
+//
+// Consequence worth knowing: inviting an address grants nothing on its own.
+// Whoever proves control of that address gets the role.
+export const invitationsTable = pgTable("invitations", {
+  id: serial("id").primaryKey(),
+  // Stored normalized (trimmed, lowercased) so matching a sign-in is a plain
+  // equality check rather than a case-folding comparison at read time.
+  email: text("email").notNull().unique(),
+  role: text("role").notNull().default("contractor"), // admin | contractor
+  invitedById: integer("invited_by_id").references(() => usersTable.id, { onDelete: "set null" }),
+  invitedByName: text("invited_by_name"),
+  note: text("note"),
+  acceptedAt: timestamp("accepted_at"),
+  acceptedByUserId: integer("accepted_by_user_id").references(() => usersTable.id, {
+    onDelete: "set null",
+  }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type Invitation = typeof invitationsTable.$inferSelect;
+
+// ---------- scheduling rules ----------
+// What happens automatically when a customer accepts an estimate.
+//
+// These are rows, not code, because the office is still working out the policy
+// and wants to change it without a deploy. Each accepted estimate line is
+// matched to the rule for its service; the first enabled rule wins, and a rule
+// with a null serviceId is the catch-all fallback.
+export const schedulingRulesTable = pgTable("scheduling_rules", {
+  id: serial("id").primaryKey(),
+  // Null = the fallback applied to any accepted line with no service-specific rule.
+  serviceId: integer("service_id").references(() => servicesTable.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(true),
+  // dispatch  — put straight on the dispatch board, offsetDays from acceptance
+  //             (sprinkler repair: "schedule it for the next day")
+  // route_fit — dispatch it and let the route optimiser place it in the day
+  //             that fits best (mowing)
+  // waiting_list — hold it in the window below until the office dispatches it
+  //             (packages: spring/fall clean-ups, aerations)
+  // none      — record the acceptance and do nothing
+  action: text("action").notNull().default("waiting_list"),
+  // For dispatch/route_fit: how many days after acceptance to schedule.
+  offsetDays: integer("offset_days").notNull().default(1),
+  // For waiting_list: the window the job sits in. Month-day strings ("03-01")
+  // so a rule written once keeps working next season without editing.
+  windowStartMonthDay: text("window_start_month_day"),
+  windowEndMonthDay: text("window_end_month_day"),
+  // Optional default assignee for the created job.
+  assignedToId: integer("assigned_to_id").references(() => usersTable.id, { onDelete: "set null" }),
+  // Shown to the office on the dispatch board / waiting list so it is obvious
+  // the job arrived automatically rather than being entered by hand.
+  jobNote: text("job_note"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export type SchedulingRule = typeof schedulingRulesTable.$inferSelect;
 
 export type BillingSettings = typeof billingSettingsTable.$inferSelect;
 
