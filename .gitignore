@@ -54,6 +54,13 @@ Thumbs.db
 
 # Deployment secrets
 .env.deploy
+# Timestamped copies left behind when credentials are rotated. These hold the
+# same secrets as the live file — the Intuit client secret among them — and were
+# not covered by the line above, so a `git add -A` on the server would have
+# committed them straight to a repo the client can read.
+.env.deploy.bak*
+.env.*.bak
+*.env.backup
 
 # Agent scratch files
 _*.ts
