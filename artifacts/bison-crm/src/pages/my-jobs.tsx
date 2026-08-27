@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useListMyJobs, useUpdateJob, useCompleteJob, useCreateFieldNote, useListOfferableServices, useAddExtraWork, useRecordOnSitePayment, useGetBillingSettings, Job } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { format, addDays, subDays } from 'date-fns';
+import { format, addDays, subDays, parseISO } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { MapPin, Navigation, Clock, CheckCircle2, ChevronLeft, ChevronRight, DollarSign, PackageOpen, Mic, MicOff, NotebookPen, Plus, CreditCard, Ban } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -14,8 +14,8 @@ export default function MyJobs() {
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const { data: jobs, isLoading } = useListMyJobs({ date });
 
-  const nextDay = () => setDate(format(addDays(new Date(date), 1), 'yyyy-MM-dd'));
-  const prevDay = () => setDate(format(subDays(new Date(date), 1), 'yyyy-MM-dd'));
+  const nextDay = () => setDate(format(addDays(parseISO(date), 1), 'yyyy-MM-dd'));
+  const prevDay = () => setDate(format(subDays(parseISO(date), 1), 'yyyy-MM-dd'));
 
   return (
     <div className="flex flex-col h-full">
@@ -23,7 +23,7 @@ export default function MyJobs() {
         <Button variant="ghost" size="icon" onClick={prevDay} className="h-10 w-10"><ChevronLeft className="w-6 h-6" /></Button>
         <div className="text-center">
           <div className="text-sm text-muted-foreground font-semibold uppercase tracking-wider">Schedule</div>
-          <div className="font-bold text-lg">{format(new Date(date), 'MMM d, yyyy')}</div>
+          <div className="font-bold text-lg">{format(parseISO(date), 'MMM d, yyyy')}</div>
         </div>
         <Button variant="ghost" size="icon" onClick={nextDay} className="h-10 w-10"><ChevronRight className="w-6 h-6" /></Button>
       </div>
