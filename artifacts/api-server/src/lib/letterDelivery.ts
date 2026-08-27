@@ -12,7 +12,7 @@ import { asc, eq, inArray } from "drizzle-orm";
 import { roundMoney } from "./helpers";
 import { sendClientEmailViaGmail } from "./clientEmail";
 import { getCompanyProfile } from "./companyProfile";
-import { companyAddressLines, companyContactLine } from "./estimateDocument";
+import { brandAssetUrl, companyAddressLines, companyContactLine } from "./estimateDocument";
 import { firstNameOf } from "./mergeTokens";
 
 export const DEFAULT_LETTER_TEMPLATE = {
@@ -104,6 +104,123 @@ function footerBlock(company: CompanyProfile) {
   ].join("\n");
 }
 
+const escapeHtml = (s: string) =>
+  s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+
+/**
+ * The services and their prices, as a table rather than a run of text lines.
+ *
+ * This is the part of the letter the customer actually reads closely — it is the
+ * price they are being asked to accept for the season — and it is exactly what
+ * plain text renders worst, since name and amount drift apart at any width the
+ * reader's mail client happens to use.
+ */
+function servicesTableHtml(services: { name: string; amount: number }[]) {
+  if (!services.length) {
+    return `<p style="margin:0 0 18px;color:#6f675f">No services assigned</p>`;
+  }
+  const rows = services
+    .map(
+      (service) =>
+        `<tr>` +
+        `<td style="padding:10px 0;border-bottom:1px solid #e7e2dc">${escapeHtml(service.name)}</td>` +
+        `<td style="padding:10px 0;border-bottom:1px solid #e7e2dc;text-align:right;white-space:nowrap">${escapeHtml(currency(service.amount))}</td>` +
+        `</tr>`,
+    )
+    .join("");
+  const total = roundMoney(services.reduce((sum, service) => sum + service.amount, 0));
+  return (
+    `<table role="presentation" width="100%" style="border-collapse:collapse;margin:0 0 20px;font-size:15px">` +
+    `<tbody>${rows}` +
+    `<tr>` +
+    `<td style="padding:14px 0 0;font-weight:bold">Total</td>` +
+    `<td style="padding:14px 0 0;text-align:right;font-weight:bold;font-size:18px;color:#215343;white-space:nowrap">${escapeHtml(currency(total))}</td>` +
+    `</tr></tbody></table>`
+  );
+}
+
+/**
+ * The author's body text as HTML.
+ *
+ * Escaped first, then tokens are substituted — escapeHtml leaves braces alone, so
+ * `{{servicesTable}}` survives it and the table we build is inserted afterwards
+ * rather than being escaped into visible markup.
+ *
+ * Blocks are split on blank lines. A block that is only the services token
+ * becomes the table itself, because a <table> nested inside a <p> is invalid and
+ * mail clients recover from it unpredictably.
+ */
+function bodyHtml(body: string, tokens: Record<string, string>, services: { name: string; amount: number }[]) {
+  return body
+    .trim()
+    .split(/\n\s*\n/)
+    .map((block) => {
+      if (block.trim() === "{{servicesTable}}") return servicesTableHtml(services);
+      let html = escapeHtml(block).replace(/\r?\n/g, "<br />");
+      for (const [token, replacement] of Object.entries(tokens)) {
+        if (token === "servicesTable") continue;
+        html = replaceToken(html, token, escapeHtml(replacement));
+      }
+      // A services token sharing a paragraph with prose still has to render, so
+      // it falls back to inline lines rather than dropping the prices entirely.
+      html = replaceToken(
+        html,
+        "servicesTable",
+        services.map((s) => `${escapeHtml(s.name)}: ${escapeHtml(currency(s.amount))}`).join("<br />"),
+      );
+      return `<p style="margin:0 0 16px;line-height:1.65">${html}</p>`;
+    })
+    .join("");
+}
+
+function springLetterHtml(params: {
+  client: Client;
+  services: { name: string; amount: number }[];
+  body: string;
+  tokens: Record<string, string>;
+  company: CompanyProfile;
+}) {
+  const { client, services, body, tokens, company } = params;
+  const wordmark = brandAssetUrl("logo-wordmark.png");
+  const emblem = brandAssetUrl("logo-emblem.png");
+  const addressLines = companyAddressLines(company);
+  const contactLine = companyContactLine(company);
+  const recipient = addressBlock(client).split("\n").map(escapeHtml).join("<br />");
+
+  return `<!doctype html><html><body style="margin:0;background:#f7f5f1;font-family:Arial,sans-serif;color:#2b2118">
+    <div style="max-width:620px;margin:24px auto;background:#fff;border:1px solid #e7e2dc;border-radius:12px;overflow:hidden">
+      <div style="padding:26px 32px 18px;text-align:center">
+        ${
+          wordmark
+            ? `<img src="${escapeHtml(wordmark)}" alt="${escapeHtml(company.name)}" width="240" style="display:inline-block;width:240px;max-width:100%;height:auto;border:0" />`
+            : ""
+        }
+      </div>
+      <div style="background:#215343;color:#fff;padding:20px 32px">
+        <h1 style="margin:0;font-size:22px">${escapeHtml(company.name)}</h1>
+        <p style="margin:8px 0 0">Your services for the coming season</p>
+      </div>
+      <div style="padding:32px">
+        <p style="margin:0 0 24px;font-size:13px;color:#6f675f;line-height:1.5">${recipient}</p>
+        ${bodyHtml(body, tokens, services)}
+        <p style="margin:24px 0 0;line-height:1.65">${escapeHtml(company.signatureLine)}<br /><br /><strong>${escapeHtml(company.name)}</strong>${
+          contactLine ? `<br /><span style="color:#6f675f">${escapeHtml(contactLine)}</span>` : ""
+        }</p>
+      </div>
+      <div style="background:#f7f5f1;padding:24px 32px;text-align:center;border-top:1px solid #e7e2dc">
+        ${
+          emblem
+            ? `<img src="${escapeHtml(emblem)}" alt="" width="56" style="display:inline-block;width:56px;height:auto;border:0" />`
+            : ""
+        }
+        <p style="margin:8px 0 0;font-weight:bold;color:#215343">Thank you for your business!</p>
+        ${addressLines.length ? `<p style="margin:8px 0 0;font-size:12px;color:#6f675f">${addressLines.map(escapeHtml).join("<br />")}</p>` : ""}
+        ${contactLine ? `<p style="margin:6px 0 0;font-size:12px;color:#6f675f">${escapeHtml(contactLine)}</p>` : ""}
+      </div>
+    </div>
+  </body></html>`;
+}
+
 export async function renderSpringLetter(clientId: number) {
   const [template, details, company] = await Promise.all([
     getOrCreateLetterTemplate(),
@@ -134,6 +251,17 @@ export async function renderSpringLetter(clientId: number) {
     body = replaceToken(body, token, replacement);
   }
 
+  // Built from the same tokens, before the plain-text furniture is bolted on:
+  // the designed version lays the address block, sign-off and footer out itself
+  // rather than inheriting text pretending to be a layout.
+  const html = springLetterHtml({
+    client: details.client,
+    services: details.services,
+    body: template.body,
+    tokens,
+    company,
+  });
+
   body = [addressBlock(details.client), body.trim(), signOffBlock(company), footerBlock(company)]
     .filter(Boolean)
     .join("\n\n");
@@ -144,6 +272,7 @@ export async function renderSpringLetter(clientId: number) {
     email: details.client.email,
     subject,
     body,
+    html,
   };
 }
 
@@ -190,6 +319,7 @@ export async function deliverSpringLetters(clientIds: number[]) {
             toEmail,
             subject: rendered.subject,
             body: rendered.body,
+            html: rendered.html,
           });
         }
       }

@@ -484,10 +484,11 @@ export default function SpringLetters() {
             ) : previewQuery.isLoading ? <Skeleton className="mt-3 h-44 w-full" /> : previewQuery.isError ? (
               <Alert variant="destructive" className="mt-3"><AlertCircle className="h-4 w-4" /><AlertTitle>Preview could not be rendered</AlertTitle><AlertDescription>{errorMessage(previewQuery.error)}</AlertDescription></Alert>
             ) : previewQuery.data ? (
-              <div className="mt-3 rounded-lg border bg-background p-5">
-                <div className="mb-3 border-b pb-3"><span className="text-xs uppercase text-muted-foreground">Subject</span><p className="font-semibold">{previewQuery.data.subject}</p></div>
-                <pre className="whitespace-pre-wrap font-sans text-sm leading-6">{previewQuery.data.body}</pre>
-              </div>
+              <LetterPreview
+                subject={previewQuery.data.subject}
+                html={previewQuery.data.html}
+                body={previewQuery.data.body}
+              />
             ) : null}
           </div>
 
@@ -518,6 +519,70 @@ function RunResults({ title, outcomes }: { title: string; outcomes: Array<{ clie
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+/**
+ * The letter as the customer will see it, plus the plain-text alternative.
+ *
+ * Rendered in a sandboxed iframe rather than with dangerouslySetInnerHTML for
+ * two reasons. It is isolated — no scripts, no same-origin access, and the app's
+ * own stylesheet cannot leak in and flatter the result — and that isolation is
+ * also what makes it honest: this is the same markup the mail client gets, laid
+ * out on its own, so approving it here means approving what actually arrives.
+ *
+ * The plain-text tab is not a debug view. It is the text/plain part of the same
+ * message, which is what text-only clients, screen readers and notification
+ * previews display, so it is worth being able to look at before a season's worth
+ * of letters go out.
+ */
+function LetterPreview({ subject, html, body }: { subject: string; html?: string; body: string }) {
+  const [view, setView] = useState<'designed' | 'plain'>('designed');
+
+  return (
+    <div className="mt-3 overflow-hidden rounded-lg border bg-background">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/40 px-4 py-3">
+        <div className="min-w-0">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            Subject
+          </span>
+          <p className="truncate font-semibold" title={subject}>{subject}</p>
+        </div>
+        {html && (
+          <div className="flex shrink-0 rounded-md border bg-background p-0.5">
+            {(['designed', 'plain'] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setView(option)}
+                className={`rounded px-3 py-1 text-xs font-medium transition ${
+                  view === option
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {option === 'designed' ? 'Designed' : 'Plain text'}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {html && view === 'designed' ? (
+        <iframe
+          // sandbox with no allow-* tokens: no scripts, no forms, no same-origin.
+          // It costs the ability to measure the content and size the frame to it,
+          // which is why the height is fixed and the frame scrolls instead.
+          sandbox=""
+          srcDoc={html}
+          title="Letter preview"
+          className="block h-[560px] w-full border-0 bg-white"
+        />
+      ) : (
+        <pre className="max-h-[560px] overflow-auto whitespace-pre-wrap p-5 font-sans text-sm leading-6">
+          {body}
+        </pre>
+      )}
     </div>
   );
 }

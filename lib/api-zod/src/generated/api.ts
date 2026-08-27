@@ -3070,7 +3070,8 @@ export const PreviewSpringLetterResponse = zod.object({
   "clientName": zod.string(),
   "email": zod.string().nullish(),
   "subject": zod.string(),
-  "body": zod.string()
+  "body": zod.string(),
+  "html": zod.string().optional().describe('The letter as the customer\'s mail client will actually render it. Sent as the text\/html part alongside body, which remains the text\/plain part. The preview shows this so that what the office approves is what the customer receives.')
 })
 
 

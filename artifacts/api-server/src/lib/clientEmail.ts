@@ -9,8 +9,17 @@ const escapeHtml = (value: string) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 
+/**
+ * `html` is optional on purpose. When a caller has a designed version it goes in
+ * the text/html part; when it does not, the plain body is wrapped as before.
+ *
+ * The plain-text part is always sent either way. It is what text-only clients
+ * and screen readers get, it is what shows in notification previews, and an
+ * HTML-only message is a well-known spam signal — so the designed version never
+ * replaces the plain one, it accompanies it.
+ */
 export async function sendClientEmailViaGmail(
-  { toEmail, subject, body }: { toEmail: string; subject: string; body: string },
+  { toEmail, subject, body, html }: { toEmail: string; subject: string; body: string; html?: string },
   proxy: GmailProxy = defaultGmailProxy,
 ) {
   if (/[\r\n]/.test(toEmail)) throw new Error("Invalid client email address");
@@ -32,7 +41,7 @@ export async function sendClientEmailViaGmail(
     'Content-Type: text/html; charset="UTF-8"',
     "Content-Transfer-Encoding: base64",
     "",
-    Buffer.from(`<div>${escapeHtml(body).replace(/\r?\n/g, "<br>")}</div>`).toString("base64"),
+    Buffer.from(html ?? `<div>${escapeHtml(body).replace(/\r?\n/g, "<br>")}</div>`).toString("base64"),
     `--${boundary}--`,
   ].join("\r\n");
 

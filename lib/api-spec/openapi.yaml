@@ -3095,6 +3095,13 @@ components:
         email: { type: ["string", "null"] }
         subject: { type: string }
         body: { type: string }
+        html:
+          type: string
+          description: >-
+            The letter as the customer's mail client will actually render it.
+            Sent as the text/html part alongside body, which remains the
+            text/plain part. The preview shows this so that what the office
+            approves is what the customer receives.
     SpringLetterSendInput:
       type: object
       required: [clientIds]

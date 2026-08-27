@@ -1695,6 +1695,8 @@ export interface LetterPreview {
   email?: string | null;
   subject: string;
   body: string;
+  /** The letter as the customer's mail client will actually render it. Sent as the text/html part alongside body, which remains the text/plain part. The preview shows this so that what the office approves is what the customer receives. */
+  html?: string;
 }
 
 export interface SpringLetterSendInput {
