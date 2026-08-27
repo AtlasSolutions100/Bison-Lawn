@@ -272,3 +272,59 @@ because the client hit it costs a support call and their confidence.
 so the "these are not your real books" banner follows the grant, not the server
 setting. A stale sandbox connection keeps its banner even after the server is
 switched to production. Sandbox figures cannot silently render as real books.
+
+## Deploying the current main
+
+On the server:
+
+```
+/root/bisonlawn/deploy/deploy.sh
+```
+
+That is the whole thing. It fetches, fast-forwards, rebuilds, waits for the
+container to report healthy, checks the public health endpoint through Caddy, and
+prints the takeoff containers so you can see they were untouched.
+
+It refuses to run over a dirty working tree. That is deliberate: pulling over
+someone's server-side edit either conflicts or silently discards it. Commit and
+push the change, or run `deploy.sh --force` to discard local edits and take
+origin/main as-is.
+
+### The pull authentication, and why it failed silently
+
+The deploy key is `/root/.ssh/github_bisonlawn`, registered on the repository as
+a GitHub deploy key. Because the filename is not one ssh tries by default, it is
+selected explicitly:
+
+```
+# /root/.ssh/config
+Host github.com
+  HostName github.com
+  User git
+  IdentityFile /root/.ssh/github_bisonlawn
+  IdentitiesOnly yes
+```
+
+Without that stanza the key exists and is valid but is never offered, so every
+pull fails as `Permission denied (publickey)` — which reads like a missing or
+unregistered key and sends you to the GitHub settings page for nothing.
+
+The dangerous part is what happened next: a deploy that pulls and then builds
+will, if the pull fails, **build the old code and report success**. That is
+exactly how a deploy on 2026-08-27 shipped a stale image. deploy.sh now aborts on
+a failed fetch rather than carrying on to the build.
+
+### Why --build, never restart
+
+`docker compose restart` re-reads neither the image nor `env_file`, so it appears
+to deploy while changing nothing. `up -d` alone recreates the container but
+around the existing image, which still holds the old web bundle — Vite bakes
+`VITE_*` values in at build time. Only `up -d --build` does what "deploy" means
+here.
+
+### Credential backups
+
+Rotating credentials leaves `.env.deploy.bak-<timestamp>` files holding the same
+secrets as the live file. The `.env.deploy` ignore rule did not cover them; the
+pattern `.env.deploy.bak*` now does. Check `git status` on the server shows
+nothing before committing anything from there.
