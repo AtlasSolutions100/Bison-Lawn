@@ -3,7 +3,7 @@ import { useListMyJobs, useUpdateJob, useCompleteJob, useCreateFieldNote, useLis
 import { useQueryClient } from '@tanstack/react-query';
 import { format, addDays, subDays } from 'date-fns';
 import { Button } from '@/components/ui/button';
-import { MapPin, Navigation, Clock, CheckCircle2, ChevronLeft, ChevronRight, DollarSign, PackageOpen, Mic, MicOff, NotebookPen, Plus, CreditCard } from 'lucide-react';
+import { MapPin, Navigation, Clock, CheckCircle2, ChevronLeft, ChevronRight, DollarSign, PackageOpen, Mic, MicOff, NotebookPen, Plus, CreditCard, Ban } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -69,15 +69,29 @@ function JobCard({ job, index }: { job: Job, index: number }) {
     });
   };
 
+  // One tap, then a native prompt for the reason — same low-friction shape as
+  // the status buttons, since the crew is doing this standing in the yard.
+  const handleSkip = () => {
+    const reason = window.prompt('Why was this job skipped? (e.g. too wet, gate locked, dog out)');
+    if (reason === null) return; // cancelled
+    const trimmed = reason.trim();
+    if (!trimmed) return; // the office needs a reason, so a blank entry doesn't send
+    updateJob.mutate({ id: job.id, data: { status: 'skipped' as any, skipReason: trimmed } }, {
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/my/jobs'] })
+    });
+  };
+
   const isCompleted = job.status === 'completed';
+  const isSkipped = job.status === 'skipped';
   const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${job.clientAddress}, ${job.city}`)}`;
 
   return (
-    <Card className={`overflow-hidden shadow-md border-border transition-all ${isCompleted ? 'opacity-60 bg-muted/50' : 'bg-card'}`}>
+    <Card className={`overflow-hidden shadow-md border-border transition-all ${isCompleted ? 'opacity-60 bg-muted/50' : isSkipped ? 'bg-orange-50/40' : 'bg-card'}`}>
       <div className={`h-1.5 w-full ${
-        isCompleted ? 'bg-primary' : 
-        job.status === 'in_progress' ? 'bg-blue-500' : 
-        job.status === 'on_the_way' ? 'bg-accent' : 
+        isCompleted ? 'bg-primary' :
+        isSkipped ? 'bg-orange-400' :
+        job.status === 'in_progress' ? 'bg-blue-500' :
+        job.status === 'on_the_way' ? 'bg-accent' :
         'bg-muted-foreground/30'
       }`} />
       <CardContent className="p-0">
@@ -88,8 +102,15 @@ function JobCard({ job, index }: { job: Job, index: number }) {
               <h3 className="font-bold text-lg leading-tight">{job.clientName}</h3>
             </div>
             {isCompleted && <CheckCircle2 className="w-5 h-5 text-primary" />}
+            {isSkipped && <Ban className="w-5 h-5 text-orange-600" />}
           </div>
-          
+
+          {isSkipped && job.skipReason && (
+            <p className="text-sm font-medium text-orange-700 bg-orange-100/70 border border-orange-200 rounded-md px-2 py-1">
+              Skipped — {job.skipReason}
+            </p>
+          )}
+
           <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="flex items-start gap-2 mt-2 group">
             <MapPin className="w-5 h-5 text-muted-foreground mt-0.5 shrink-0 group-hover:text-primary transition-colors" />
             <div>
@@ -147,32 +168,45 @@ function JobCard({ job, index }: { job: Job, index: number }) {
           <CollectPaymentDialog job={job} wide={isCompleted} />
         </div>
 
-        {!isCompleted && (
-          <div className="p-3 bg-card grid grid-cols-3 gap-2">
-            {job.status === 'scheduled' && (
-              <Button onClick={() => handleStatus('on_the_way')} className="col-span-3 bg-accent text-accent-foreground hover:bg-accent/90 h-12 text-base font-bold shadow-sm">
-                <Navigation className="w-5 h-5 mr-2" /> On The Way
+        {!isCompleted && !isSkipped && (
+          <>
+            <div className="p-3 bg-card grid grid-cols-3 gap-2">
+              {job.status === 'scheduled' && (
+                <Button onClick={() => handleStatus('on_the_way')} className="col-span-3 bg-accent text-accent-foreground hover:bg-accent/90 h-12 text-base font-bold shadow-sm">
+                  <Navigation className="w-5 h-5 mr-2" /> On The Way
+                </Button>
+              )}
+
+              {job.status === 'on_the_way' && (
+                <>
+                  <Button variant="outline" onClick={() => handleStatus('scheduled')} className="h-12 border-2">Back</Button>
+                  <Button onClick={() => handleStatus('in_progress')} className="col-span-2 bg-blue-600 hover:bg-blue-700 text-white h-12 text-base font-bold shadow-sm">
+                    <Clock className="w-5 h-5 mr-2" /> Start Job
+                  </Button>
+                </>
+              )}
+
+              {job.status === 'in_progress' && (
+                <>
+                  <Button variant="outline" onClick={() => handleStatus('on_the_way')} className="h-12 border-2">Back</Button>
+                  <Button onClick={handleComplete} className="col-span-2 bg-primary hover:bg-primary/90 text-primary-foreground h-12 text-base font-bold shadow-sm">
+                    <CheckCircle2 className="w-5 h-5 mr-2" /> Complete
+                  </Button>
+                </>
+              )}
+            </div>
+
+            {/* Same one-tap shape as the status buttons above; the reason itself comes from a native prompt */}
+            <div className="px-3 pb-3 bg-card">
+              <Button
+                variant="outline"
+                onClick={handleSkip}
+                className="w-full h-11 border-2 border-orange-300 text-orange-700 hover:bg-orange-50 font-bold"
+              >
+                <Ban className="w-4 h-4 mr-2" /> Skip Job
               </Button>
-            )}
-            
-            {job.status === 'on_the_way' && (
-              <>
-                <Button variant="outline" onClick={() => handleStatus('scheduled')} className="h-12 border-2">Back</Button>
-                <Button onClick={() => handleStatus('in_progress')} className="col-span-2 bg-blue-600 hover:bg-blue-700 text-white h-12 text-base font-bold shadow-sm">
-                  <Clock className="w-5 h-5 mr-2" /> Start Job
-                </Button>
-              </>
-            )}
-            
-            {job.status === 'in_progress' && (
-              <>
-                <Button variant="outline" onClick={() => handleStatus('on_the_way')} className="h-12 border-2">Back</Button>
-                <Button onClick={handleComplete} className="col-span-2 bg-primary hover:bg-primary/90 text-primary-foreground h-12 text-base font-bold shadow-sm">
-                  <CheckCircle2 className="w-5 h-5 mr-2" /> Complete
-                </Button>
-              </>
-            )}
-          </div>
+            </div>
+          </>
         )}
       </CardContent>
     </Card>

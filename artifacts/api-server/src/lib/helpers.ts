@@ -7,7 +7,7 @@ import {
   billingSettingsTable,
 } from "@workspace/db";
 import type { BillingSettings } from "@workspace/db";
-import type { PricingEquation } from "@workspace/db";
+import type { EstimateField, PricingEquation } from "@workspace/db";
 import { and, eq, ne, sum } from "drizzle-orm";
 
 /** Round a monetary value to whole cents. */
@@ -30,28 +30,74 @@ export async function logAudit(opts: {
 }
 
 /**
- * Equation-based pricing: pick the first equation whose upToSqft covers the
- * sqft (null = unbounded, checked last in array order). Price = basePrice for
- * the first baseSqft, plus incrementPrice per incrementSqft chunk (rounded up)
- * beyond that.
+ * Equation-based pricing: pick the first equation whose upToSqft covers
+ * `value` (null = unbounded, checked last in array order). Price = basePrice
+ * for the first baseSqft, plus incrementPrice per incrementSqft chunk
+ * (rounded up) beyond that.
+ *
+ * The equation fields are still named *Sqft for historical reasons (no data
+ * migration was done when this became configurable), but the maths only ever
+ * cared about "a quantity of some unit" — it never actually required that
+ * unit to be square footage. `value` is that quantity in whichever unit
+ * `service.pricingFieldId` designates (an estimate field such as "Sprinkler
+ * Zones"), or turf square footage when pricingFieldId is null. calculatePrice
+ * itself has no way to check that a caller measured in the right unit — use
+ * priceService() below when you have a Service row and want that checked for
+ * you instead of silently pricing a zone count as if it were square footage.
  */
 export function calculatePrice(
   equations: PricingEquation[],
-  sqft: number,
+  value: number,
 ): { price: number; equationIndex: number | null } {
   if (!equations || equations.length === 0) return { price: 0, equationIndex: null };
-  let idx = equations.findIndex((e) => e.upToSqft != null && sqft <= e.upToSqft);
+  let idx = equations.findIndex((e) => e.upToSqft != null && value <= e.upToSqft);
   if (idx === -1) {
     idx = equations.findIndex((e) => e.upToSqft == null);
     if (idx === -1) idx = equations.length - 1;
   }
   const eq_ = equations[idx];
   let price = eq_.basePrice;
-  if (sqft > eq_.baseSqft && eq_.incrementSqft > 0) {
-    const extra = sqft - eq_.baseSqft;
+  if (value > eq_.baseSqft && eq_.incrementSqft > 0) {
+    const extra = value - eq_.baseSqft;
     price += Math.ceil(extra / eq_.incrementSqft) * eq_.incrementPrice;
   }
   return { price: Math.round(price * 100) / 100, equationIndex: idx };
+}
+
+/**
+ * "text" and "boolean" estimate fields (Gate Code, has-dog) carry no number,
+ * so pointing a service's pricingFieldId at one would silently price as NaN.
+ * "calculable" and "number" fields both carry a real quantity, so either is
+ * fine as pricing input even though only "calculable" fields also have their
+ * own pricePerUnit/unitSize for direct estimate-line pricing.
+ */
+export function isPriceableFieldType(fieldType: EstimateField["fieldType"]): boolean {
+  return fieldType === "calculable" || fieldType === "number";
+}
+
+/**
+ * calculatePrice() takes a bare number, which is exactly how the earlier
+ * sqft-only version silently invited the bug this wrapper exists to prevent:
+ * nothing stopped a caller from handing it a zone count while believing it
+ * meant square footage. Callers that have a Service row and a raw input
+ * should come through here instead, passing the EstimateField the service's
+ * pricingFieldId resolves to (or null for turf sqft) — so "which field is
+ * this number measured in" is answered once, explicitly, and a field that
+ * cannot carry a number (text/boolean) is rejected instead of silently
+ * pricing as NaN.
+ */
+export function priceService(
+  service: { pricingEquations: PricingEquation[] },
+  field: EstimateField | null,
+  value: number,
+): { price: number; equationIndex: number | null; field: EstimateField | null } {
+  if (field && !isPriceableFieldType(field.fieldType)) {
+    throw Object.assign(
+      new Error(`"${field.label}" is a ${field.fieldType} field and has no number to price against.`),
+      { status: 400 },
+    );
+  }
+  return { ...calculatePrice(service.pricingEquations, value), field };
 }
 
 /**

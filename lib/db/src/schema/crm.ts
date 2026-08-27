@@ -526,6 +526,32 @@ export const schedulingRulesTable = pgTable("scheduling_rules", {
 });
 export type SchedulingRule = typeof schedulingRulesTable.$inferSelect;
 
+// ---------- feedback ----------
+// In-app feedback from whoever is using the system, captured where they hit the
+// problem rather than in a separate email thread that loses its context.
+//
+// The submitter's name and email are copied in by value, not just referenced:
+// feedback has to stay readable after someone leaves and their user row is
+// removed, and "who said this" is most of the value.
+export const feedbackTable = pgTable("feedback", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => usersTable.id, { onDelete: "set null" }),
+  userName: text("user_name"),
+  userEmail: text("user_email"),
+  // Role at the time of writing. A contractor complaining about the job board
+  // and an admin complaining about the job board usually mean different things.
+  userRole: text("user_role"),
+  // Where they were when they hit submit, e.g. "/dispatch". The single most
+  // useful field for reproducing anything, and the one nobody types in by hand.
+  page: text("page"),
+  category: text("category").notNull().default("idea"), // idea | problem | other
+  message: text("message").notNull(),
+  status: text("status").notNull().default("new"), // new | read | done
+  adminNote: text("admin_note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type Feedback = typeof feedbackTable.$inferSelect;
+
 export type BillingSettings = typeof billingSettingsTable.$inferSelect;
 
 export type AutomationRun = typeof automationRunsTable.$inferSelect;

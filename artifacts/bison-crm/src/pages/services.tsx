@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { 
+import {
   useListServices, useCreateService, useUpdateService, useDeleteService, useCalculateServicePrice,
   useListPackages, useCreatePackage, useUpdatePackage, useDeletePackage, useGetService,
-  useGetBillingSettings, useUpdateBillingSettings,
-  type Service, type ServicePackage
+  useGetBillingSettings, useUpdateBillingSettings, useListEstimateFields,
+  type Service, type ServicePackage, type EstimateField
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -42,7 +42,25 @@ const serviceSchema = z.object({
   contractorOfferable: z.boolean().default(false),
   contractorPrice: z.union([z.literal(''), z.coerce.number().finite()]).optional(),
   vendorName: z.string().optional(),
+  // '' means "turf square footage" (pricingFieldId null); otherwise the id of
+  // the estimate field the equations below are evaluated against.
+  pricingFieldId: z.union([z.literal(''), z.number()]),
 });
+
+/**
+ * Only fields with a real number qualify as pricing input — a service priced
+ * off "Gate Code" would evaluate its equations against text and the API
+ * rejects it, so it isn't worth offering here.
+ */
+function isPriceableField(field: EstimateField) {
+  return field.fieldType === 'calculable' || field.fieldType === 'number';
+}
+
+/** What the pricing equations are measured in, for labels that shouldn't lie about it. */
+function pricingUnitLabel(pricingFieldId: number | null | undefined, fields: EstimateField[] | undefined) {
+  if (pricingFieldId == null) return 'Turf Sqft';
+  return fields?.find(f => f.id === pricingFieldId)?.label ?? 'Turf Sqft';
+}
 
 const packageSchema = z.object({
   name: z.string().min(1, "Required"),
@@ -162,6 +180,7 @@ function FieldPaymentSettings() {
 
 function ServicesList() {
   const { data: services, isLoading } = useListServices();
+  const { data: estimateFields } = useListEstimateFields();
   const deleteService = useDeleteService();
   const queryClient = useQueryClient();
 
@@ -190,13 +209,16 @@ function ServicesList() {
               <TableCell className="text-muted-foreground text-sm max-w-[200px] truncate">{s.description}</TableCell>
               <TableCell>
                 <div className="text-sm">
-                  {s.pricingEquations?.map((eq: any, i: number) => (
-                    <div key={i} className="mb-1 text-muted-foreground">
-                      Base <span className="font-semibold text-foreground">${eq.basePrice}</span> (up to {eq.baseSqft} sqft)
-                      {eq.incrementPrice ? ` + $${eq.incrementPrice} / ${eq.incrementSqft} sqft` : ''}
-                      {eq.upToSqft ? ` (Max ${eq.upToSqft})` : ''}
-                    </div>
-                  ))}
+                  {s.pricingEquations?.map((eq: any, i: number) => {
+                    const unit = pricingUnitLabel(s.pricingFieldId, estimateFields);
+                    return (
+                      <div key={i} className="mb-1 text-muted-foreground">
+                        Base <span className="font-semibold text-foreground">${eq.basePrice}</span> (up to {eq.baseSqft} {unit})
+                        {eq.incrementPrice ? ` + $${eq.incrementPrice} / ${eq.incrementSqft} ${unit}` : ''}
+                        {eq.upToSqft ? ` (Max ${eq.upToSqft})` : ''}
+                      </div>
+                    );
+                  })}
                 </div>
               </TableCell>
               <TableCell className="text-sm">
@@ -288,7 +310,9 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
   const createService = useCreateService();
   const updateService = useUpdateService();
   const calculatePrice = useCalculateServicePrice();
-  
+  const { data: estimateFields } = useListEstimateFields();
+  const priceableFields = (estimateFields ?? []).filter(isPriceableField);
+
   const [testSqft, setTestSqft] = useState<number>(0);
   const [testPrice, setTestPrice] = useState<number | null>(null);
 
@@ -312,6 +336,7 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
       contractorOfferable: serviceToEdit?.contractorOfferable ?? false,
       contractorPrice: serviceToEdit?.contractorPrice ?? '',
       vendorName: serviceToEdit?.vendorName ?? '',
+      pricingFieldId: serviceToEdit?.pricingFieldId ?? '',
     }
   });
 
@@ -334,6 +359,7 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
       })),
       contractorPrice: raw.contractorPrice === '' || raw.contractorPrice == null ? null : Number(raw.contractorPrice),
       vendorName: raw.vendorName?.trim() || null,
+      pricingFieldId: raw.pricingFieldId === '' ? null : raw.pricingFieldId,
     };
     if (serviceToEdit) {
       updateService.mutate({ id: serviceToEdit.id, data }, {
@@ -364,6 +390,9 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
       });
     }
   };
+
+  const pricingFieldIdWatch = form.watch('pricingFieldId');
+  const unitLabel = pricingUnitLabel(pricingFieldIdWatch === '' ? null : pricingFieldIdWatch, estimateFields);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -409,6 +438,27 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
                       <FormItem><FormLabel>Rate ($)</FormLabel><FormControl><Input type="number" min="0" step="0.01" {...field} /></FormControl><FormMessage/></FormItem>
                     )} />
                   </div>
+                  <FormField control={form.control} name="pricingFieldId" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Price By</FormLabel>
+                      <FormControl>
+                        <select
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          value={field.value === '' ? '' : String(field.value)}
+                          onChange={e => field.onChange(e.target.value === '' ? '' : Number(e.target.value))}
+                        >
+                          <option value="">Turf Sqft (default)</option>
+                          {priceableFields.map(f => (
+                            <option key={f.id} value={f.id}>{f.label}</option>
+                          ))}
+                        </select>
+                      </FormControl>
+                      <p className="text-xs text-muted-foreground">
+                        The property detail the pricing equations below are evaluated against — e.g. Sprinkler Zones for a blow-out priced per zone.
+                      </p>
+                      <FormMessage/>
+                    </FormItem>
+                  )} />
                 </div>
 
                 <div className="p-4 bg-muted/30 border rounded-lg space-y-3">
@@ -460,7 +510,7 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
 
                 <div className="pt-4 border-t">
                   <div className="flex items-center justify-between mb-4">
-                    <h4 className="font-semibold">Pricing Equations</h4>
+                    <h4 className="font-semibold">Pricing Equations <span className="font-normal text-muted-foreground">— priced by {unitLabel}</span></h4>
                     <Button type="button" variant="outline" size="sm" onClick={() => append({ baseSqft: 0, basePrice: 0, upToSqft: 0, incrementSqft: 0, incrementPrice: 0 })}>
                       <Plus className="w-3 h-3 mr-1" /> Add Tier
                     </Button>
@@ -471,19 +521,19 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
                       <div key={field.id} className="p-4 bg-muted/30 border rounded-lg relative">
                         <div className="grid grid-cols-2 gap-4">
                           <FormField control={form.control} name={`pricingEquations.${index}.baseSqft`} render={({ field }) => (
-                            <FormItem><FormLabel>Base Sqft</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage/></FormItem>
+                            <FormItem><FormLabel>Base {unitLabel}</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage/></FormItem>
                           )} />
                           <FormField control={form.control} name={`pricingEquations.${index}.basePrice`} render={({ field }) => (
                             <FormItem><FormLabel>Base Price ($)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage/></FormItem>
                           )} />
                           <FormField control={form.control} name={`pricingEquations.${index}.incrementSqft`} render={({ field }) => (
-                            <FormItem><FormLabel>Inc. Sqft Step (Optional)</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''}/></FormControl><FormMessage/></FormItem>
+                            <FormItem><FormLabel>Inc. {unitLabel} Step (Optional)</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''}/></FormControl><FormMessage/></FormItem>
                           )} />
                           <FormField control={form.control} name={`pricingEquations.${index}.incrementPrice`} render={({ field }) => (
                             <FormItem><FormLabel>Inc. Price ($)</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''}/></FormControl><FormMessage/></FormItem>
                           )} />
                           <FormField control={form.control} name={`pricingEquations.${index}.upToSqft`} render={({ field }) => (
-                            <FormItem><FormLabel>Max Sqft (End of tier)</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''}/></FormControl><FormMessage/></FormItem>
+                            <FormItem><FormLabel>Max {unitLabel} (End of tier)</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''}/></FormControl><FormMessage/></FormItem>
                           )} />
                         </div>
                         {fields.length > 1 && (
@@ -503,7 +553,7 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
             <h4 className="font-semibold flex items-center gap-2 mb-4"><Calculator className="w-4 h-4" /> Live Test</h4>
             <div className="space-y-4">
               <div>
-                <label className="text-sm font-medium mb-1 block">Test Sqft</label>
+                <label className="text-sm font-medium mb-1 block">Test {unitLabel}</label>
                 <div className="flex gap-2">
                   <Input type="number" placeholder="e.g. 5000" value={testSqft || ''} onChange={e => setTestSqft(parseInt(e.target.value))} />
                   <Button onClick={runTest} disabled={!serviceToEdit || !testSqft}>Run</Button>

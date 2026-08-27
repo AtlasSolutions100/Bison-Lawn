@@ -1,13 +1,14 @@
 import { Router, type IRouter } from "express";
-import { db, usersTable } from "@workspace/db";
+import { db, usersTable, invitationsTable } from "@workspace/db";
 import { eq, inArray, sql } from "drizzle-orm";
-import { UpdateUserBody } from "@workspace/api-zod";
+import { CreateInvitationBody, RevokeInvitationParams, UpdateUserBody } from "@workspace/api-zod";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
 import {
   dedupeUsersByPerson,
   mergeAccountsForEmail,
   normalizeEmailKey,
 } from "../lib/userAccounts";
+import { findUserByEmailKey, listInvitations, upsertInvitation } from "../lib/invitations";
 
 const router: IRouter = Router();
 
@@ -98,6 +99,51 @@ router.patch("/users/:id", requireAuth, requireAdmin, async (req, res) => {
 
   const user = updated.find((u) => u.id === id) ?? updated[0];
   return res.json(user);
+});
+
+router.get("/invitations", requireAuth, requireAdmin, async (_req, res) => {
+  return res.json(await listInvitations());
+});
+
+router.post("/invitations", requireAuth, requireAdmin, async (req, res) => {
+  const body = CreateInvitationBody.parse(req.body);
+  const emailKey = normalizeEmailKey(body.email);
+  if (!emailKey) return res.status(400).json({ error: "Email is required" });
+
+  // An invitation exists to grant a person who has never signed in a role in
+  // advance; someone who already has a verified account is edited on the
+  // Team page instead, so their access change is a deliberate act there.
+  const existingUser = await findUserByEmailKey(emailKey);
+  if (existingUser) {
+    return res.status(400).json({
+      error: "This person already has an account — edit their role on the Team page instead.",
+    });
+  }
+
+  const invitation = await upsertInvitation({
+    email: emailKey,
+    role: body.role ?? "contractor",
+    note: body.note ?? null,
+    invitedById: req.appUser!.id,
+    invitedByName: req.appUser!.name,
+  });
+  return res.status(201).json(invitation);
+});
+
+router.delete("/invitations/:id", requireAuth, requireAdmin, async (req, res) => {
+  const { id } = RevokeInvitationParams.parse(req.params);
+  const [invitation] = await db.select().from(invitationsTable).where(eq(invitationsTable.id, id));
+  if (!invitation) return res.status(404).json({ error: "Invitation not found" });
+
+  // An accepted invitation is a historical record of how that person got
+  // their role, not a live grant — revoking it must never look like it
+  // touched (or could touch) the account it already produced.
+  if (invitation.acceptedAt) {
+    return res.status(400).json({ error: "This invitation was already accepted and cannot be revoked" });
+  }
+
+  await db.delete(invitationsTable).where(eq(invitationsTable.id, id));
+  return res.status(204).end();
 });
 
 export default router;

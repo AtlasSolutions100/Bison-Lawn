@@ -1,10 +1,13 @@
 import { useState } from 'react';
-import { useListUsers, useUpdateUser } from '@workspace/api-client-react';
+import {
+  useListUsers, useUpdateUser,
+  useListInvitations, useCreateInvitation, useRevokeInvitation,
+} from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Check, Edit2, X } from 'lucide-react';
+import { Check, Edit2, Mail, X } from 'lucide-react';
 
 export default function Team() {
   const { data: users, isLoading } = useListUsers();
@@ -16,7 +19,7 @@ export default function Team() {
         <p className="text-muted-foreground mt-1">Manage admins and contractors.</p>
       </div>
 
-      <div className="bg-card border rounded-lg shadow-sm flex-1 overflow-auto">
+      <div className="bg-card border rounded-lg shadow-sm overflow-auto max-h-[45vh]">
         <Table>
           <TableHeader className="bg-muted/50">
             <TableRow>
@@ -35,6 +38,133 @@ export default function Team() {
               <TableRow><TableCell colSpan={6} className="text-center py-4">No team members found.</TableCell></TableRow>
             ) : (
               users.map(u => <UserRow key={u.id} user={u} />)
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      <Invitations />
+    </div>
+  );
+}
+
+function Invitations() {
+  const { data: invitations, isLoading } = useListInvitations();
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState<'admin' | 'contractor'>('contractor');
+  const [error, setError] = useState<string | null>(null);
+
+  const queryClient = useQueryClient();
+  const createInvitation = useCreateInvitation();
+  const revokeInvitation = useRevokeInvitation();
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['/api/invitations'] });
+
+  const handleInvite = () => {
+    if (!email.trim()) return;
+    setError(null);
+    createInvitation.mutate({ data: { email: email.trim(), role } }, {
+      onSuccess: () => {
+        setEmail('');
+        setRole('contractor');
+        invalidate();
+      },
+      onError: (e: any) => {
+        // e.g. that address already belongs to a signed-up account
+        setError(e?.data?.error || e?.message || 'Could not send invite');
+      },
+    });
+  };
+
+  const handleRevoke = (id: number) => {
+    revokeInvitation.mutate({ id }, { onSuccess: invalidate });
+  };
+
+  return (
+    <div className="bg-card border rounded-lg shadow-sm flex-1 flex flex-col overflow-hidden">
+      <div className="p-4 border-b space-y-3">
+        <div>
+          <h2 className="font-semibold">Invite Someone</h2>
+          {/* The invite itself grants nothing — it only takes effect once that
+              person signs up and Clerk verifies they actually control the
+              address. Otherwise the owner assumes sending the invite was the
+              access grant. */}
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Sending an invite does not grant access by itself. The role only applies once that
+            person signs up using this exact email and verifies it.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2 items-center">
+          <Input
+            className="h-8 max-w-xs"
+            type="email"
+            placeholder="email@example.com"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+          />
+          <select
+            className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+            value={role}
+            onChange={e => setRole(e.target.value as 'admin' | 'contractor')}
+          >
+            <option value="contractor">Contractor</option>
+            <option value="admin">Admin</option>
+          </select>
+          <Button size="sm" onClick={handleInvite} disabled={createInvitation.isPending || !email.trim()}>
+            <Mail className="w-4 h-4 mr-1" /> Invite
+          </Button>
+          {error && <p className="text-xs text-destructive whitespace-normal">{error}</p>}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-auto">
+        <Table>
+          <TableHeader className="bg-muted/50">
+            <TableRow>
+              <TableHead>Email</TableHead>
+              <TableHead>Role</TableHead>
+              <TableHead>Invited By</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="w-16"></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              <TableRow><TableCell colSpan={5} className="text-center py-4">Loading...</TableCell></TableRow>
+            ) : !invitations?.length ? (
+              <TableRow><TableCell colSpan={5} className="text-center py-4">No invitations yet.</TableCell></TableRow>
+            ) : (
+              invitations.map(inv => (
+                <TableRow key={inv.id} className="hover:bg-muted/50">
+                  <TableCell className="font-medium">{inv.email}</TableCell>
+                  <TableCell>
+                    <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${inv.role === 'admin' ? 'bg-primary text-primary-foreground' : 'bg-accent text-accent-foreground'}`}>
+                      {inv.role}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{inv.invitedByName || '-'}</TableCell>
+                  <TableCell>
+                    {inv.acceptedAt ? (
+                      <span className="text-xs text-muted-foreground">Accepted {new Date(inv.acceptedAt).toLocaleDateString()}</span>
+                    ) : (
+                      <span className="text-xs text-amber-600 dark:text-amber-500">Pending — not yet signed up</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {!inv.acceptedAt && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                        onClick={() => handleRevoke(inv.id)}
+                        disabled={revokeInvitation.isPending}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))
             )}
           </TableBody>
         </Table>

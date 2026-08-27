@@ -239,6 +239,83 @@ export const DeleteSchedulingRuleResponse = zod.void()
 
 
 /**
+ * @summary Read feedback submitted from inside the app
+ */
+export const ListFeedbackQueryParams = zod.object({
+  "status": zod.enum(['new', 'read', 'done']).optional()
+})
+
+export const ListFeedbackResponseItem = zod.object({
+  "id": zod.int(),
+  "userId": zod.int().nullish(),
+  "userName": zod.string().nullish(),
+  "userEmail": zod.string().nullish(),
+  "userRole": zod.string().nullish(),
+  "page": zod.string().nullish(),
+  "category": zod.enum(['idea', 'problem', 'other']),
+  "message": zod.string(),
+  "status": zod.enum(['new', 'read', 'done']),
+  "adminNote": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListFeedbackResponse = zod.array(ListFeedbackResponseItem)
+
+
+/**
+ * @summary Submit feedback from anywhere in the app
+ */
+
+
+
+export const CreateFeedbackBody = zod.object({
+  "message": zod.string().min(1),
+  "category": zod.enum(['idea', 'problem', 'other']).optional(),
+  "page": zod.string().nullish()
+})
+
+export const CreateFeedbackResponse = zod.object({
+  "id": zod.int(),
+  "userId": zod.int().nullish(),
+  "userName": zod.string().nullish(),
+  "userEmail": zod.string().nullish(),
+  "userRole": zod.string().nullish(),
+  "page": zod.string().nullish(),
+  "category": zod.enum(['idea', 'problem', 'other']),
+  "message": zod.string(),
+  "status": zod.enum(['new', 'read', 'done']),
+  "adminNote": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Triage a piece of feedback
+ */
+export const UpdateFeedbackParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const UpdateFeedbackBody = zod.object({
+  "status": zod.enum(['new', 'read', 'done']).optional(),
+  "adminNote": zod.string().nullish()
+})
+
+export const UpdateFeedbackResponse = zod.object({
+  "id": zod.int(),
+  "userId": zod.int().nullish(),
+  "userName": zod.string().nullish(),
+  "userEmail": zod.string().nullish(),
+  "userRole": zod.string().nullish(),
+  "page": zod.string().nullish(),
+  "category": zod.enum(['idea', 'problem', 'other']),
+  "message": zod.string(),
+  "status": zod.enum(['new', 'read', 'done']),
+  "adminNote": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
  * @summary List clients/leads with optional filters
  */
 export const ListClientsQueryParams = zod.object({

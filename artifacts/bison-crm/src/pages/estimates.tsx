@@ -736,7 +736,7 @@ function EstimateBuilder({
     if (pendingRestoredClientRef.current === clientId) {
       // Keep the recovered values for this client instead of re-prefilling over
       // them. Consumed only once the data that would clobber them has loaded.
-      if (clientsLoaded && fieldsLoaded) pendingRestoredClientRef.current = null;
+      if (clientsLoaded && fieldsLoaded && servicesLoaded) pendingRestoredClientRef.current = null;
       return;
     }
     pendingRestoredClientRef.current = null;
@@ -746,7 +746,7 @@ function EstimateBuilder({
       prefillRef.current = builderSnapshot('', '', {}, {}, []);
       return;
     }
-    if (!clientsLoaded || !fieldsLoaded) return;
+    if (!clientsLoaded || !fieldsLoaded || !servicesLoaded) return;
     const property = (clients.find(c => String(c.id) === clientId)?.propertyData ?? {}) as Record<string, string>;
     const next: SelectionState = {};
     for (const f of fields) {
@@ -754,13 +754,25 @@ function EstimateBuilder({
       next[f.id] = { selected: saved != null, value: saved ?? '' };
     }
     setFieldValues(next);
-    setServiceValues({});
+    // A service priced from a property detail (pricingFieldId) starts filled with
+    // that detail's saved value, so the admin isn't retyping (e.g.) the zone count
+    // he already entered under Property Fields. Left unselected either way — unlike
+    // property fields, which service is wanted on this particular estimate is
+    // never implied by what is on file for the property.
+    const nextServices: SelectionState = {};
+    for (const s of services) {
+      if (s.pricingFieldId == null) continue;
+      const pricingField = fields.find(f => f.id === s.pricingFieldId);
+      const saved = pricingField ? property[pricingField.label] : undefined;
+      if (saved != null) nextServices[s.id] = { selected: false, value: saved };
+    }
+    setServiceValues(nextServices);
     // A brand new estimate is never "saved", so the baseline stays empty and the
     // chosen client counts as unsaved work. The prefill snapshot is separate:
     // replacing an untouched prefill costs the admin nothing.
-    prefillRef.current = builderSnapshot(clientId, notes, next, {}, customLines);
+    prefillRef.current = builderSnapshot(clientId, notes, next, nextServices, customLines);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientId, clientsLoaded, fieldsLoaded]);
+  }, [clientId, clientsLoaded, fieldsLoaded, servicesLoaded]);
 
   const current = builderSnapshot(
     clientId,
@@ -998,21 +1010,24 @@ function EstimateBuilder({
     saveEstimateForClient(parseInt(clientId));
   };
 
+  // Cells are stacked internally (checkbox+label, then input, then price) rather
+  // than the old single wide row, so they stay legible packed several-per-row
+  // in the grid below instead of needing the full row width each.
   const fieldInput = (f: EstimateField) => {
     const state = fieldValues[f.id] ?? { selected: false, value: '' };
     const set = (patch: Partial<typeof state>) => setFieldValues(prev => ({ ...prev, [f.id]: { ...state, ...patch } }));
     return (
-      <div key={f.id} className={`flex items-center gap-3 p-3 rounded-md border ${state.selected ? 'bg-background' : 'bg-muted/40'}`}>
-        <input type="checkbox" className="w-4 h-4" checked={state.selected} onChange={e => set({ selected: e.target.checked })} />
-        <div className="w-56">
-          <div className="text-sm font-medium">{f.label}</div>
-          {f.fieldType === 'calculable' && (
-            <div className="text-xs text-muted-foreground">${f.pricePerUnit ?? 0} per {f.unitSize ?? 1} units</div>
-          )}
-        </div>
+      <div key={f.id} className={`flex flex-col gap-2 p-3 rounded-md border ${state.selected ? 'bg-background' : 'bg-muted/40'}`}>
+        <label className="flex items-center gap-2 min-w-0">
+          <input type="checkbox" className="w-4 h-4 shrink-0" checked={state.selected} onChange={e => set({ selected: e.target.checked })} />
+          <span className="text-sm font-medium truncate" title={f.label}>{f.label}</span>
+        </label>
+        {f.fieldType === 'calculable' && (
+          <div className="text-xs text-muted-foreground">${f.pricePerUnit ?? 0} per {f.unitSize ?? 1} units</div>
+        )}
         {f.fieldType === 'boolean' ? (
           <select
-            className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+            className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
             disabled={!state.selected}
             value={state.value}
             onChange={e => set({ value: e.target.value })}
@@ -1024,18 +1039,17 @@ function EstimateBuilder({
         ) : (
           <Input
             type={f.fieldType === 'text' ? 'text' : 'number'}
-            className="w-40"
             disabled={!state.selected}
             value={state.value}
             onChange={e => set({ value: e.target.value })}
             placeholder={f.fieldType === 'text' ? 'Detail' : 'Value'}
           />
         )}
-        <span className="ml-auto text-sm font-semibold tabular-nums">
+        <div className="text-sm font-semibold tabular-nums">
           {state.selected && f.fieldType === 'calculable'
             ? (fieldLinePrice(f, state.value) == null ? 'Enter a number' : money(fieldLinePrice(f, state.value)!))
             : state.selected ? '—' : ''}
-        </span>
+        </div>
       </div>
     );
   };
@@ -1130,7 +1144,10 @@ function EstimateBuilder({
           {!fields?.length ? (
             <p className="text-sm text-muted-foreground">No reusable fields yet — add them in the Custom Fields tab.</p>
           ) : (
-            <div className="space-y-2">{fields.map(fieldInput)}</div>
+            // Two columns even at phone width keeps it horizontal where he actually
+            // builds estimates (standing in a yard); grid-cols-4 alone would cram
+            // labels/inputs unreadably at 320-375px, so it only widens from there.
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">{fields.map(fieldInput)}</div>
           )}
         </div>
 
@@ -1173,13 +1190,17 @@ function EstimateBuilder({
                 const state = serviceValues[s.id] ?? { selected: false, value: '' };
                 const set = (patch: Partial<typeof state>) => setServiceValues(prev => ({ ...prev, [s.id]: { ...state, ...patch } }));
                 const hasEquations = (s.pricingEquations ?? []).length > 0;
+                // Null pricingFieldId means turf square footage (today's default);
+                // otherwise price from whichever property detail the service names.
+                const pricingField = s.pricingFieldId != null ? fields?.find(f => f.id === s.pricingFieldId) : undefined;
+                const pricingFieldLabel = pricingField?.label ?? 'Sqft';
                 return (
                   <div key={s.id} className={`flex items-center gap-3 p-3 rounded-md border ${state.selected ? 'bg-background' : 'bg-muted/40'}`}>
                     <input type="checkbox" className="w-4 h-4" checked={state.selected} onChange={e => set({ selected: e.target.checked })} />
                     <div className="w-56">
                       <div className="text-sm font-medium">{s.name}</div>
                       <div className="text-xs text-muted-foreground">
-                        {hasEquations ? 'Priced from sqft equations' : `Flat ${money(s.rate * s.quantity)}`}
+                        {hasEquations ? `Priced from ${pricingFieldLabel} equations` : `Flat ${money(s.rate * s.quantity)}`}
                       </div>
                     </div>
                     {hasEquations && (
@@ -1189,7 +1210,7 @@ function EstimateBuilder({
                         disabled={!state.selected}
                         value={state.value}
                         onChange={e => set({ value: e.target.value })}
-                        placeholder="Sqft"
+                        placeholder={pricingFieldLabel}
                       />
                     )}
                     <span className="ml-auto text-sm font-semibold tabular-nums">

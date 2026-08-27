@@ -195,6 +195,76 @@ export interface SchedulingRuleUpdate {
   sortOrder?: number;
 }
 
+export type FeedbackCategory = typeof FeedbackCategory[keyof typeof FeedbackCategory];
+
+
+export const FeedbackCategory = {
+  idea: 'idea',
+  problem: 'problem',
+  other: 'other',
+} as const;
+
+export type FeedbackStatus = typeof FeedbackStatus[keyof typeof FeedbackStatus];
+
+
+export const FeedbackStatus = {
+  new: 'new',
+  read: 'read',
+  done: 'done',
+} as const;
+
+export interface Feedback {
+  id: number;
+  /** @nullable */
+  userId?: number | null;
+  /** @nullable */
+  userName?: string | null;
+  /** @nullable */
+  userEmail?: string | null;
+  /** @nullable */
+  userRole?: string | null;
+  /** @nullable */
+  page?: string | null;
+  category: FeedbackCategory;
+  message: string;
+  status: FeedbackStatus;
+  /** @nullable */
+  adminNote?: string | null;
+  createdAt: string;
+}
+
+export type FeedbackInputCategory = typeof FeedbackInputCategory[keyof typeof FeedbackInputCategory];
+
+
+export const FeedbackInputCategory = {
+  idea: 'idea',
+  problem: 'problem',
+  other: 'other',
+} as const;
+
+export interface FeedbackInput {
+  /** @minLength 1 */
+  message: string;
+  category?: FeedbackInputCategory;
+  /** @nullable */
+  page?: string | null;
+}
+
+export type FeedbackUpdateStatus = typeof FeedbackUpdateStatus[keyof typeof FeedbackUpdateStatus];
+
+
+export const FeedbackUpdateStatus = {
+  new: 'new',
+  read: 'read',
+  done: 'done',
+} as const;
+
+export interface FeedbackUpdate {
+  status?: FeedbackUpdateStatus;
+  /** @nullable */
+  adminNote?: string | null;
+}
+
 export type ClientStatus = typeof ClientStatus[keyof typeof ClientStatus];
 
 
@@ -1835,6 +1905,19 @@ export interface ContractorEarnings {
   totalAmount: number;
   completedCount?: number;
 }
+
+export type ListFeedbackParams = {
+status?: ListFeedbackStatus;
+};
+
+export type ListFeedbackStatus = typeof ListFeedbackStatus[keyof typeof ListFeedbackStatus];
+
+
+export const ListFeedbackStatus = {
+  new: 'new',
+  read: 'read',
+  done: 'done',
+} as const;
 
 export type ListClientsParams = {
 status?: ListClientsStatus;

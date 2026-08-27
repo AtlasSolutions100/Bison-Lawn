@@ -9,8 +9,11 @@ import {
   type User,
 } from "@workspace/db";
 import { eq, inArray, sql } from "drizzle-orm";
+import { redeemPendingInvitation, resolveNewAccountAccess } from "./invitations";
 
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+// Exported so lib/invitations.ts can type its transaction-scoped helpers
+// without importing this module at runtime (it only needs the type).
+export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export type ClerkIdentityInput = {
   name: string;
@@ -263,6 +266,9 @@ export async function resolveAccountForClerkId(
       const { canonical, duplicates } = pickCanonical(accounts);
       user = await absorbDuplicates(tx, canonical, duplicates);
     } else {
+      // A genuinely new person: fold in any pending invitation for this
+      // (already verified) email before deciding their starting role.
+      const access = await resolveNewAccountAccess(tx, emailKey, newAccountAccess);
       [user] = await tx
         .insert(usersTable)
         .values({
@@ -271,14 +277,17 @@ export async function resolveAccountForClerkId(
           // An unverified address is not proof of identity, so it is not stored
         // on the account where it could later be treated as the same person.
         email: identity?.emailVerified ? identity.email : null,
-          role: newAccountAccess.role,
-          roleSource: newAccountAccess.roleSource,
+          role: access.role,
+          roleSource: access.roleSource,
         })
         .onConflictDoNothing({ target: usersTable.clerkId })
         .returning();
       if (!user) {
         [user] = await tx.select().from(usersTable).where(eq(usersTable.clerkId, clerkId));
       }
+      // Scoped to acceptedAt IS NULL, so this is a harmless no-op when there
+      // was no invitation (or it was already redeemed by a race).
+      if (user) await redeemPendingInvitation(tx, emailKey, user.id);
     }
     if (!user) return null;
     await tx

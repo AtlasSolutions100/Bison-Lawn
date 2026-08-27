@@ -68,6 +68,7 @@ async function hydrateJobs(rows: JobRow[]) {
       assignedToName: r.assignedToId ? (uMap.get(r.assignedToId)?.name ?? null) : null,
       products: products.filter((p) => p.jobId === r.id),
       completedAt: r.completedAt ? r.completedAt.toISOString() : null,
+      skippedAt: r.skippedAt ? r.skippedAt.toISOString() : null,
     };
   });
 }
@@ -421,14 +422,26 @@ router.patch("/jobs/:id", async (req, res) => {
     // contractors may only update the status of their own visible, dispatched jobs
     if (!canAccessJob(req, existing)) return res.status(403).json({ error: "Forbidden" });
     const keys = Object.keys(body);
-    if (keys.some((k) => k !== "status")) {
+    // skipReason travels with status: skipped since the contractor on site is the
+    // one who knows why — but it must never become a general-purpose notes field.
+    if (keys.some((k) => k !== "status" && k !== "skipReason")) {
       return res.status(403).json({ error: "Contractors can only update job status" });
     }
   }
 
+  const update: typeof body & { skippedAt?: Date | null } = { ...body };
+  if (body.status === "skipped") {
+    update.skippedAt = new Date();
+  } else if (body.status && existing.status === "skipped") {
+    // Moving off skipped (e.g. rescheduled) retires the old reason so it doesn't
+    // linger and get mistaken for the reason behind whatever happens next.
+    update.skipReason = null;
+    update.skippedAt = null;
+  }
+
   const [job] = await db
     .update(jobsTable)
-    .set(body)
+    .set(update)
     .where(eq(jobsTable.id, Number(req.params.id)))
     .returning();
   if (body.status && body.status !== existing.status) {
@@ -436,7 +449,10 @@ router.patch("/jobs/:id", async (req, res) => {
       clientId: job.clientId,
       actorName: req.appUser?.name,
       action: "job_status",
-      description: `Job #${job.id} status changed to ${body.status.replace(/_/g, " ")}`,
+      description:
+        body.status === "skipped" && body.skipReason
+          ? `Job #${job.id} status changed to skipped — ${body.skipReason}`
+          : `Job #${job.id} status changed to ${body.status.replace(/_/g, " ")}`,
     });
   }
   return res.json((await hydrateJobs([job]))[0]);
@@ -457,6 +473,12 @@ router.post("/jobs/:id/complete", async (req, res) => {
   if (existing.status === "completed") {
     return res.json((await hydrateJobs([existing]))[0]);
   }
+  // A skipped visit did no work — invoicing it would bill for a no-show. The
+  // office must explicitly move it off "skipped" (e.g. reschedule) before it
+  // can ever be completed.
+  if (existing.status === "skipped") {
+    return res.status(400).json({ error: "This job was skipped and cannot be completed. Reschedule it first." });
+  }
 
   // Atomic completion: lock the job row, re-check status, and create the
   // invoice inside one transaction so concurrent requests can't double-invoice.
@@ -468,6 +490,7 @@ router.post("/jobs/:id/complete", async (req, res) => {
       .for("update");
     if (!locked) return null;
     if (locked.status === "completed") return { job: locked, invoice: null };
+    if (locked.status === "skipped") return { job: locked, invoice: null, skipped: true as const };
 
     const products = await tx.select().from(jobProductsTable).where(eq(jobProductsTable.jobId, id));
     const productTotal = products.reduce((s, p) => s + p.price * p.quantity, 0);
@@ -518,6 +541,11 @@ router.post("/jobs/:id/complete", async (req, res) => {
   });
 
   if (!result) return res.status(404).json({ error: "Job not found" });
+  if ("skipped" in result && result.skipped) {
+    // Lost the race: a concurrent request skipped this job after our pre-lock
+    // check but before we took the row lock. Same rule applies — no invoice.
+    return res.status(400).json({ error: "This job was skipped and cannot be completed. Reschedule it first." });
+  }
   if (result.invoice) {
     await logAudit({
       clientId: result.job.clientId,

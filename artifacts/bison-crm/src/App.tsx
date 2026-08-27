@@ -29,6 +29,7 @@ import SpringLetters from '@/pages/spring-letters';
 import WebRequests from '@/pages/web-requests';
 import Automation from '@/pages/automation';
 import Team from '@/pages/team';
+import FeedbackPage from '@/pages/feedback';
 import MyJobs from '@/pages/my-jobs';
 import MyRoute from '@/pages/my-route';
 
@@ -337,6 +338,7 @@ function ClerkProviderWithRoutes() {
               <Route path="/web-requests"><SignedIn><AdminRoute component={WebRequests} /></SignedIn></Route>
               <Route path="/automation"><SignedIn><AdminRoute component={Automation} /></SignedIn></Route>
               <Route path="/team"><SignedIn><AdminRoute component={Team} /></SignedIn></Route>
+              <Route path="/feedback"><SignedIn><AdminRoute component={FeedbackPage} /></SignedIn></Route>
 
               {/* Contractor Routes */}
               <Route path="/my/jobs"><SignedIn><ContractorRoute component={MyJobs} /></SignedIn></Route>

@@ -3,21 +3,26 @@ import {
   db,
   automationRunsTable,
   weatherRulesTable,
+  schedulingRulesTable,
   suggestedActionsTable,
   jobsTable,
   clientsTable,
+  servicesTable,
   usersTable,
 } from "@workspace/db";
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import {
   CreateWeatherRuleBody,
   UpdateWeatherRuleBody,
+  CreateSchedulingRuleBody,
+  UpdateSchedulingRuleBody,
   RunWeatherCheckBody,
   UpdateSuggestedActionBody,
 } from "@workspace/api-zod";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
 import { logAudit } from "../lib/helpers";
 import { runWeatherCheckForDate } from "../lib/weatherCheck";
+import { ensureDefaultSchedulingRules } from "../lib/schedulingRules";
 import { ensureDailyWeatherCheck, getWeatherCheckStatus } from "../lib/weatherScheduler";
 import {
   createCustomerMessageEmailHtml,
@@ -96,6 +101,112 @@ router.delete("/weather-rules/:id", async (req, res) => {
       actorName: req.appUser?.name,
       action: "weather_rule_deleted",
       description: `Deleted weather rule "${existing.name}" (#${existing.id}, ${existing.conditionType} threshold ${existing.threshold}, action: ${existing.actionType})`,
+    });
+  }
+  return res.status(204).end();
+});
+
+// ---------- scheduling rules ----------
+
+type SchedulingRuleRow = typeof schedulingRulesTable.$inferSelect;
+
+/**
+ * Resolve the service and assignee names the rule points at, so the editor can
+ * render a rule without joining anything client-side.
+ */
+async function hydrateSchedulingRules(rows: SchedulingRuleRow[]) {
+  if (rows.length === 0) return [];
+  const serviceIds = [...new Set(rows.map((r) => r.serviceId).filter((x): x is number => x != null))];
+  const userIds = [...new Set(rows.map((r) => r.assignedToId).filter((x): x is number => x != null))];
+  const [services, users] = await Promise.all([
+    serviceIds.length ? db.select().from(servicesTable).where(inArray(servicesTable.id, serviceIds)) : Promise.resolve([]),
+    userIds.length ? db.select().from(usersTable).where(inArray(usersTable.id, userIds)) : Promise.resolve([]),
+  ]);
+  const sMap = new Map(services.map((s) => [s.id, s.name]));
+  const uMap = new Map(users.map((u) => [u.id, u.name]));
+  return rows.map((r) => ({
+    ...r,
+    serviceName: r.serviceId ? (sMap.get(r.serviceId) ?? null) : null,
+    assignedToName: r.assignedToId ? (uMap.get(r.assignedToId) ?? null) : null,
+    updatedAt: r.updatedAt.toISOString(),
+  }));
+}
+
+/** Human-readable summary of what a rule does, for the audit trail. */
+function describeSchedulingRule(rule: SchedulingRuleRow, serviceName: string | null) {
+  const target = serviceName ? `"${serviceName}"` : "any other service";
+  const outcome =
+    rule.action === "waiting_list"
+      ? `waiting list ${rule.windowStartMonthDay ?? "any"} → ${rule.windowEndMonthDay ?? "any"}`
+      : rule.action === "none"
+        ? "no job"
+        : `${rule.action} +${rule.offsetDays} day(s)`;
+  return `${target} → ${outcome}`;
+}
+
+router.get("/scheduling-rules", async (_req, res) => {
+  // First read puts the starting policy in place (once — see the seed marker),
+  // so the office has something to change instead of an empty page.
+  await ensureDefaultSchedulingRules();
+  const rows = await db
+    .select()
+    .from(schedulingRulesTable)
+    .orderBy(asc(schedulingRulesTable.sortOrder), asc(schedulingRulesTable.id));
+  return res.json(await hydrateSchedulingRules(rows));
+});
+
+router.post("/scheduling-rules", async (req, res) => {
+  const body = CreateSchedulingRuleBody.parse(req.body);
+  const [rule] = await db.insert(schedulingRulesTable).values(body).returning();
+  const [hydrated] = await hydrateSchedulingRules([rule]);
+  await logAudit({
+    actorName: req.appUser?.name,
+    action: "scheduling_rule_created",
+    description: `Created scheduling rule #${rule.id}: ${describeSchedulingRule(rule, hydrated.serviceName)}`,
+  });
+  return res.status(201).json(hydrated);
+});
+
+router.patch("/scheduling-rules/:id", async (req, res) => {
+  const body = UpdateSchedulingRuleBody.parse(req.body);
+  const [existing] = await db
+    .select()
+    .from(schedulingRulesTable)
+    .where(eq(schedulingRulesTable.id, Number(req.params.id)));
+  if (!existing) return res.status(404).json({ error: "Rule not found" });
+  const [rule] = await db
+    .update(schedulingRulesTable)
+    // The office edits these live; stamping the change is what tells them which
+    // rule was touched last when a job lands somewhere unexpected.
+    .set({ ...body, updatedAt: new Date() })
+    .where(eq(schedulingRulesTable.id, existing.id))
+    .returning();
+  const [hydrated] = await hydrateSchedulingRules([rule]);
+  const changes = (Object.keys(body) as (keyof typeof body)[])
+    .filter((k) => body[k] !== undefined && (existing as any)[k] !== body[k])
+    .map((k) => `${k}: ${JSON.stringify((existing as any)[k])} → ${JSON.stringify(body[k])}`);
+  await logAudit({
+    actorName: req.appUser?.name,
+    action: "scheduling_rule_updated",
+    description:
+      `Updated scheduling rule #${existing.id} (${describeSchedulingRule(rule, hydrated.serviceName)})` +
+      `${changes.length ? `: ${changes.join(", ")}` : ""}`,
+  });
+  return res.json(hydrated);
+});
+
+router.delete("/scheduling-rules/:id", async (req, res) => {
+  const [existing] = await db
+    .select()
+    .from(schedulingRulesTable)
+    .where(eq(schedulingRulesTable.id, Number(req.params.id)));
+  if (existing) {
+    const [hydrated] = await hydrateSchedulingRules([existing]);
+    await db.delete(schedulingRulesTable).where(eq(schedulingRulesTable.id, existing.id));
+    await logAudit({
+      actorName: req.appUser?.name,
+      action: "scheduling_rule_deleted",
+      description: `Deleted scheduling rule #${existing.id}: ${describeSchedulingRule(existing, hydrated.serviceName)}`,
     });
   }
   return res.status(204).end();

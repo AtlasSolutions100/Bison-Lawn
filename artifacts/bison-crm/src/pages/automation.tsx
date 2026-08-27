@@ -12,7 +12,17 @@ import {
   useRunWeatherCheck,
   useGetWeatherCheckStatus,
   getGetWeatherCheckStatusQueryKey,
+  useListSchedulingRules,
+  useCreateSchedulingRule,
+  useUpdateSchedulingRule,
+  useDeleteSchedulingRule,
+  getListSchedulingRulesQueryKey,
+  useListServices,
+  useListUsers,
   SuggestedAction,
+  SchedulingRule,
+  SchedulingRuleAction,
+  SchedulingRuleUpdate,
   WeatherRule,
   WeatherCheckRun,
 } from '@workspace/api-client-react';
@@ -24,6 +34,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import {
   CloudRain, Wind, Thermometer, Snowflake, Plus, Trash2, CheckCircle2, XCircle,
   Pencil, CalendarClock, SkipForward, Mail, MailCheck, MailWarning, PlayCircle, Send, Clock,
+  CalendarPlus, Route, Hourglass, Ban, FileCheck2,
 } from 'lucide-react';
 
 const CONDITION_META: Record<string, { label: string; unit: string; icon: any }> = {
@@ -31,6 +42,34 @@ const CONDITION_META: Record<string, { label: string; unit: string; icon: any }>
   wind: { label: 'Wind', unit: 'km/h', icon: Wind },
   heat: { label: 'Heat (high ≥)', unit: '°C', icon: Thermometer },
   cold: { label: 'Cold (low ≤)', unit: '°C', icon: Snowflake },
+};
+
+/**
+ * "dispatch" and "route_fit" mean nothing to someone running a lawn care
+ * business, so every action carries the plain-English sentence that goes next
+ * to it wherever it is shown.
+ */
+const SCHEDULING_ACTION_META: Record<string, { label: string; icon: any; explain: (offsetDays: number) => string }> = {
+  dispatch: {
+    label: 'Put on the dispatch board',
+    icon: CalendarPlus,
+    explain: (d) => `Lands on the dispatch board ${d === 0 ? 'the same day' : d === 1 ? 'the next day' : `${d} days later`}, unassigned unless you pick a sub below.`,
+  },
+  route_fit: {
+    label: 'Fit into the best route',
+    icon: Route,
+    explain: (d) => `Goes on the board ${d === 0 ? 'from the same day' : d === 1 ? 'from the next day' : `from ${d} days later`} onto whichever upcoming day already has the closest stop — the sub on that day picks it up.`,
+  },
+  waiting_list: {
+    label: 'Hold on the waiting list',
+    icon: Hourglass,
+    explain: () => 'Waits on the waiting list inside the season below until you dispatch it — for package work like spring/fall clean-ups and aerations.',
+  },
+  none: {
+    label: 'Do nothing automatically',
+    icon: Ban,
+    explain: () => 'Records the acceptance and nothing else. You schedule this one by hand.',
+  },
 };
 
 export default function Automation() {
@@ -42,9 +81,11 @@ export default function Automation() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Automation Review</h1>
         <p className="text-muted-foreground mt-1">
-          Weather rules prepare skip/reschedule actions and draft customer messages. Approving applies the schedule change and emails the approved message to the customer.
+          Scheduling rules decide what happens the moment a customer accepts an estimate. Weather rules prepare skip/reschedule actions and draft customer messages — approving applies the schedule change and emails the approved message to the customer.
         </p>
       </div>
+
+      <SchedulingRulesPanel />
 
       <WeatherCheckPanel />
 
@@ -502,6 +543,285 @@ function NewRuleDialog() {
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
           <Button onClick={handleSave} disabled={createRule.isPending || !name.trim() || !threshold}>Save Rule</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * What happens when a customer accepts an estimate.
+ *
+ * The office is still settling the policy, so this is deliberately editable in
+ * place: every control saves as soon as it changes, and there is no ticket to
+ * file to try a different answer.
+ */
+function SchedulingRulesPanel() {
+  const { data: rules, isLoading } = useListSchedulingRules();
+  const { data: services } = useListServices();
+  const { data: users } = useListUsers();
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold flex items-center gap-2">
+            <FileCheck2 className="w-5 h-5 text-primary" /> Scheduling Rules
+          </h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            When a customer accepts an estimate, each service on it is matched to the first rule below that names it — or to the "any other service" rule — and the job is created for you. Changes save straight away.
+          </p>
+        </div>
+        <NewSchedulingRuleDialog services={services ?? []} users={users ?? []} />
+      </div>
+      {isLoading ? (
+        <div className="text-muted-foreground animate-pulse p-4">Loading...</div>
+      ) : !rules?.length ? (
+        <div className="text-center p-6 bg-card border rounded-lg text-muted-foreground text-sm">
+          No rules yet. Accepted estimates are recorded but nothing is scheduled — add a rule to change that.
+        </div>
+      ) : (
+        rules.map(r => <SchedulingRuleRow key={r.id} rule={r} services={services ?? []} users={users ?? []} />)
+      )}
+    </div>
+  );
+}
+
+type NamedRow = { id: number; name: string };
+
+function SchedulingRuleRow({ rule, services, users }: { rule: SchedulingRule; services: NamedRow[]; users: NamedRow[] }) {
+  const updateRule = useUpdateSchedulingRule();
+  const deleteRule = useDeleteSchedulingRule();
+  const queryClient = useQueryClient();
+  const refresh = () => queryClient.invalidateQueries({ queryKey: getListSchedulingRulesQueryKey() });
+
+  // Text and number fields save on blur so a rule is not rewritten on every
+  // keystroke; the selects and the toggle save the moment they change.
+  const [offsetDays, setOffsetDays] = useState(String(rule.offsetDays));
+  const [windowStart, setWindowStart] = useState(rule.windowStartMonthDay ?? '');
+  const [windowEnd, setWindowEnd] = useState(rule.windowEndMonthDay ?? '');
+  const [jobNote, setJobNote] = useState(rule.jobNote ?? '');
+
+  const save = (data: SchedulingRuleUpdate) =>
+    updateRule.mutate({ id: rule.id, data }, {
+      onSuccess: refresh,
+      onError: (e: any) => alert(e?.message ?? 'Could not save the rule'),
+    });
+
+  const meta = SCHEDULING_ACTION_META[rule.action] ?? SCHEDULING_ACTION_META.dispatch;
+  const Icon = meta.icon;
+  const usesOffset = rule.action === 'dispatch' || rule.action === 'route_fit';
+  const usesWindow = rule.action === 'waiting_list';
+
+  return (
+    <div className={`p-3 bg-card border rounded-lg space-y-2 ${rule.enabled ? '' : 'opacity-60'}`}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Icon className="w-5 h-5 text-primary shrink-0" />
+
+        <select
+          className="h-9 rounded-md border border-input bg-background px-2 text-sm min-w-[11rem]"
+          value={rule.serviceId ?? ''}
+          onChange={e => save({ serviceId: e.target.value ? Number(e.target.value) : null })}
+        >
+          <option value="">Any other service</option>
+          {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+
+        <span className="text-sm text-muted-foreground">→</span>
+
+        <select
+          className="h-9 rounded-md border border-input bg-background px-2 text-sm min-w-[12rem]"
+          value={rule.action}
+          onChange={e => save({ action: e.target.value as SchedulingRuleAction })}
+        >
+          {Object.entries(SCHEDULING_ACTION_META).map(([value, m]) => (
+            <option key={value} value={value}>{m.label}</option>
+          ))}
+        </select>
+
+        {usesOffset && (
+          <label className="flex items-center gap-1 text-sm">
+            <Input
+              type="number"
+              min="0"
+              value={offsetDays}
+              onChange={e => setOffsetDays(e.target.value)}
+              onBlur={() => {
+                const days = parseInt(offsetDays);
+                if (!Number.isNaN(days) && days >= 0 && days !== rule.offsetDays) save({ offsetDays: days });
+                else setOffsetDays(String(rule.offsetDays));
+              }}
+              className="w-20 h-9"
+            />
+            <span className="text-muted-foreground">day(s) later</span>
+          </label>
+        )}
+
+        {usesWindow && (
+          <label className="flex items-center gap-1 text-sm">
+            <Input
+              value={windowStart}
+              onChange={e => setWindowStart(e.target.value)}
+              onBlur={() => { if ((rule.windowStartMonthDay ?? '') !== windowStart) save({ windowStartMonthDay: windowStart || null }); }}
+              placeholder="03-01"
+              className="w-24 h-9"
+            />
+            <span className="text-muted-foreground">to</span>
+            <Input
+              value={windowEnd}
+              onChange={e => setWindowEnd(e.target.value)}
+              onBlur={() => { if ((rule.windowEndMonthDay ?? '') !== windowEnd) save({ windowEndMonthDay: windowEnd || null }); }}
+              placeholder="05-31"
+              className="w-24 h-9"
+            />
+          </label>
+        )}
+
+        {rule.action !== 'none' && (
+          <select
+            className="h-9 rounded-md border border-input bg-background px-2 text-sm min-w-[10rem]"
+            value={rule.assignedToId ?? ''}
+            onChange={e => save({ assignedToId: e.target.value ? Number(e.target.value) : null })}
+          >
+            <option value="">{rule.action === 'route_fit' ? 'Sub on that route' : 'No sub yet'}</option>
+            {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </select>
+        )}
+
+        <div className="ml-auto flex items-center gap-1">
+          <Button size="sm" variant="outline" onClick={() => save({ enabled: !rule.enabled })} disabled={updateRule.isPending}>
+            {rule.enabled ? 'Disable' : 'Enable'}
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="text-muted-foreground hover:text-destructive"
+            onClick={() => { if (confirm('Delete this rule? Accepted estimates will stop scheduling this service automatically.')) deleteRule.mutate({ id: rule.id }, { onSuccess: refresh }); }}
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        {meta.explain(rule.offsetDays)}
+        {usesWindow && ' Dates are month-day, so the same rule keeps working next season.'}
+      </p>
+
+      {rule.action !== 'none' && (
+        <Input
+          value={jobNote}
+          onChange={e => setJobNote(e.target.value)}
+          onBlur={() => { if ((rule.jobNote ?? '') !== jobNote) save({ jobNote: jobNote || null }); }}
+          placeholder="Note to show on the job (optional)"
+          className="h-9 text-sm"
+        />
+      )}
+    </div>
+  );
+}
+
+function NewSchedulingRuleDialog({ services, users }: { services: NamedRow[]; users: NamedRow[] }) {
+  const [open, setOpen] = useState(false);
+  const [serviceId, setServiceId] = useState('');
+  const [action, setAction] = useState<SchedulingRuleAction>('dispatch');
+  const [offsetDays, setOffsetDays] = useState('1');
+  const [windowStart, setWindowStart] = useState('03-01');
+  const [windowEnd, setWindowEnd] = useState('05-31');
+  const [assignedToId, setAssignedToId] = useState('');
+  const [jobNote, setJobNote] = useState('');
+  const createRule = useCreateSchedulingRule();
+  const queryClient = useQueryClient();
+
+  const usesOffset = action === 'dispatch' || action === 'route_fit';
+  const usesWindow = action === 'waiting_list';
+
+  const handleSave = () => {
+    createRule.mutate({
+      data: {
+        serviceId: serviceId ? Number(serviceId) : null,
+        action,
+        offsetDays: usesOffset ? (parseInt(offsetDays) || 0) : 1,
+        windowStartMonthDay: usesWindow ? (windowStart || null) : null,
+        windowEndMonthDay: usesWindow ? (windowEnd || null) : null,
+        assignedToId: assignedToId ? Number(assignedToId) : null,
+        jobNote: jobNote || null,
+      },
+    }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getListSchedulingRulesQueryKey() });
+        setOpen(false);
+        setServiceId('');
+        setJobNote('');
+      },
+      onError: (e: any) => alert(e?.message ?? 'Could not add the rule'),
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" className="shrink-0"><Plus className="w-4 h-4 mr-2" /> New Scheduling Rule</Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader><DialogTitle>When an estimate is accepted</DialogTitle></DialogHeader>
+        <div className="space-y-4 py-4">
+          <div>
+            <label className="text-sm font-medium mb-1 block">For this service</label>
+            <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={serviceId} onChange={e => setServiceId(e.target.value)}>
+              <option value="">Any other service (fallback)</option>
+              {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            <p className="text-xs text-muted-foreground mt-1">
+              A rule naming a service always beats the fallback, so the fallback catches everything you have not written a rule for.
+            </p>
+          </div>
+          <div>
+            <label className="text-sm font-medium mb-1 block">Do this</label>
+            <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={action} onChange={e => setAction(e.target.value as SchedulingRuleAction)}>
+              {Object.entries(SCHEDULING_ACTION_META).map(([value, m]) => (
+                <option key={value} value={value}>{m.label}</option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground mt-1">{SCHEDULING_ACTION_META[action].explain(parseInt(offsetDays) || 0)}</p>
+          </div>
+          {usesOffset && (
+            <div>
+              <label className="text-sm font-medium mb-1 block">Days after the customer accepts</label>
+              <Input type="number" min="0" value={offsetDays} onChange={e => setOffsetDays(e.target.value)} className="w-28" />
+            </div>
+          )}
+          {usesWindow && (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium mb-1 block">Season starts (MM-DD)</label>
+                <Input value={windowStart} onChange={e => setWindowStart(e.target.value)} placeholder="03-01" />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Season ends (MM-DD)</label>
+                <Input value={windowEnd} onChange={e => setWindowEnd(e.target.value)} placeholder="05-31" />
+              </div>
+            </div>
+          )}
+          {action !== 'none' && (
+            <>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Give it to</label>
+                <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={assignedToId} onChange={e => setAssignedToId(e.target.value)}>
+                  <option value="">{action === 'route_fit' ? 'Whoever has that route' : 'Nobody yet — I will assign it'}</option>
+                  {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Note on the job (optional)</label>
+                <Input value={jobNote} onChange={e => setJobNote(e.target.value)} placeholder="From an accepted estimate" />
+              </div>
+            </>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button onClick={handleSave} disabled={createRule.isPending}>Save Rule</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

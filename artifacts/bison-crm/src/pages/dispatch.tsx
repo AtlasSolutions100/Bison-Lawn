@@ -57,6 +57,7 @@ export default function Dispatch() {
               <option value="on_the_way">On the Way</option>
               <option value="in_progress">In Progress</option>
               <option value="completed">Completed</option>
+              <option value="skipped">Skipped</option>
             </select>
 
             <Input type="text" placeholder="Filter city..." value={city} onChange={e => setCity(e.target.value)} className="w-40" />
@@ -120,6 +121,8 @@ function DispatchRow({ job, contractors }: { job: Job, contractors: any[] }) {
     on_the_way: "bg-accent/20 text-accent-foreground border-accent",
     in_progress: "bg-blue-100 text-blue-700 border-blue-200",
     completed: "bg-primary/20 text-primary border-primary",
+    // Deliberately not the "completed" color: a skip is a miss, not a success.
+    skipped: "bg-orange-100 text-orange-700 border-orange-200",
   };
 
   const hasCoordinates = job.clientLat != null && job.clientLng != null;
@@ -131,7 +134,10 @@ function DispatchRow({ job, contractors }: { job: Job, contractors: any[] }) {
       : '';
 
   return (
-    <TableRow className={`group hover:bg-muted/30 ${job.status === 'completed' ? 'opacity-60 bg-muted/10' : ''}`}>
+    <TableRow className={`group hover:bg-muted/30 ${
+      job.status === 'completed' ? 'opacity-60 bg-muted/10' :
+      job.status === 'skipped' ? 'bg-orange-50/50' : ''
+    }`}>
       <TableCell className="sticky left-0 z-[5] w-64 min-w-64 bg-card p-2 group-hover:bg-muted">
         <div className="font-semibold text-foreground">{job.clientName}</div>
         <div className="text-xs text-muted-foreground truncate max-w-[240px]" title={job.clientAddress ?? undefined}>
@@ -156,8 +162,14 @@ function DispatchRow({ job, contractors }: { job: Job, contractors: any[] }) {
           <option value="scheduled">SCHEDULED</option>
           <option value="on_the_way">ON THE WAY</option>
           <option value="in_progress">IN PROGRESS</option>
+          <option value="skipped">SKIPPED</option>
           {job.status === 'completed' && <option value="completed">COMPLETED</option>}
         </select>
+        {job.status === 'skipped' && job.skipReason && (
+          <div className="mt-1 max-w-32 truncate text-[10px] font-medium text-orange-700" title={job.skipReason}>
+            {job.skipReason}
+          </div>
+        )}
       </TableCell>
       <TableCell className="p-2 whitespace-nowrap text-sm">
         {job.scheduledDate
@@ -228,9 +240,9 @@ function DispatchRow({ job, contractors }: { job: Job, contractors: any[] }) {
             <Button variant="ghost" size="icon" className="h-8 w-8"><MoreVertical className="w-4 h-4" /></Button>
           </PopoverTrigger>
           <PopoverContent className="w-48 p-1" align="end">
-            {job.status !== 'completed' && (
-              <Button 
-                variant="ghost" 
+            {job.status !== 'completed' && job.status !== 'skipped' && (
+              <Button
+                variant="ghost"
                 className="w-full justify-start text-primary hover:text-primary hover:bg-primary/10"
                 onClick={() => {
                   completeJob.mutate({ id: job.id }, { onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/jobs'] }) })

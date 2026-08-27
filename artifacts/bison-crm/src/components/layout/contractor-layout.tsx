@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'wouter';
 import { useClerk } from '@clerk/react';
 import { Map, ListTodo, LogOut } from 'lucide-react';
+import { FeedbackButton } from '@/components/feedback-button';
 
 export function ContractorLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
@@ -51,6 +52,8 @@ export function ContractorLayout({ children }: { children: React.ReactNode }) {
           );
         })}
       </nav>
+
+      <FeedbackButton />
     </div>
   );
 }

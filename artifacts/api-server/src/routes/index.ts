@@ -13,6 +13,7 @@ import dashboardRouter from "./dashboard";
 import vendorRunsRouter from "./vendor-runs";
 import lettersRouter from "./letters";
 import webRequestsRouter from "./web-requests";
+import feedbackRouter from "./feedback";
 
 const router: IRouter = Router();
 
@@ -30,5 +31,6 @@ router.use(dashboardRouter);
 router.use(vendorRunsRouter);
 router.use(lettersRouter);
 router.use(webRequestsRouter);
+router.use(feedbackRouter);
 
 export default router;

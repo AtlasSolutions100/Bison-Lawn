@@ -314,3 +314,53 @@ from its old pin to 8.26.0, which now emits `Object.fromEntries(h.entries())`.
 `lib/api-client-react/tsconfig.json` did not include — 47 type errors in
 generated code. Fixed by adding `dom.iterable` to that lib list. Worth knowing
 that regenerating the lockfile can change generated code, not just dependencies.
+
+## 2026-08-27 — feature batch: five features, plus favicon and feedback
+
+Phase 2 ran five agents in parallel on strictly disjoint file sets, per
+`.agents/memory/parallel-file-ownership.md`. **Zero merge conflicts** — the
+failure that note was written about did not recur.
+
+Shipped: skip-job status, contractor invitations, property-detail service
+pricing, horizontal estimate matrix, estimate-acceptance auto-scheduler,
+in-app feedback, and a real favicon.
+
+**Two integration defects found and fixed in Phase 3 — neither visible to any
+single agent, which is the point of the phase:**
+
+1. **Double-seeded scheduling rules.** `lib/schedulingRules.ts` seeds defaults
+   lazily, guarded by a marker row in `audit_events`. `seed-demo.ts --reset`
+   deletes `audit_events` — clearing that very guard — and separately wrote its
+   own copy of the same defaults. A fresh seed would have produced two rules per
+   service. Fixed by deleting the duplicate list and having the seed call
+   `ensureDefaultSchedulingRules()`, so the owning module is the only source.
+   Verified: 6 rules after a reset, one per service plus the catch-all.
+
+2. **Vendor work was being dispatched to our own crew.** The scheduler matched
+   an accepted line to a rule by service, and any service without its own rule
+   fell through to the catch-all `dispatch +1`. "Fertilizer Application" is
+   performed by Acme Spray, so accepting it created a phantom job on the crew's
+   board for work an outside company does — and a second source of truth for
+   whether it happened, when Spray Runs already reconciles it from the vendor
+   invoice. Fixed in the engine rather than as a default rule, because it is an
+   invariant of vendor work: it must hold for a vendor service added next year
+   that no default matches, and it must beat the catch-all.
+   Verified end to end: a 4-line estimate (blow-out, mowing, clean-up,
+   fertilizer) produced exactly 3 jobs — blow-out dispatched 2026-08-28, mowing
+   route-fitted to 2026-08-28, clean-up held 09-01..11-30, fertilizer skipped.
+
+**Feedback notification.** `FEEDBACK_NOTIFY_EMAIL` (deliberately separate from
+`APP_OWNER_EMAIL`, which governs who may administer the app — overloading one to
+mean the other makes changing either silently change both). Fire-and-forget and
+non-throwing: measured that a 500 from the mail provider neither propagates out
+of `notifyFeedback` nor loses the stored feedback row.
+
+**Favicon.** The nav logo is unusable at 16px (wordmark ~1.3px tall, dashed ring
+aliases to noise). Rebuilt from the path's measured bounding box — 190x120.9
+centred at (200, 194.6); an eyeballed centre was off by 22px and clipped —
+and inverted to cream-on-green, which is the variant that stays legible against
+Chrome's tab-strip grey.
+
+**Process note:** holding codegen while agents ran left the tree uncompilable and
+cost two agents real time chasing a phantom `feedbackTable` error. Regeneration
+is additive; it should have been immediate.

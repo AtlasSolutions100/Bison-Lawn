@@ -23,6 +23,7 @@ import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
 import { calculatePrice, logAudit } from "../lib/helpers";
 import { createEstimateEmailHtml, createEstimatePdf } from "../lib/estimateDocument";
 import { sendEstimateViaGmail } from "../lib/estimateDelivery";
+import { scheduleAcceptedEstimate } from "../lib/schedulingRules";
 import {
   claimEstimateDelivery,
   finalizeEstimateDelivery,
@@ -196,6 +197,41 @@ router.post("/public/estimates/:token/respond", async (req, res) => {
     action: `estimate_${status}`,
     description: `${status === "accepted" ? "Accepted" : "Declined"} estimate #${estimate.id}`,
   });
+  // Auto-scheduling lives behind the conditional update above: only the single
+  // request that actually flipped "sent" → "accepted" gets here, so a prefetched
+  // link, a double-click or a retried POST cannot create the jobs twice.
+  //
+  // It must also never break the acceptance. The customer's approval is already
+  // committed and the page they see is about that approval — a scheduling rule
+  // that fails is an office problem, so it is logged and the customer is
+  // thanked either way.
+  if (status === "accepted") {
+    try {
+      const scheduled = await scheduleAcceptedEstimate(updated, { clientName: data.client.name });
+      if (scheduled.length) {
+        req.log.info(
+          { estimateId: updated.id, jobIds: scheduled.map((s) => s.jobId) },
+          "scheduled jobs from accepted estimate",
+        );
+      }
+    } catch (schedulingError) {
+      req.log.error(
+        { err: schedulingError, estimateId: updated.id },
+        "estimate accepted but automatic scheduling failed; the office must schedule this by hand",
+      );
+      try {
+        await logAudit({
+          clientId: estimate.clientId,
+          action: "estimate_scheduling_failed",
+          description:
+            `Estimate #${estimate.id} was accepted, but nothing could be scheduled automatically: ` +
+            `${schedulingError instanceof Error ? schedulingError.message : String(schedulingError)}`.slice(0, 500),
+        });
+      } catch (auditError) {
+        req.log.error({ err: auditError, estimateId: updated.id }, "scheduling failure audit write failed");
+      }
+    }
+  }
   return res.send(
     responsePage(
       `Estimate ${status}`,

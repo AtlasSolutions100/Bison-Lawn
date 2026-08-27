@@ -30,8 +30,11 @@ import {
   webRequestsTable,
   letterTemplatesTable,
   auditEventsTable,
+  schedulingRulesTable,
+  feedbackTable,
 } from "@workspace/db";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import { ensureDefaultSchedulingRules } from "./lib/schedulingRules";
 
 const RESET = process.argv.includes("--reset");
 
@@ -47,6 +50,8 @@ function near(i: number) {
 async function main() {
   if (RESET) {
     // Children before parents.
+    await db.delete(feedbackTable);
+    await db.delete(schedulingRulesTable);
     await db.delete(paymentsTable);
     await db.delete(invoicesTable);
     await db.delete(jobsTable);
@@ -171,15 +176,44 @@ async function main() {
   ]);
 
   // ---------- estimate fields ----------
-  await db.insert(estimateFieldsTable).values([
-    { label: "Turf Sqft", fieldType: "calculable", pricePerUnit: 2, unitSize: 100, sortOrder: 1 },
-    { label: "Sprinkler Zones", fieldType: "calculable", pricePerUnit: 12, unitSize: 1, sortOrder: 2 },
-    { label: "Bed Sqft", fieldType: "calculable", pricePerUnit: 3, unitSize: 100, sortOrder: 3 },
-    { label: "Driveway Sqft", fieldType: "calculable", pricePerUnit: 2, unitSize: 100, sortOrder: 4 },
-    { label: "Gate Code", fieldType: "text", sortOrder: 5 },
-    { label: "Dog", fieldType: "boolean", sortOrder: 6 },
-    { label: "Backflow Devices", fieldType: "number", sortOrder: 7 },
-  ]);
+  const fields = await db
+    .insert(estimateFieldsTable)
+    .values([
+      { label: "Turf Sqft", fieldType: "calculable", pricePerUnit: 2, unitSize: 100, sortOrder: 1 },
+      { label: "Sprinkler Zones", fieldType: "calculable", pricePerUnit: 12, unitSize: 1, sortOrder: 2 },
+      { label: "Bed Sqft", fieldType: "calculable", pricePerUnit: 3, unitSize: 100, sortOrder: 3 },
+      { label: "Driveway Sqft", fieldType: "calculable", pricePerUnit: 2, unitSize: 100, sortOrder: 4 },
+      { label: "Gate Code", fieldType: "text", sortOrder: 5 },
+      { label: "Dog", fieldType: "boolean", sortOrder: 6 },
+      { label: "Backflow Devices", fieldType: "number", sortOrder: 7 },
+    ])
+    .returning();
+
+  const zonesFieldId = fields.find((f) => f.label === "Sprinkler Zones")!.id;
+
+  // The sprinkler services are the reason property-detail pricing exists: a
+  // blow-out is priced per zone, not per square foot. Priced here as a base for
+  // the first 4 zones plus a per-zone increment beyond that, which is what the
+  // *Sqft-named equation keys mean once pricingFieldId points at a zone count.
+  await db
+    .update(servicesTable)
+    .set({
+      pricingFieldId: zonesFieldId,
+      pricingEquations: [
+        { upToSqft: null, basePrice: 85, baseSqft: 4, incrementPrice: 10, incrementSqft: 1 },
+      ],
+    })
+    .where(eq(servicesTable.id, svc["Spring Sprinkler Turn-On"]));
+
+  await db
+    .update(servicesTable)
+    .set({
+      pricingFieldId: zonesFieldId,
+      pricingEquations: [
+        { upToSqft: null, basePrice: 95, baseSqft: 4, incrementPrice: 10, incrementSqft: 1 },
+      ],
+    })
+    .where(eq(servicesTable.id, svc["Sprinkler Blow-Out"]));
 
   // ---------- clients: 4 clients + 5 leads ----------
   // Annotated rather than inferred: without this, TS unions the propertyData
@@ -446,6 +480,38 @@ async function main() {
         "Please contact us if you have any questions. We look forward to serving " +
         "you this season.\n\n" +
         "Bison Lawn Care LLC",
+    },
+  ]);
+
+  // ---------- scheduling rules ----------
+  // Deliberately NOT written here. lib/schedulingRules.ts owns the defaults:
+  // it matches them against whatever services actually exist by name, and it
+  // guards itself with a marker audit row so an office that deletes a default
+  // does not find it back. Duplicating that list here would double-seed —
+  // the --reset above clears audit_events, which clears that very guard.
+  await ensureDefaultSchedulingRules();
+
+  // ---------- a little feedback, so the screen is not empty at the demo ----------
+  await db.insert(feedbackTable).values([
+    {
+      userName: "Adam Johnson",
+      userEmail: "bisonlawncarellc@gmail.com",
+      userRole: "admin",
+      page: "/dispatch",
+      category: "idea",
+      message:
+        "Would be good to see the route order and the dollar total for each sub right on this screen, so I can tell at a glance whether someone is loaded too heavy.",
+      status: "new",
+    },
+    {
+      userName: "Dale (sub)",
+      userEmail: null,
+      userRole: "contractor",
+      page: "/my/jobs",
+      category: "problem",
+      message:
+        "Gate code did not show up on the job card this morning, had to call the office. It is on the client page though.",
+      status: "new",
     },
   ]);
 

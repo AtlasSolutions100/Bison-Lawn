@@ -15,10 +15,10 @@ import {
   Menu,
   SprayCan,
   Mail,
-  Globe
-} from 'lucide-react';
+  Globe, MessageSquarePlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
+import { FeedbackButton } from '@/components/feedback-button';
 
 const ADMIN_NAV = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -34,6 +34,7 @@ const ADMIN_NAV = [
   { name: 'Web Requests', href: '/web-requests', icon: Globe },
   { name: 'Automation', href: '/automation', icon: CloudSun },
   { name: 'Team', href: '/team', icon: UserCog },
+  { name: 'Feedback', href: '/feedback', icon: MessageSquarePlus },
 ];
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -106,6 +107,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+
+      <FeedbackButton />
     </div>
   );
 }
