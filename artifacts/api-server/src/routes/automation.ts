@@ -31,6 +31,7 @@ import {
 } from "../lib/customerMessageDelivery";
 import { defaultGmailProxy, type GmailProxy } from "../lib/gmail";
 import { expireAbandonedMessageClaims } from "../lib/abandonedMessageClaims";
+import { getCompanyProfile } from "../lib/companyProfile";
 
 const router: IRouter = Router();
 
@@ -501,11 +502,14 @@ async function deliverCustomerMessage(
   req: Request,
 ): Promise<SuggestionRow> {
   try {
+    // Skip/reschedule notices are as much a letter from the business as an
+    // estimate is, so they carry the same identity rather than a hardcoded name.
+    const company = await getCompanyProfile();
     const sent = await sendCustomerMessageViaGmail(
       {
         toEmail,
-        subject: customerMessageSubject(suggestion.actionType, suggestion.targetDate),
-        html: createCustomerMessageEmailHtml(suggestion.customerMessage!, clientName),
+        subject: customerMessageSubject(suggestion.actionType, suggestion.targetDate, company),
+        html: createCustomerMessageEmailHtml(suggestion.customerMessage!, clientName, company),
       },
       customerMessageGmailProxy,
     );

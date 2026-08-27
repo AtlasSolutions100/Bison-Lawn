@@ -968,7 +968,11 @@ router.post("/estimates/:id/send", async (req, res) => {
     const declineUrl = `${origin}${publicPath}?action=decline`;
     const pdf = await createEstimatePdf(data);
     const html = createEstimateEmailHtml(data, body.message, acceptUrl, declineUrl);
-    const subject = `Estimate #${data.estimate.id} from Bison Lawn Care LLC`;
+    // Read the profile directly rather than off the document data: the branding
+    // the PDF builder caches onto that object is not part of its declared type,
+    // and reaching through it would couple this to that implementation detail.
+    const company = await getCompanyProfile();
+    const subject = `Estimate #${data.estimate.id} from ${company.name}`;
 
     const sentMessage = await sendEstimateViaGmail({
       toEmail: body.toEmail,

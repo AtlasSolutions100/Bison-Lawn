@@ -5,15 +5,23 @@ import {
   letterSendsTable,
   letterTemplatesTable,
   servicesTable,
+  type Client,
+  type CompanyProfile,
 } from "@workspace/db";
 import { asc, eq, inArray } from "drizzle-orm";
 import { roundMoney } from "./helpers";
 import { sendClientEmailViaGmail } from "./clientEmail";
+import { getCompanyProfile } from "./companyProfile";
+import { companyAddressLines, companyContactLine } from "./estimateDocument";
+import { firstNameOf } from "./mergeTokens";
 
 export const DEFAULT_LETTER_TEMPLATE = {
   name: "Spring renewal letter",
-  subject: "Your lawn care services for the coming season",
-  body: `Hello {{clientName}},
+  subject: "Your lawn care services for the coming season | {{companyName}}",
+  // Just the body he would type. The address block, sign-off and footer are
+  // furniture that every one of his letters carries, so they are added at
+  // render time and are not his to retype or accidentally delete.
+  body: `Dear {{clientFirstName}},
 
 Thank you for trusting us with your lawn care. Your services and pricing for the coming season are:
 
@@ -65,8 +73,43 @@ function replaceToken(value: string, token: string, replacement: string) {
   return value.split(`{{${token}}}`).join(replacement);
 }
 
+/** The customer's address block, the way every one of his letters opens. */
+function addressBlock(client: Client) {
+  const cityLine = [[client.city, client.state].filter(Boolean).join(", "), client.postalCode]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  return [client.name, client.serviceAddress, client.addressLine2, cityLine]
+    .map((line) => (line ?? "").trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** His sign-off and the company block that follows it. */
+function signOffBlock(company: CompanyProfile) {
+  const block = [company.name, ...companyAddressLines(company), company.phone, company.email]
+    .map((line) => (line ?? "").trim())
+    .filter(Boolean);
+  return [company.signatureLine.trim(), "", ...block].join("\n");
+}
+
+/** The closing footer. Plain text, so it cannot be centred the way the PDF is. */
+function footerBlock(company: CompanyProfile) {
+  const address = companyAddressLines(company);
+  const contact = companyContactLine(company);
+  return [
+    "Thank you for your business!",
+    ...(address.length ? ["", ...address] : []),
+    ...(contact ? ["", contact] : []),
+  ].join("\n");
+}
+
 export async function renderSpringLetter(clientId: number) {
-  const [template, details] = await Promise.all([getOrCreateLetterTemplate(), getLetterClient(clientId)]);
+  const [template, details, company] = await Promise.all([
+    getOrCreateLetterTemplate(),
+    getLetterClient(clientId),
+    getCompanyProfile(),
+  ]);
   if (!details) return null;
 
   const servicesTable = details.services.length
@@ -75,8 +118,14 @@ export async function renderSpringLetter(clientId: number) {
   const total = currency(roundMoney(details.services.reduce((sum, service) => sum + service.amount, 0)));
   const tokens = {
     clientName: details.client.name,
+    clientFirstName: firstNameOf(details.client.name),
     servicesTable,
     total,
+    companyName: company.name,
+    companyPhone: company.phone ?? "",
+    companyEmail: company.email ?? "",
+    companyWebsite: company.website ?? "",
+    signatureLine: company.signatureLine,
   };
   let subject = template.subject;
   let body = template.body;
@@ -84,6 +133,10 @@ export async function renderSpringLetter(clientId: number) {
     subject = replaceToken(subject, token, replacement);
     body = replaceToken(body, token, replacement);
   }
+
+  body = [addressBlock(details.client), body.trim(), signOffBlock(company), footerBlock(company)]
+    .filter(Boolean)
+    .join("\n\n");
 
   return {
     clientId: details.client.id,

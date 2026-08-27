@@ -503,9 +503,11 @@ async function main() {
         "for the coming season are:\n\n" +
         "{{servicesTable}}\n\n" +
         "Total: {{total}}\n\n" +
+        // No company name here: the letter renderer now appends the sign-off,
+        // company block and footer from the company profile, so a name typed
+        // into the body would print twice.
         "Please contact us if you have any questions. We look forward to serving " +
-        "you this season.\n\n" +
-        "Bison Lawn Care LLC",
+        "you this season.",
     },
   ]);
 

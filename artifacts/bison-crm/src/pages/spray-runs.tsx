@@ -256,7 +256,9 @@ export default function SprayRuns() {
               onChange={(event) => setInvoiceText(event.target.value)}
             />
             <div className="flex flex-wrap items-center gap-2">
-              <Button onClick={runMatch} disabled={!invoiceText.trim() || runs.isLoading}>
+              {/* Without addresses loaded, matching would quietly fall back to
+                  names only — the ambiguous case this exists to avoid. */}
+              <Button onClick={runMatch} disabled={!invoiceText.trim() || runs.isLoading || !clients}>
                 <ScanSearch className="mr-2 h-4 w-4" /> Match to customers
               </Button>
               {matchResult && (
@@ -275,8 +277,9 @@ export default function SprayRuns() {
               <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
                 <p className="font-semibold">Already invoiced — do not bill again</p>
                 <p className="mt-1">
-                  {alreadyBilled.map((row) => row.clientName).join(', ')} {alreadyBilled.length === 1 ? 'is' : 'are'} on
-                  this invoice but already has an invoice for this run. They cannot be ticked.
+                  {alreadyBilled.map((row) => row.clientName).join(', ')}{' '}
+                  {alreadyBilled.length === 1 ? 'is on this invoice but already has' : 'are on this invoice but already have'} an
+                  invoice for this run, so they cannot be ticked. Sending another one is the duplicate invoice to avoid.
                 </p>
               </div>
             )}

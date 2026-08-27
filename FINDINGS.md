@@ -532,3 +532,58 @@ their board unannounced.
 Measured: unassigned job sends nothing; an assigned sub with an email gets
 exactly one; a phone-only sub with no address on file sends nothing and does not
 error (the normal case, not a fault); a 500 from the provider is contained.
+
+## 2026-08-27 — four features in parallel: branding, settings, bulk repricing, spray matching
+
+Second parallel round on disjoint file sets. Zero merge conflicts again.
+
+**Estimate documents now carry his real identity.** The PDF is a letterhead —
+his wordmark, the company block from `company_profile`, brand green #215343
+sampled from his artwork — with the sign-off, company block, bison emblem and
+"Thank you for your business!" footer reproducing his own letter structure, and
+his contract + payment disclosure on its own page with tokens merged. The logo
+path is resolved at runtime by walking up to the first ancestor holding
+`artifacts/bison-crm/public/`, which works from `src/lib` in dev and from
+`dist/` in the image; not-found returns null and the draw is wrapped, so the
+worst case is the old text header rather than a throw mid-document. Email logos
+are decoration only — name, address and contact line are all present as text, so
+it reads correctly with images blocked.
+
+Verified by generating one and reading it: 74,210 bytes, %PDF-1.3, 3 pages, 4
+image XObjects (both logos with their SMasks), and all three pages inspected in
+a browser.
+
+**Settings** gives him the company profile and a template editor with preview
+against a real customer. The merge-token list is served by the API, never
+duplicated in the page — a local copy drifts and starts telling him a token is
+fine when the customer reads it literally. Unknown tokens are flagged in three
+places: a badge on the list, a live warning in the editor, and above the
+preview.
+
+**Bulk seasonal repricing** closes step 1 of the seven-step winter job he
+described. Percent or fixed, optional rounding, optional scope. Preview writes
+nothing — confirmed by re-reading `rate` and `pricingEquations` byte-for-byte
+after a preview call. Apply moves the equation money as well as `rate`, because
+an equation-priced service ignores `rate` entirely and adjusting only that would
+silently do nothing for exactly the services that matter most.
+
+**Spray invoice matching** addresses his double-billing complaint directly. It
+matches on address first and name second — a property manager has one billing
+name across many addresses, so name alone is ambiguous precisely where a mistake
+is most expensive. Only high-confidence matches are pre-ticked; nothing is ever
+completed automatically, because a wrong tick bills someone for work nobody did.
+It also flags when the vendor charges one customer twice, and when a matched
+customer is already invoiced.
+
+Its stated limits are worth keeping visible: a full name with no address is only
+"probable" and never pre-ticked; a typo'd house number surfaces as both an
+unmatched customer and an unmatched line rather than being attached to a
+neighbour; non-customer prose without digits lands in the unmatched list.
+
+**Integration fixes only visible once the four met:** `automation.ts` and the
+estimate email subject still named the company literally, and the seeded spring
+letter ended with a company name that now printed twice under the rendered
+block.
+
+Gate: full typecheck (build info cleared), 94/94 tests, production build passes
+— which also confirms the spray matcher's cross-package import bundles.
