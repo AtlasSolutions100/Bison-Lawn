@@ -166,3 +166,35 @@ takeoff's git working tree. A `git pull`/`checkout` there reverts it, and
 bisonlawn breaks on the next Caddy reload. takeoff is unaffected. Avoiding this
 would need the Caddy container recreated to mount an importable `conf.d`, which
 is not acceptable while it serves 20 clients.
+
+## 2026-08-26 — takeoff side wired; two corrections taken
+
+The takeoff owner corrected two assumptions in the earlier runbook, both right:
+
+1. `~/takeoff` is **not** a git repo — the `git status Caddyfile` check would have
+   returned a false all-clear.
+2. Every takeoff deploy `scp`s `Caddyfile` from its own repo, so an appended
+   vhost was **guaranteed** to be overwritten, not merely at risk. The earlier
+   conclusion that "editing the file is the lower-risk option" was wrong.
+
+Their fix, now live on the box: `web-proxy` declared as an external network on
+the Caddy service in takeoff's compose, and `import /etc/caddy/conf.d/*.caddy`
+backed by `~/takeoff/caddy-sites` (mounted read-only into the container,
+excluded from the deploy). Both fragilities are gone — nothing survives only as
+an untracked manual change.
+
+Runbook rewritten to the drop-in model. No longer touches their Caddyfile.
+
+**Contributed back:** `deploy/CADDY-IMPORT-FINDINGS.md`. Both sides measured that
+an empty/absent `conf.d` is valid. Two cases only measured here:
+- an invalid file makes `caddy reload` fail atomically (old config keeps
+  serving — safe), but
+- it makes `caddy run` **refuse to start**, so a bad file left in place takes
+  takeoff down at the next unrelated restart, with no visible link to the change.
+
+Hence the mandatory `|| rm` after validate, and the suggestion that the takeoff
+deploy gate restarts on `caddy validate`.
+
+**Open:** hostname not settled — `bisonlawn` (told to this session) vs
+`bisonlawncare` (told to the takeoff session). Different DNS record, different
+cert. DNS target is 31.220.50.13.
