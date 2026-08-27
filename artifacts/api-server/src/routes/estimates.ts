@@ -2,12 +2,14 @@ import { Router, type IRouter } from "express";
 import {
   db,
   chargePresetsTable,
+  documentTemplatesTable,
   estimateFieldsTable,
   estimatesTable,
   clientsTable,
+  jobPhotosTable,
   servicesTable,
 } from "@workspace/db";
-import type { EstimateLine } from "@workspace/db";
+import type { CompanyProfile, EstimateLine, JobPhoto } from "@workspace/db";
 import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
 import {
@@ -22,7 +24,16 @@ import {
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
 import { calculatePrice, logAudit } from "../lib/helpers";
 import { createEstimateEmailHtml, createEstimatePdf } from "../lib/estimateDocument";
-import { sendEstimateViaGmail } from "../lib/estimateDelivery";
+import {
+  ATTACHMENT_BUDGET_BYTES,
+  describeBytes,
+  encodedAttachmentBytes,
+  renderDocumentPdf,
+  sendEstimateViaGmail,
+  type EmailAttachment,
+} from "../lib/estimateDelivery";
+import { readFile } from "../lib/fileStorage";
+import { renderTemplate } from "../lib/mergeTokens";
 import { scheduleAcceptedEstimate } from "../lib/schedulingRules";
 import { getCompanyProfile } from "../lib/companyProfile";
 import {
@@ -933,8 +944,188 @@ router.delete("/estimates/:id", async (req, res) => {
   return res.status(204).end();
 });
 
+/**
+ * The documents and photos one send should carry, beyond the estimate PDF.
+ *
+ * Read off the raw body rather than through SendEstimateBody, which does not
+ * know these fields yet and strips whatever it does not declare. Absent means
+ * the behaviour this route has always had — the estimate PDF alone — so an
+ * older client keeps working unchanged. A malformed list is refused instead of
+ * quietly dropped: a document the sender picked and the customer never received
+ * is precisely the failure this feature exists to prevent.
+ */
+type AttachmentSelection = { documentTemplateIds: number[]; photoIds: number[] };
+
+function parseIdList(raw: unknown, field: string): number[] {
+  if (raw == null) return [];
+  const reject = () =>
+    Object.assign(new Error(`${field} must be a list of ids`), { status: 400 });
+  if (!Array.isArray(raw)) throw reject();
+  for (const value of raw) {
+    if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) throw reject();
+  }
+  return [...new Set(raw as number[])];
+}
+
+function parseAttachmentSelection(rawBody: unknown): AttachmentSelection {
+  const body = (rawBody ?? {}) as Record<string, unknown>;
+  return {
+    documentTemplateIds: parseIdList(body.documentTemplateIds, "documentTemplateIds"),
+    photoIds: parseIdList(body.photoIds, "photoIds"),
+  };
+}
+
+const slugForFile = (name: string) =>
+  name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+
+/**
+ * A name that tells the customer which photo they are looking at. The caption is
+ * preferred because it is what the crew wrote about that shot; the kind and id
+ * behind it keep "Before" and "Before" from colliding in one email.
+ */
+function photoFileName(photo: JobPhoto): string {
+  // Only the subtype is needed, and image/jpeg is the one case where the
+  // subtype is not the extension anybody expects to see.
+  const extension = photo.contentType === "image/jpeg" ? "jpg" : photo.contentType.split("/")[1] ?? "jpg";
+  const caption = photo.caption ? slugForFile(photo.caption) : "";
+  return `${caption || photo.kind || "photo"}-${photo.id}.${extension}`;
+}
+
+/**
+ * The quoted work as a plain block, for the `[bison_full_service]` token his
+ * estimate documents end with. Same shape the Settings preview renders, so what
+ * he approved on that screen is what the customer receives.
+ */
+const quotedServicesBlock = (lines: EstimateLine[]) =>
+  lines
+    .filter((line) => line.calculatedPrice != null)
+    .map((line) => `${line.label} — ${asMoney(line.calculatedPrice ?? 0)}`)
+    .join("\n");
+
+/**
+ * Turn the sender's selection into files, or refuse the send outright.
+ *
+ * Everything here happens before the delivery is claimed. A photo missing from
+ * disk, a deleted template or a selection too large for Gmail is the sender's to
+ * fix, and failing at this point leaves the estimate exactly as it was rather
+ * than burning a delivery attempt and parking it in "failed".
+ *
+ * It is all or nothing by design: a before-and-after pair where only the "after"
+ * arrived tells the customer a story that is not true, so an unreadable
+ * attachment stops the send and says which one it was.
+ */
+async function collectEstimateAttachments(
+  data: NonNullable<Awaited<ReturnType<typeof loadEstimateDocument>>>,
+  selection: AttachmentSelection,
+  company: CompanyProfile,
+): Promise<EmailAttachment[]> {
+  const { estimate, client } = data;
+  if (!selection.documentTemplateIds.length && !selection.photoIds.length) return [];
+
+  const templates = selection.documentTemplateIds.length
+    ? await db
+        .select()
+        .from(documentTemplatesTable)
+        .where(inArray(documentTemplatesTable.id, selection.documentTemplateIds))
+    : [];
+  const missingTemplate = selection.documentTemplateIds.find((id) => !templates.some((t) => t.id === id));
+  if (missingTemplate != null) {
+    throw Object.assign(
+      new Error("A document you chose has been deleted. Reload the page and choose again."),
+      { status: 409 },
+    );
+  }
+
+  const photos = selection.photoIds.length
+    ? await db.select().from(jobPhotosTable).where(inArray(jobPhotosTable.id, selection.photoIds))
+    : [];
+  const missingPhoto = selection.photoIds.find((id) => !photos.some((p) => p.id === id));
+  if (missingPhoto != null) {
+    throw Object.assign(
+      new Error("A photo you chose has been deleted. Reload the page and choose again."),
+      { status: 409 },
+    );
+  }
+  // Photos are customer property records. Sending one belonging to a different
+  // customer would put somebody's house in a stranger's inbox, so the estimate's
+  // own client is the only source this route will attach from.
+  const foreign = photos.find((photo) => photo.clientId !== estimate.clientId);
+  if (foreign) {
+    throw Object.assign(
+      new Error(`Photo #${foreign.id} belongs to a different customer and cannot be sent with this estimate.`),
+      { status: 400 },
+    );
+  }
+
+  // Rendered with the customer's real values, exactly as the Settings preview
+  // renders them. A document that reaches a customer still reading
+  // "[clientfname]" is worse than one that was never sent.
+  const context = {
+    client,
+    company,
+    servicesBlock: quotedServicesBlock(estimate.lines as EstimateLine[]),
+    quoteTotal: estimate.total,
+  };
+  const documents: EmailAttachment[] = [];
+  for (const id of selection.documentTemplateIds) {
+    const template = templates.find((t) => t.id === id)!;
+    documents.push({
+      fileName: `${slugForFile(template.name) || `document-${template.id}`}.pdf`,
+      contentType: "application/pdf",
+      bytes: await renderDocumentPdf({
+        title: template.name,
+        body: renderTemplate(template.body, context),
+        company,
+      }),
+    });
+  }
+
+  // Weighed on the recorded sizes before a single photo is read, so an oversized
+  // selection costs one query rather than 25MB of disk reads and memory.
+  const total =
+    documents.reduce((sum, document) => sum + encodedAttachmentBytes(document.bytes.byteLength), 0) +
+    photos.reduce((sum, photo) => sum + encodedAttachmentBytes(photo.byteSize), 0);
+  if (total > ATTACHMENT_BUDGET_BYTES) {
+    throw Object.assign(
+      new Error(
+        `These attachments come to ${describeBytes(total)}, and one email can carry about ` +
+          `${describeBytes(ATTACHMENT_BUDGET_BYTES)} alongside the estimate. ` +
+          "Send the largest photos in a follow-up email, or choose fewer.",
+      ),
+      { status: 413 },
+    );
+  }
+
+  const attachments = [...documents];
+  for (const id of selection.photoIds) {
+    const photo = photos.find((p) => p.id === id)!;
+    let bytes: Buffer;
+    try {
+      bytes = await readFile(photo.storageKey);
+    } catch (error) {
+      throw Object.assign(
+        new Error(
+          `Photo #${photo.id} could not be read from storage, so nothing was sent. ` +
+            "Remove it from the selection or re-upload it, then try again.",
+        ),
+        { status: 502, cause: error },
+      );
+    }
+    attachments.push({ fileName: photoFileName(photo), contentType: photo.contentType, bytes });
+  }
+  return attachments;
+}
+
 router.post("/estimates/:id/send", async (req, res) => {
   const body = SendEstimateBody.parse(req.body);
+  let selection: AttachmentSelection;
+  try {
+    selection = parseAttachmentSelection(req.body);
+  } catch (error) {
+    const message = estimateBadRequestMessage(error);
+    if (message) return res.status(400).json({ error: message });
+    throw error;
+  }
   const data = await loadEstimateDocument(Number(req.params.id));
   if (!data) return res.status(404).json({ error: "Estimate not found" });
   if (data.estimate.status === "accepted" || data.estimate.status === "declined") {
@@ -946,6 +1137,22 @@ router.post("/estimates/:id/send", async (req, res) => {
     return res.status(409).json({
       error: "Gmail already accepted this email. Reconcile the delivery instead of sending another copy.",
     });
+  }
+
+  // Read the profile directly rather than off the document data: the branding
+  // the PDF builder caches onto that object is not part of its declared type,
+  // and reaching through it would couple this to that implementation detail.
+  const company = await getCompanyProfile();
+
+  // Gathered before the claim below, so a bad selection never touches delivery
+  // state. See collectEstimateAttachments for why it refuses rather than trims.
+  let attachments: EmailAttachment[];
+  try {
+    attachments = await collectEstimateAttachments(data, selection, company);
+  } catch (error) {
+    const status = (error as { status?: number }).status;
+    if (status && error instanceof Error) return res.status(status).json({ error: error.message });
+    throw error;
   }
 
   const token = randomBytes(32).toString("base64url");
@@ -968,10 +1175,6 @@ router.post("/estimates/:id/send", async (req, res) => {
     const declineUrl = `${origin}${publicPath}?action=decline`;
     const pdf = await createEstimatePdf(data);
     const html = createEstimateEmailHtml(data, body.message, acceptUrl, declineUrl);
-    // Read the profile directly rather than off the document data: the branding
-    // the PDF builder caches onto that object is not part of its declared type,
-    // and reaching through it would couple this to that implementation detail.
-    const company = await getCompanyProfile();
     const subject = `Estimate #${data.estimate.id} from ${company.name}`;
 
     const sentMessage = await sendEstimateViaGmail({
@@ -980,6 +1183,8 @@ router.post("/estimates/:id/send", async (req, res) => {
       html,
       pdf,
       estimateId: data.estimate.id,
+      company,
+      attachments,
     });
     providerAccepted = true;
     const accepted = await recordEstimateProviderAccepted(
@@ -1005,7 +1210,14 @@ router.post("/estimates/:id/send", async (req, res) => {
         clientId: est.clientId,
         actorName: req.appUser?.name,
         action: "estimate_sent",
-        description: `Emailed estimate #${est.id} to ${body.toEmail}`,
+        // The attachment count is part of the record: "which photos did we send
+        // them?" is asked months later, when the selection is long forgotten.
+        description:
+          `Emailed estimate #${est.id} to ${body.toEmail}` +
+          (attachments.length
+            ? ` with ${attachments.length} attachment${attachments.length === 1 ? "" : "s"} ` +
+              `(${attachments.map((a) => a.fileName).join(", ")})`
+            : ""),
       });
     } catch (auditError) {
       req.log.error({ err: auditError, estimateId: est.id }, "email sent but estimate audit write failed");

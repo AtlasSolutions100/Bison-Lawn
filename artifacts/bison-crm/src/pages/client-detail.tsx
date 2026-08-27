@@ -22,10 +22,12 @@ import {
   Client
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { 
-  ArrowLeft, MapPin, Phone, Mail, DollarSign, Calendar, FileText, 
-  Settings, Plus, MessageSquare, Clock, Trash2, Briefcase, ListTodo
+import {
+  ArrowLeft, MapPin, Phone, Mail, DollarSign, Calendar, FileText,
+  Settings, Plus, MessageSquare, Clock, Trash2, Briefcase, ListTodo,
+  Droplets, Route, Timer, X
 } from 'lucide-react';
+import { MapCodeBadge, WaterProviderLookupLink } from '@/components/map-code';
 import { Link, useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -83,6 +85,7 @@ export default function ClientDetail() {
                   <option value="client">ACTIVE</option>
                   <option value="former_client">FORMER</option>
                 </select>
+                {client.mapCode?.trim() && <MapCodeBadge code={client.mapCode} />}
               </div>
               <div className="flex items-center gap-4 text-sm text-muted-foreground pt-1">
                 {client.phone && <span className="flex items-center gap-1"><Phone className="w-4 h-4"/> {client.phone}</span>}
@@ -142,6 +145,7 @@ export default function ClientDetail() {
           </div>
 
           <div className="space-y-8">
+            <ClientRouting client={client} />
             <ClientProperties client={client} />
             <ClientNotes clientId={id} />
           </div>
@@ -316,17 +320,139 @@ function AddTicketDialog({ client }: { client: Client }) {
   );
 }
 
-function ClientProperties({ client }: { client: Client }) {
-  // Saved property details, keyed by estimate field label. Estimates prefill
-  // from these values and can write corrected values back on save.
-  const properties = Object.entries(client.propertyData ?? {});
+function ClientRouting({ client }: { client: Client }) {
+  const [mapCode, setMapCode] = useState(client.mapCode ?? '');
+  const [waterDistrict, setWaterDistrict] = useState(client.waterDistrict ?? '');
+  const updateClient = useUpdateClient();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const dirty = (client.mapCode ?? '') !== mapCode || (client.waterDistrict ?? '') !== waterDistrict;
+
+  const save = () => {
+    updateClient.mutate({
+      id: client.id,
+      // Blank clears the field rather than storing "", so an unknown district
+      // never reads as a real answer on the list or in a district filter.
+      data: {
+        mapCode: mapCode.trim().toUpperCase() || null,
+        waterDistrict: waterDistrict.trim() || null,
+      },
+    }, {
+      onSuccess: (data) => {
+        queryClient.setQueryData([`/api/clients/${client.id}`], data);
+        queryClient.invalidateQueries({ queryKey: ['/api/clients'] });
+        toast({ title: 'Routing details saved' });
+      },
+      onError: (error) => toast({
+        title: 'Routing details could not be saved',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      }),
+    });
+  };
+
   return (
     <Card className="shadow-sm border-border">
       <CardHeader className="pb-3 border-b bg-card/50">
         <CardTitle className="text-lg font-bold flex items-center gap-2">
-          <Settings className="w-5 h-5 text-muted-foreground" /> 
-          Property Details
+          <Route className="w-5 h-5 text-muted-foreground" />
+          Routing & Water District
         </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-4 space-y-4">
+        <div>
+          <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Map Code</label>
+          <Input
+            className="uppercase"
+            placeholder="e.g. PF"
+            maxLength={16}
+            value={mapCode}
+            onChange={(e) => setMapCode(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground mt-1">Route zone shorthand. Groups and colour-codes this client on the client list.</p>
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs font-semibold text-muted-foreground uppercase flex items-center gap-1.5">
+              <Droplets className="w-3.5 h-3.5" /> Water District
+            </label>
+            <WaterProviderLookupLink />
+          </div>
+          <Input
+            placeholder="e.g. Whitworth Water District No. 2"
+            value={waterDistrict}
+            onChange={(e) => setWaterDistrict(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            Sets which district's rules govern this property's backflow test and blow-out. Check the address on the lookup, then type the answer here.
+          </p>
+        </div>
+        <Button size="sm" onClick={save} disabled={!dirty || updateClient.isPending}>
+          {updateClient.isPending ? 'Saving...' : 'Save'}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Where the controller and valve boxes are. Adam asked for this so a crew at an
+ * unfamiliar house is not walking the property looking for a timer, so it lives
+ * in propertyData: that whole map is already carried onto the job card, which is
+ * the only client information a contractor can see.
+ */
+const TIMER_LOCATION_LABEL = 'Sprinkler Timer & Valve Locations';
+
+function ClientProperties({ client }: { client: Client }) {
+  // Saved property details, keyed by estimate field label. Estimates prefill
+  // from these values and can write corrected values back on save.
+  const saved = (client.propertyData ?? {}) as Record<string, string>;
+  const [draft, setDraft] = useState<Record<string, string> | null>(null);
+  const [newLabel, setNewLabel] = useState('');
+  const updateClient = useUpdateClient();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const timerLocation = saved[TIMER_LOCATION_LABEL];
+  const otherProperties = Object.entries(saved).filter(([label]) => label !== TIMER_LOCATION_LABEL);
+
+  const save = (next: Record<string, string>) => {
+    // The whole map goes every time: property_data is one JSON document and the
+    // PATCH replaces it, which is also the only way a removed detail stays gone.
+    const cleaned = Object.fromEntries(
+      Object.entries(next).filter(([label, value]) => label.trim() !== '' && value.trim() !== ''),
+    );
+    updateClient.mutate({ id: client.id, data: { propertyData: cleaned } }, {
+      onSuccess: (data) => {
+        queryClient.setQueryData([`/api/clients/${client.id}`], data);
+        queryClient.invalidateQueries({ queryKey: [`/api/clients/${client.id}/audit`] });
+        setDraft(null);
+        setNewLabel('');
+        toast({ title: 'Property details saved' });
+      },
+      onError: (error) => toast({
+        title: 'Property details could not be saved',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      }),
+    });
+  };
+
+  return (
+    <Card className="shadow-sm border-border">
+      <CardHeader className="pb-3 border-b bg-card/50">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg font-bold flex items-center gap-2">
+            <Settings className="w-5 h-5 text-muted-foreground" />
+            Property Details
+          </CardTitle>
+          {draft === null && (
+            <Button size="sm" variant="outline" className="h-8" onClick={() => setDraft({ ...saved })}>
+              Edit
+            </Button>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="pt-4 space-y-4">
         {client.mapNote && (
@@ -337,19 +463,105 @@ function ClientProperties({ client }: { client: Client }) {
             </p>
           </div>
         )}
-        {properties.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No property details saved yet. Build an estimate for this client and keep “Save these field values” checked to record them here.
-          </p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {properties.map(([label, value]) => (
-              <div key={label} className="bg-muted px-2.5 py-1 rounded-md text-xs border">
-                <span className="font-semibold text-muted-foreground mr-1">{label}:</span>
-                {value}
+
+        {draft !== null ? (
+          <div className="space-y-3">
+            {Object.keys(draft).length === 0 && (
+              <p className="text-sm text-muted-foreground">Add a detail below.</p>
+            )}
+            {Object.entries(draft).map(([label, value]) => (
+              <div key={label}>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-semibold text-muted-foreground uppercase">{label}</label>
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-destructive"
+                    aria-label={`Remove ${label}`}
+                    onClick={() => setDraft((prev) => prev && Object.fromEntries(
+                      Object.entries(prev).filter(([key]) => key !== label),
+                    ))}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                {label === TIMER_LOCATION_LABEL ? (
+                  <textarea
+                    className="flex min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    placeholder="Timer in the garage on the north wall by the freezer. Valve boxes: one behind the shed, one in the flower bed left of the driveway."
+                    value={value}
+                    onChange={(e) => setDraft({ ...draft, [label]: e.target.value })}
+                  />
+                ) : (
+                  <Input value={value} onChange={(e) => setDraft({ ...draft, [label]: e.target.value })} />
+                )}
               </div>
             ))}
+
+            <div className="flex gap-2 pt-1">
+              <Input
+                placeholder="New detail label, e.g. Gate Code"
+                value={newLabel}
+                onChange={(e) => setNewLabel(e.target.value)}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!newLabel.trim() || newLabel.trim() in draft}
+                onClick={() => { setDraft({ ...draft, [newLabel.trim()]: '' }); setNewLabel(''); }}
+              >
+                <Plus className="w-4 h-4" />
+              </Button>
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <Button size="sm" onClick={() => save(draft)} disabled={updateClient.isPending}>
+                {updateClient.isPending ? 'Saving...' : 'Save Details'}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => { setDraft(null); setNewLabel(''); }}>Cancel</Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Details left blank are removed on save. Everything here shows on the crew's job card.
+            </p>
           </div>
+        ) : (
+          <>
+            <div>
+              <span className="text-xs font-semibold text-muted-foreground uppercase flex items-center gap-1.5">
+                <Timer className="w-3.5 h-3.5" /> Timer & Valve Locations
+              </span>
+              {timerLocation ? (
+                <p className="text-sm whitespace-pre-wrap bg-muted/50 border p-2 rounded-md mt-1">{timerLocation}</p>
+              ) : (
+                <div className="mt-1">
+                  <p className="text-sm text-muted-foreground mb-2">
+                    Not recorded. Describe where the timer and valve boxes are so the crew is not hunting for them.
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setDraft({ ...saved, [TIMER_LOCATION_LABEL]: '' })}
+                  >
+                    <Plus className="w-4 h-4 mr-1" /> Add timer & valve locations
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {otherProperties.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No other property details saved yet. Use Edit above, or build an estimate for this client and keep “Save these field values” checked to record them here.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {otherProperties.map(([label, value]) => (
+                  <div key={label} className="bg-muted px-2.5 py-1 rounded-md text-xs border">
+                    <span className="font-semibold text-muted-foreground mr-1">{label}:</span>
+                    {value}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </CardContent>
     </Card>

@@ -1619,7 +1619,9 @@ export const SendEstimateParams = zod.object({
 
 export const SendEstimateBody = zod.object({
   "toEmail": zod.email(),
-  "message": zod.string().optional()
+  "message": zod.string().optional(),
+  "documentTemplateIds": zod.array(zod.int()).optional().describe('Document templates to render with this customer\'s details and attach as PDFs — the service descriptions and meet-and-greet the owner writes in Settings, which until now could be written but never sent.'),
+  "photoIds": zod.array(zod.int()).optional().describe('Photos belonging to this customer to attach, typically a before-and-after pair. Rejected if the photo belongs to a different customer.')
 })
 
 export const SendEstimateResponse = zod.object({

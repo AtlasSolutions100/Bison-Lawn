@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { useListMyJobs, useUpdateJob, useCompleteJob, useCreateFieldNote, useListOfferableServices, useAddExtraWork, useRecordOnSitePayment, useGetBillingSettings, Job } from '@workspace/api-client-react';
+import { useListMyJobs, useUpdateJob, useCompleteJob, useCreateFieldNote, useListOfferableServices, useAddExtraWork, useRecordOnSitePayment, useGetBillingSettings, useGetCurrentUser, useClockInToJob, useClockOutOfJob, useListJobTimeEntries, useListJobPhotos, useUploadJobPhoto, useDeletePhoto, getListJobTimeEntriesQueryKey, getListJobPhotosQueryKey, PhotoUploadInputContentType, Job, JobPhoto, JobPhotoKind } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { format, addDays, subDays, parseISO } from 'date-fns';
 import { Button } from '@/components/ui/button';
-import { MapPin, Navigation, Clock, CheckCircle2, ChevronLeft, ChevronRight, DollarSign, PackageOpen, Mic, MicOff, NotebookPen, Plus, CreditCard, Ban } from 'lucide-react';
+import { MapPin, Navigation, Clock, CheckCircle2, ChevronLeft, ChevronRight, DollarSign, PackageOpen, Mic, MicOff, NotebookPen, Plus, CreditCard, Ban, Camera, Timer, Trash2, LogOut } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -162,6 +162,14 @@ function JobCard({ job, index }: { job: Job, index: number }) {
         </div>
 
         <div className="px-3 pt-3 border-t bg-card">
+          <TimeClock job={job} />
+        </div>
+
+        <div className="px-3 pt-3 bg-card">
+          <JobPhotos job={job} />
+        </div>
+
+        <div className="px-3 pt-3 bg-card">
           <FieldNoteButton job={job} />
         </div>
 
@@ -611,5 +619,336 @@ function CollectPaymentDialog({ job, wide }: { job: Job; wide?: boolean }) {
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/**
+ * Where the phone was when the button was pressed.
+ *
+ * Resolves to null instead of rejecting, and gives up after a few seconds: the
+ * point of the coordinates is to show someone was at the property, but a denied
+ * permission, a dead GPS fix or a phone in a metal shed must never stand between
+ * a crew and clocking in. The extra timer is not redundant — some browsers call
+ * neither callback when the permission prompt is dismissed rather than answered,
+ * and the built-in timeout does not fire in that case.
+ */
+function currentPosition(): Promise<{ lat: number; lng: number } | null> {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) return Promise.resolve(null);
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = (value: { lat: number; lng: number } | null) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    navigator.geolocation.getCurrentPosition(
+      p => finish({ lat: p.coords.latitude, lng: p.coords.longitude }),
+      () => finish(null),
+      { enableHighAccuracy: true, timeout: 6000, maximumAge: 60000 },
+    );
+    setTimeout(() => finish(null), 7000);
+  });
+}
+
+function formatElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const mm = h > 0 ? String(m).padStart(2, '0') : String(m);
+  return `${h > 0 ? `${h}:` : ''}${mm}:${String(s).padStart(2, '0')}`;
+}
+
+function formatMinutes(minutes: number): string {
+  const whole = Math.round(minutes);
+  if (whole < 60) return `${whole} min`;
+  return `${Math.floor(whole / 60)}h ${String(whole % 60).padStart(2, '0')}m`;
+}
+
+/**
+ * Clock in and out of the job in front of you.
+ *
+ * One control filling the width of the card: this gets pressed with a thumb
+ * while holding a trimmer, and a mis-tap puts a wrong timestamp on someone's
+ * timesheet. Open state comes from this person's own entry rather than any open
+ * entry on the job, because two crew can be on the same property and closing
+ * someone else's shift is not on offer.
+ */
+function TimeClock({ job }: { job: Job }) {
+  const queryClient = useQueryClient();
+  const { data: me } = useGetCurrentUser({ query: { queryKey: ['me'] } });
+  const { data: entries } = useListJobTimeEntries(job.id);
+  const clockIn = useClockInToJob();
+  const clockOut = useClockOutOfJob();
+  const [error, setError] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  const mine = entries?.filter(e => e.userId === me?.id) ?? [];
+  const open = mine.find(e => !e.clockOutAt) ?? null;
+  const loggedMinutes = mine.reduce((sum, e) => sum + (e.minutes ?? 0), 0);
+  const busy = clockIn.isPending || clockOut.isPending;
+
+  useEffect(() => {
+    if (!open) return;
+    setNow(Date.now());
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, [open?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const refresh = () => queryClient.invalidateQueries({ queryKey: getListJobTimeEntriesQueryKey(job.id) });
+  const fail = (e: any) => setError(e?.data?.error || e?.message || 'Could not record the time');
+
+  const punch = async () => {
+    setError(null);
+    // Location is asked for but never waited on beyond its own timeout, so a
+    // phone that cannot get a fix still clocks in — just without the proof.
+    const where = await currentPosition();
+    const data = { lat: where?.lat ?? null, lng: where?.lng ?? null };
+    if (open) {
+      clockOut.mutate({ id: job.id, data }, { onSuccess: refresh, onError: fail });
+    } else {
+      clockIn.mutate({ id: job.id, data }, { onSuccess: refresh, onError: fail });
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      {open && (
+        <div className="flex items-center justify-between rounded-md border-2 border-blue-200 bg-blue-50 px-3 py-2">
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-blue-700">On Site Since</div>
+            <div className="text-sm font-semibold text-blue-900">{format(parseISO(open.clockInAt), 'h:mm a')}</div>
+          </div>
+          <div className="font-mono text-2xl font-bold tabular-nums text-blue-900">
+            {formatElapsed(now - parseISO(open.clockInAt).getTime())}
+          </div>
+        </div>
+      )}
+
+      <Button
+        onClick={punch}
+        disabled={busy}
+        className={`w-full h-14 text-base font-bold shadow-sm ${
+          open
+            ? 'bg-blue-600 hover:bg-blue-700 text-white'
+            : 'bg-primary hover:bg-primary/90 text-primary-foreground'
+        }`}
+      >
+        {open ? <LogOut className="w-5 h-5 mr-2" /> : <Timer className="w-5 h-5 mr-2" />}
+        {busy ? 'Saving...' : open ? 'Clock Out' : 'Clock In'}
+      </Button>
+
+      {!open && loggedMinutes > 0 && (
+        <p className="text-xs text-center text-muted-foreground">
+          {formatMinutes(loggedMinutes)} logged on this job
+        </p>
+      )}
+      {error && <p className="text-sm text-destructive">{error}</p>}
+    </div>
+  );
+}
+
+/** Longest edge, in pixels, a photo is shrunk to before it is uploaded. */
+const MAX_PHOTO_EDGE = 1600;
+
+function readAsBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read the photo'));
+    reader.onload = () => {
+      const result = String(reader.result);
+      resolve(result.slice(result.indexOf(',') + 1));
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
+function isStorableType(type: string): type is PhotoUploadInputContentType {
+  return Object.prototype.hasOwnProperty.call(PhotoUploadInputContentType, type);
+}
+
+/**
+ * Shrink the photo before it leaves the phone.
+ *
+ * A stock camera shot is ten megapixels and several megabytes, and this is used
+ * standing in a yard on one bar of signal — the upload timing out is how the
+ * feature fails in practice. Nothing downstream needs more resolution than it
+ * takes to see a patch of dead grass. If the browser cannot decode or re-encode
+ * the image the original bytes go up unchanged, so a working upload never
+ * depends on the resize succeeding.
+ */
+async function toUploadPayload(
+  file: File,
+): Promise<{ contentType: PhotoUploadInputContentType; dataBase64: string }> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, MAX_PHOTO_EDGE / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('canvas unavailable');
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const blob = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/jpeg', 0.82));
+    if (!blob) throw new Error('encode failed');
+    return { contentType: 'image/jpeg', dataBase64: await readAsBase64(blob) };
+  } catch {
+    if (!isStorableType(file.type)) {
+      throw new Error('That file cannot be saved. Use the camera button to take a photo.');
+    }
+    return { contentType: file.type, dataBase64: await readAsBase64(file) };
+  }
+}
+
+const KIND_LABEL: Record<JobPhotoKind, string> = { before: 'Before', after: 'After', other: 'Other' };
+
+/**
+ * Take a photo on the job, and see the ones already on it.
+ *
+ * The three capture buttons carry the label, so nobody has to answer a "what
+ * kind of photo is this?" prompt after the camera closes — before/after is the
+ * pair the office sends customers, and which one it is was decided before the
+ * shot. `capture` makes a phone open the camera straight away; a desktop
+ * browser ignores it and opens the file picker instead.
+ */
+function JobPhotos({ job }: { job: Job }) {
+  const queryClient = useQueryClient();
+  const { data: photos } = useListJobPhotos(job.id);
+  const upload = useUploadJobPhoto();
+  const [error, setError] = useState<string | null>(null);
+  const [pendingKind, setPendingKind] = useState<JobPhotoKind | null>(null);
+  const [viewing, setViewing] = useState<JobPhoto | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const kindRef = useRef<JobPhotoKind>('other');
+
+  const refresh = () => queryClient.invalidateQueries({ queryKey: getListJobPhotosQueryKey(job.id) });
+
+  const pick = (kind: JobPhotoKind) => {
+    setError(null);
+    kindRef.current = kind;
+    inputRef.current?.click();
+  };
+
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Cleared immediately so retaking the same shot still fires a change event;
+    // otherwise a second attempt after a failure looks like nothing happened.
+    e.target.value = '';
+    if (!file) return;
+    const kind = kindRef.current;
+    setPendingKind(kind);
+    setError(null);
+    try {
+      const payload = await toUploadPayload(file);
+      await upload.mutateAsync({ id: job.id, data: { ...payload, kind } });
+      refresh();
+    } catch (err: any) {
+      setError(err?.data?.error || err?.message || 'Could not save the photo');
+    } finally {
+      setPendingKind(null);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleFile}
+      />
+
+      {photos && photos.length > 0 && (
+        <div className="grid grid-cols-3 gap-2">
+          {photos.map(p => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setViewing(p)}
+              className="relative aspect-square overflow-hidden rounded-md border bg-muted"
+            >
+              <img src={p.url} alt={p.caption ?? KIND_LABEL[p.kind]} className="h-full w-full object-cover" />
+              <span className="absolute bottom-0 left-0 right-0 bg-black/55 px-1 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
+                {KIND_LABEL[p.kind]}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="grid grid-cols-3 gap-2">
+        {(['before', 'after', 'other'] as JobPhotoKind[]).map(kind => (
+          <Button
+            key={kind}
+            variant="outline"
+            onClick={() => pick(kind)}
+            disabled={pendingKind != null}
+            className="h-14 flex-col gap-0.5 border-2 font-semibold"
+          >
+            <Camera className="w-5 h-5" />
+            <span className="text-xs">{pendingKind === kind ? 'Saving...' : KIND_LABEL[kind]}</span>
+          </Button>
+        ))}
+      </div>
+
+      {error && <p className="text-sm text-destructive">{error}</p>}
+
+      <PhotoViewer photo={viewing} onClose={() => setViewing(null)} onDeleted={refresh} />
+    </div>
+  );
+}
+
+function PhotoViewer({
+  photo,
+  onClose,
+  onDeleted,
+}: {
+  photo: JobPhoto | null;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const deletePhoto = useDeletePhoto();
+
+  const remove = () => {
+    if (!photo) return;
+    if (!window.confirm('Delete this photo? It cannot be brought back.')) return;
+    deletePhoto.mutate(
+      { id: photo.id },
+      {
+        onSuccess: () => {
+          onDeleted();
+          onClose();
+        },
+      },
+    );
+  };
+
+  return (
+    <Dialog open={photo != null} onOpenChange={o => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>
+            {photo ? `${KIND_LABEL[photo.kind]} — ${format(parseISO(photo.takenAt), 'MMM d, h:mm a')}` : ''}
+          </DialogTitle>
+        </DialogHeader>
+        {photo && (
+          <>
+            <img src={photo.url} alt={photo.caption ?? KIND_LABEL[photo.kind]} className="w-full rounded-md" />
+            {photo.uploadedByName && (
+              <p className="text-xs text-muted-foreground">Taken by {photo.uploadedByName}</p>
+            )}
+          </>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Close</Button>
+          <Button variant="destructive" onClick={remove} disabled={deletePhoto.isPending}>
+            <Trash2 className="w-4 h-4 mr-1" /> {deletePhoto.isPending ? 'Deleting...' : 'Delete'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1366,6 +1366,10 @@ export interface EstimateConflict {
 export interface EstimateSendInput {
   toEmail: string;
   message?: string;
+  /** Document templates to render with this customer's details and attach as PDFs — the service descriptions and meet-and-greet the owner writes in Settings, which until now could be written but never sent. */
+  documentTemplateIds?: number[];
+  /** Photos belonging to this customer to attach, typically a before-and-after pair. Rejected if the photo belongs to a different customer. */
+  photoIds?: number[];
 }
 
 export interface JobProduct {

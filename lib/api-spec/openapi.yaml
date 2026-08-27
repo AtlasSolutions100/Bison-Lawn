@@ -2979,6 +2979,20 @@ components:
       properties:
         toEmail: { type: string, format: email }
         message: { type: string }
+        documentTemplateIds:
+          type: array
+          items: { type: integer }
+          description: >-
+            Document templates to render with this customer's details and attach
+            as PDFs — the service descriptions and meet-and-greet the owner
+            writes in Settings, which until now could be written but never sent.
+        photoIds:
+          type: array
+          items: { type: integer }
+          description: >-
+            Photos belonging to this customer to attach, typically a
+            before-and-after pair. Rejected if the photo belongs to a different
+            customer.
     JobProduct:
       type: object
       required: [id, jobId, name, price]

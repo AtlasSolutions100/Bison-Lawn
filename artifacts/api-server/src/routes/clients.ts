@@ -47,6 +47,11 @@ router.get("/clients", async (req, res) => {
         ilike(clientsTable.city, `%${search}%`),
         ilike(clientsTable.email, `%${search}%`),
         ilike(clientsTable.phone, `%${search}%`),
+        // Route zone and water purveyor are how the office asks about a group of
+        // properties ("who is on PF?", "who is on Whitworth Water?"), so typing
+        // one into the same search box has to find them.
+        ilike(clientsTable.mapCode, `%${search}%`),
+        ilike(clientsTable.waterDistrict, `%${search}%`),
       ),
     );
   const rows = await db
@@ -94,6 +99,27 @@ router.post("/clients/:id/email", async (req, res) => {
   return res.json({ sent: true, to: client.email });
 });
 
+/**
+ * Column names leak straight into the audit trail, which the office reads —
+ * "Updated mapCode, propertyData" tells Adam nothing about his own account.
+ * Only the fields whose column name reads badly need an entry here.
+ */
+const CLIENT_FIELD_LABELS: Record<string, string> = {
+  serviceAddress: "service address",
+  addressLine2: "address line 2",
+  postalCode: "postal code",
+  additionalContact: "additional contact",
+  mapNote: "map / crew note",
+  mapCode: "map code",
+  waterDistrict: "water district",
+  propertyData: "property details",
+};
+
+/**
+ * `propertyData` is one JSON document and is replaced wholesale, not merged —
+ * that is what makes deleting a detail possible at all. Callers must send the
+ * complete map they want stored; sending only the changed key wipes the rest.
+ */
 router.patch("/clients/:id", async (req, res) => {
   const body = UpdateClientBody.parse(req.body);
   const [client] = await db
@@ -102,7 +128,9 @@ router.patch("/clients/:id", async (req, res) => {
     .where(eq(clientsTable.id, Number(req.params.id)))
     .returning();
   if (!client) return res.status(404).json({ error: "Client not found" });
-  const changed = Object.keys(body).join(", ");
+  const changed = Object.keys(body)
+    .map((field) => CLIENT_FIELD_LABELS[field] ?? field)
+    .join(", ");
   await logAudit({
     clientId: client.id,
     actorName: req.appUser?.name,

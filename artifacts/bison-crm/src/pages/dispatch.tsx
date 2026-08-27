@@ -113,6 +113,50 @@ export default function Dispatch() {
   );
 }
 
+/** Google's directions URL takes an origin, a destination and up to 8 waypoints. */
+const MAX_MAP_STOPS = 10;
+
+/**
+ * Open a sub's whole day in Google Maps as one multi-stop route.
+ *
+ * Asked for as "in the dispatch board making it to link to map to manually
+ * route". Each row already links to its own address, which answers "where is
+ * this one" but not "what order should I drive these in" — the question the
+ * board is actually for.
+ *
+ * Deliberately not a map we draw ourselves. He already routes in Google Maps on
+ * a phone in a truck, and it holds the live traffic and the reorder handles
+ * that make manual routing worth doing. Sending him there with the stops
+ * already loaded beats a worse map inside the app.
+ *
+ * Stops in routeOrder, falling back to the order the board shows. Jobs without
+ * an address are skipped: Maps would silently resolve a blank waypoint to
+ * somewhere plausible and quietly send a crew to the wrong street.
+ */
+function googleMapsRouteUrl(jobs: Job[]): { url: string | null; used: number; dropped: number } {
+  const addressable = [...jobs]
+    .sort((a, b) => (a.routeOrder ?? Number.MAX_SAFE_INTEGER) - (b.routeOrder ?? Number.MAX_SAFE_INTEGER))
+    .map(job => ({
+      job,
+      query: job.clientLat != null && job.clientLng != null
+        ? `${job.clientLat},${job.clientLng}`
+        : (job.clientAddress ?? '').trim(),
+    }))
+    .filter(stop => stop.query.length > 0);
+
+  if (addressable.length === 0) return { url: null, used: 0, dropped: jobs.length };
+
+  const used = addressable.slice(0, MAX_MAP_STOPS);
+  const dropped = jobs.length - used.length;
+  const params = new URLSearchParams({ api: '1', travelmode: 'driving' });
+  params.set('origin', used[0].query);
+  params.set('destination', used[used.length - 1].query);
+  if (used.length > 2) {
+    params.set('waypoints', used.slice(1, -1).map(stop => stop.query).join('|'));
+  }
+  return { url: `https://www.google.com/maps/dir/?${params.toString()}`, used: used.length, dropped };
+}
+
 const money = (n: number) =>
   `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -158,6 +202,7 @@ function SubLoadSummary({
       amount: number;
       hours: number;
       skipped: number;
+      jobs: Job[];
     }>();
 
     for (const job of jobs) {
@@ -175,10 +220,12 @@ function SubLoadSummary({
           amount: 0,
           hours: 0,
           skipped: 0,
+          jobs: [],
         };
         byId.set(id, bucket);
       }
       bucket.stops += 1;
+      bucket.jobs.push(job);
       bucket.amount += job.amount ?? 0;
       bucket.hours += job.budgetedHours ?? 0;
       if (job.status === 'skipped') bucket.skipped += 1;
@@ -207,8 +254,8 @@ function SubLoadSummary({
         // "half of what the busiest guy has" is the comparison being made.
         const share = heaviest > 0 && bucket.id != null ? bucket.amount / heaviest : 0;
         return (
+          <div key={key} className="flex min-w-44 shrink-0 flex-col">
           <button
-            key={key}
             type="button"
             // Unassigned has no contractor id to filter by, so it stays a
             // read-only tile rather than a button that looks live and does
@@ -220,7 +267,7 @@ function SubLoadSummary({
               : active
                 ? 'Show all contractors'
                 : `Show only ${bucket.name}`}
-            className={`min-w-44 shrink-0 rounded-lg border bg-card p-3 text-left shadow-sm transition ${
+            className={`w-full rounded-lg border bg-card p-3 text-left shadow-sm transition ${
               bucket.id == null
                 ? 'border-dashed opacity-90'
                 : active
@@ -249,10 +296,36 @@ function SubLoadSummary({
                 />
               </div>
             )}
-          </button>
+            </button>
+            <RouteInMapsLink jobs={bucket.jobs} />
+          </div>
         );
       })}
     </div>
+  );
+}
+
+/**
+ * Nested outside the tile button on purpose: a link inside a button is invalid
+ * markup, and the two do different things — one filters the board, one leaves
+ * the app.
+ */
+function RouteInMapsLink({ jobs }: { jobs: Job[] }) {
+  const { url, used, dropped } = googleMapsRouteUrl(jobs);
+  if (!url) return null;
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mt-1 inline-flex items-center gap-1 px-1 text-[11px] font-medium text-muted-foreground hover:text-primary hover:underline"
+      title={dropped > 0
+        ? `Google Maps takes ${MAX_MAP_STOPS} stops in one link. Opening the first ${used}; ${dropped} not included.`
+        : `Open all ${used} stops in Google Maps, in route order`}
+    >
+      <MapPin className="h-3 w-3" />
+      Route in Maps{dropped > 0 ? ` (first ${used})` : ''}
+    </a>
   );
 }
 

@@ -4,9 +4,13 @@ import {
   useReconcileEstimateDelivery,
   useListEstimateFields, useCreateEstimateField, useUpdateEstimateField, useDeleteEstimateField,
   useListChargePresets, useCreateChargePreset, useUpdateChargePreset, useDeleteChargePreset,
-  useListClients, useListServices, useListPackages, useCreateClient, useGetCurrentUser
+  useListClients, useListServices, useListPackages, useCreateClient, useGetCurrentUser,
+  useListDocumentTemplates, useListClientPhotos,
+  getListDocumentTemplatesQueryKey, getListClientPhotosQueryKey
 } from '@workspace/api-client-react';
-import type { ChargePreset, Estimate, EstimateField, EstimateFieldInput, EstimateLine, Service } from '@workspace/api-client-react';
+import type {
+  ChargePreset, Estimate, EstimateField, EstimateFieldInput, EstimateLine, EstimateSendInput, Service
+} from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocation, useSearch } from 'wouter';
 import { Button } from '@/components/ui/button';
@@ -31,6 +35,30 @@ const isEditableDraft = (estimate: Estimate) =>
   estimate.status === 'draft' &&
   estimate.deliveryState !== 'sending' &&
   estimate.deliveryState !== 'provider_accepted';
+
+/**
+ * What the chosen documents and photos may add up to, mirroring
+ * ATTACHMENT_BUDGET_BYTES on the server: Gmail's ~25MB less the room the
+ * estimate PDF and the email body always need. Counted while the sender is
+ * choosing, so an oversized selection is obvious here rather than arriving as a
+ * refused send after they have pressed the button.
+ */
+const ATTACHMENT_BUDGET_BYTES = 23 * 1024 * 1024;
+
+/** Mirrors encodedAttachmentBytes on the server: base64 plus line breaks plus part headers. */
+const encodedAttachmentBytes = (byteSize: number) =>
+  Math.ceil(Math.ceil(byteSize / 3) * 4 * (1 + 2 / 76)) + 200;
+
+const describeBytes = (byteSize: number) => {
+  const mb = byteSize / (1024 * 1024);
+  return mb >= 10 ? `${Math.round(mb)}MB` : `${mb.toFixed(1)}MB`;
+};
+
+/**
+ * His terms already ride inside the estimate PDF, so offering them here would
+ * send the customer the same contract twice.
+ */
+const CONTRACT_TEMPLATE_KEY = 'service-contract';
 
 const NEW_PROSPECT = '__new_prospect__';
 type ProspectDraft = { name: string; address: string; city: string; email: string; phone: string };
@@ -100,22 +128,55 @@ export default function Estimates() {
   const reconcileDelivery = useReconcileEstimateDelivery();
   const { data: clients } = useListClients();
   const queryClient = useQueryClient();
-  const [sendTarget, setSendTarget] = useState<{ id: number; email: string; clientName: string } | null>(null);
+  const [sendTarget, setSendTarget] = useState<{ id: number; clientId: number; email: string; clientName: string } | null>(null);
   const [sendEmail, setSendEmail] = useState('');
   const [sendMessage, setSendMessage] = useState('Thank you for the opportunity to care for your property. Please review the attached estimate.');
   const [sendError, setSendError] = useState('');
+  // Documents and photos to send alongside the estimate PDF. Nothing is
+  // selected by default: every send before this feature carried the PDF alone,
+  // and an attachment nobody asked for is the kind of surprise that ends up in
+  // a customer's inbox.
+  const [sendDocumentIds, setSendDocumentIds] = useState<number[]>([]);
+  const [sendPhotoIds, setSendPhotoIds] = useState<number[]>([]);
+
+  // Only fetched once the dialog is open — neither list is worth a request on
+  // every visit to the estimates page.
+  const { data: documentTemplates } = useListDocumentTemplates({
+    query: { queryKey: getListDocumentTemplatesQueryKey(), enabled: !!sendTarget },
+  });
+  const { data: clientPhotos } = useListClientPhotos(sendTarget?.clientId ?? 0, {
+    query: { queryKey: getListClientPhotosQueryKey(sendTarget?.clientId ?? 0), enabled: !!sendTarget },
+  });
+  const attachableDocuments = (documentTemplates ?? []).filter(t => t.key !== CONTRACT_TEMPLATE_KEY);
+  const selectedPhotos = (clientPhotos ?? []).filter(p => sendPhotoIds.includes(p.id));
+  // Documents are a page or two of his own text; only the photos are worth
+  // weighing, and their recorded byte sizes are what the server checks too.
+  const selectedBytes = selectedPhotos.reduce((sum, p) => sum + encodedAttachmentBytes(p.byteSize), 0);
+  const overBudget = selectedBytes > ATTACHMENT_BUDGET_BYTES;
 
   const openSend = (estimate: NonNullable<typeof estimates>[number]) => {
     const email = clients?.find(c => c.id === estimate.clientId)?.email ?? '';
-    setSendTarget({ id: estimate.id, email, clientName: estimate.clientName ?? 'Client' });
+    setSendTarget({ id: estimate.id, clientId: estimate.clientId, email, clientName: estimate.clientName ?? 'Client' });
     setSendEmail(email);
     setSendError('');
+    setSendDocumentIds([]);
+    setSendPhotoIds([]);
   };
+
+  const toggleId = (ids: number[], id: number) =>
+    ids.includes(id) ? ids.filter(existing => existing !== id) : [...ids, id];
 
   const handleSend = () => {
     if (!sendTarget) return;
     setSendError('');
-    sendEstimate.mutate({ id: sendTarget.id, data: { toEmail: sendEmail, message: sendMessage } }, {
+    // The generated EstimateSendInput has no attachment fields yet, so the body
+    const data: EstimateSendInput = {
+      toEmail: sendEmail,
+      message: sendMessage,
+      documentTemplateIds: sendDocumentIds,
+      photoIds: sendPhotoIds,
+    };
+    sendEstimate.mutate({ id: sendTarget.id, data }, {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: ['/api/estimates'] });
         setSendTarget(null);
@@ -455,7 +516,7 @@ export default function Estimates() {
           <DialogHeader>
             <DialogTitle>Email estimate to {sendTarget?.clientName}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
             <div>
               <label className="text-sm font-medium mb-1 block">Customer email</label>
               <Input
@@ -473,6 +534,75 @@ export default function Estimates() {
                 onChange={e => setSendMessage(e.target.value)}
               />
             </div>
+            <div>
+              <label className="text-sm font-medium mb-1 block">Documents to include</label>
+              {attachableDocuments.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No documents yet. Write service descriptions or a meet-and-greet letter under Settings → Documents and they will appear here.
+                </p>
+              ) : (
+                <div className="max-h-40 overflow-y-auto rounded-md border divide-y">
+                  {attachableDocuments.map(template => (
+                    <label key={template.id} className="flex items-start gap-3 p-2.5 cursor-pointer hover:bg-muted/40">
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 mt-0.5"
+                        checked={sendDocumentIds.includes(template.id)}
+                        onChange={() => setSendDocumentIds(ids => toggleId(ids, template.id))}
+                      />
+                      <span className="text-sm">
+                        <span className="font-medium">{template.name}</span>
+                        <span className="block text-xs text-muted-foreground mt-0.5">
+                          Attached as a PDF with {sendTarget?.clientName}'s details filled in.
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="text-sm font-medium mb-1 block">Photos to attach</label>
+              {(clientPhotos ?? []).length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No photos on file for this customer yet.
+                </p>
+              ) : (
+                <div className="max-h-52 overflow-y-auto rounded-md border divide-y">
+                  {(clientPhotos ?? []).map(photo => (
+                    <label key={photo.id} className="flex items-center gap-3 p-2.5 cursor-pointer hover:bg-muted/40">
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 shrink-0"
+                        checked={sendPhotoIds.includes(photo.id)}
+                        onChange={() => setSendPhotoIds(ids => toggleId(ids, photo.id))}
+                      />
+                      <img
+                        src={photo.url}
+                        alt=""
+                        loading="lazy"
+                        className="w-12 h-12 rounded object-cover bg-muted shrink-0"
+                      />
+                      <span className="text-sm min-w-0">
+                        <span className="font-medium capitalize">{photo.kind}</span>
+                        {photo.caption && <span className="text-muted-foreground"> — {photo.caption}</span>}
+                        <span className="block text-xs text-muted-foreground mt-0.5">
+                          {new Date(photo.takenAt).toLocaleDateString()} · {describeBytes(photo.byteSize)}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+              {sendPhotoIds.length > 0 && (
+                <p className={cn('text-xs mt-1.5', overBudget ? 'text-destructive' : 'text-muted-foreground')}>
+                  {selectedPhotos.length} photo{selectedPhotos.length === 1 ? '' : 's'} selected, {describeBytes(selectedBytes)} of the {describeBytes(ATTACHMENT_BUDGET_BYTES)} one email can carry.
+                  {overBudget && ' Unselect a few and send the rest in a second email.'}
+                </p>
+              )}
+            </div>
+
             <p className="text-xs text-muted-foreground">
               The email includes a polished PDF plus secure Accept and Decline buttons.
             </p>
@@ -485,7 +615,7 @@ export default function Estimates() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSendTarget(null)}>Cancel</Button>
-            <Button disabled={!sendEmail || sendEstimate.isPending} onClick={handleSend}>
+            <Button disabled={!sendEmail || overBudget || sendEstimate.isPending} onClick={handleSend}>
               <Send className="w-4 h-4 mr-2" />
               {sendEstimate.isPending ? 'Sending…' : 'Send Estimate'}
             </Button>
