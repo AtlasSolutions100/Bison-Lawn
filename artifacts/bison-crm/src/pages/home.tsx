@@ -74,6 +74,12 @@ export default function Home() {
             desc="Never drop a lead. Waiting lists, open invoices, and full client history." 
           />
         </div>
+
+        <footer className="mt-24 mb-8 flex items-center gap-6 text-sm text-muted-foreground z-10">
+          <span>Bison Lawn Care LLC</span>
+          <Link href="/privacy" className="hover:text-foreground underline-offset-4 hover:underline">Privacy</Link>
+          <Link href="/terms" className="hover:text-foreground underline-offset-4 hover:underline">Terms</Link>
+        </footer>
       </main>
     </div>
   );

@@ -11,6 +11,8 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import Home from '@/pages/home';
+import Privacy from '@/pages/privacy';
+import Terms from '@/pages/terms';
 
 // Page imports
 import Dashboard from '@/pages/dashboard';
@@ -313,6 +315,12 @@ function ClerkProviderWithRoutes() {
               <Route path="/" component={HomeRedirect} />
               <Route path="/sign-in/*?" component={SignInPage} />
               <Route path="/sign-up/*?" component={SignUpPage} />
+
+              {/* Public legal pages. Deliberately outside <SignedIn>: Google's
+                  OAuth verification fetches these anonymously, and a page that
+                  renders nothing when signed out reads as a broken link. */}
+              <Route path="/privacy" component={Privacy} />
+              <Route path="/terms" component={Terms} />
 
               {/* Admin Routes */}
               <Route path="/dashboard"><SignedIn><AdminRoute component={Dashboard} /></SignedIn></Route>
