@@ -26,7 +26,11 @@ services:
         VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY:?set VITE_CLERK_PUBLISHABLE_KEY in .env.deploy}
         VITE_CLERK_PROXY_URL: ${VITE_CLERK_PROXY_URL:-}
     restart: unless-stopped
-    env_file: .env.deploy
+    # List form on purpose. The scalar form is valid in current Compose but some
+    # deploy panels validate against an older schema and reject it as "should be
+    # an array"; this form is accepted everywhere and costs nothing.
+    env_file:
+      - .env.deploy
     environment:
       NODE_ENV: production
       PORT: 8080

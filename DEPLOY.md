@@ -328,3 +328,39 @@ Rotating credentials leaves `.env.deploy.bak-<timestamp>` files holding the same
 secrets as the live file. The `.env.deploy` ignore rule did not cover them; the
 pattern `.env.deploy.bak*` now does. Check `git status` on the server shows
 nothing before committing anything from there.
+
+### If a deploy fails on "required variable ... is missing a value"
+
+Symptom:
+
+```
+error while interpolating services.app.build.args.VITE_CLERK_PUBLISHABLE_KEY:
+  required variable VITE_CLERK_PUBLISHABLE_KEY is missing a value
+error while interpolating services.db.environment.POSTGRES_PASSWORD: ...
+```
+
+Cause: `env_file:` and `${...}` interpolation are two different mechanisms, and
+only one of them reads `.env.deploy`.
+
+- `env_file: .env.deploy` sets variables **inside the running container**. It has
+  no effect on the compose file itself.
+- `${VITE_CLERK_PUBLISHABLE_KEY}` and `${POSTGRES_PASSWORD}` are interpolated
+  **while the compose file is parsed**, before any container exists. Compose
+  takes those from the shell environment or from a file named exactly `.env` in
+  the project directory — never from `.env.deploy` unless told with
+  `--env-file`.
+
+So a deploy that runs plain `docker compose up` fails, and a deploy that runs
+`docker compose --env-file .env.deploy up` succeeds, on the same file.
+
+Fixed on the server by making `.env` a symlink:
+
+```
+cd /root/bisonlawn && ln -sfn .env.deploy .env
+```
+
+One file, one set of secrets, and both spellings of the command now work. Note
+that an **empty** `.env` is worse than none: compose finds it, interpolates
+nothing, and reports missing variables while `.env.deploy` sits there looking
+correct. If a deploy tool writes its own `.env`, that symlink will be replaced
+and the failure returns — check `ls -la /root/bisonlawn/.env` first.
