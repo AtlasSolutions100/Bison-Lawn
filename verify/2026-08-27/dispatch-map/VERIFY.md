@@ -70,3 +70,54 @@ from the map.
   his autumn board is not what this ran against.
 - The 16 verification jobs were created against real customers and deleted
   afterwards. Two clearly-named test accounts now exist for this instead.
+
+---
+
+# Assignment through the map, once there was a crew to assign to
+
+The assignment branch was code-verified only, because the demo subs went with the
+demo data. A test crew and sandbox now exist, so it has been exercised properly.
+
+## The sandbox
+
+- **Crew:** Mike R. (test), Dana K. (test), Luis M. (test) — each with a real base
+  address around Coeur d'Alene, Post Falls and Hayden, so the route builder's
+  anchor has somewhere sensible to start from.
+- **Customers:** the two personal test accounts plus six more, spread across the
+  three towns, with turf sqft, zones and gate codes filled so pricing and the
+  crew's job card have real values.
+- **Work:** eight jobs on the board and eight on the waiting list, all unassigned.
+
+All of it is removable in one pass — users `clerk_id LIKE 'test_crew_%'`, clients
+`external_id LIKE 'TEST-%'`, jobs `notes LIKE 'TEST SANDBOX%'`.
+
+## Verified
+
+Dragged a box over the whole service area: **8 stops, $1,300.00, 6.3 hrs**,
+matching the Unassigned tile exactly. Chose Mike R. and applied.
+
+| | before | after |
+|---|---|---|
+| assigned | all null | all "Mike R. (test)" |
+| scheduledDate | 2026-08-28 | 2026-08-28 (unchanged) |
+| routeOrder | null | null (unchanged) |
+
+The board then showed **Mike R. (test) — 8 stops — $1,300.00 — 6.3 hrs** on the
+crew load strip. The whole loop works: select an area, assign it, see the load
+land on the right person.
+
+Date and route order stayed untouched because the request carried neither. That
+property now has two independent proofs — this run and the route-order run above.
+
+## The crew cannot sign in, on purpose
+
+They carry no email and a synthetic `test_crew_` Clerk id. Accounts key on a
+Clerk-verified email, so a row with none can never be inherited by a real person
+signing up later — the same reasoning as the earlier demo subs.
+
+That means they are assignable names, not logins. **Clock in/out, job photos and
+the contractor's own screens cannot be exercised as one of them.** Testing those
+needs a real Clerk account: invite an address you control from the Team page with
+the contractor role, then sign in as it. A plus-alias works, since the owner check
+matches the configured owner address exactly and the test suite confirms a
+non-owner signing up first stays a contractor.
