@@ -113,7 +113,7 @@ export default function Dispatch() {
   );
 }
 
-/** Google's directions URL takes an origin, a destination and up to 8 waypoints. */
+/** Google's directions URL takes a destination plus up to 9 waypoints. */
 const MAX_MAP_STOPS = 10;
 
 /**
@@ -149,10 +149,14 @@ function googleMapsRouteUrl(jobs: Job[]): { url: string | null; used: number; dr
   const used = addressable.slice(0, MAX_MAP_STOPS);
   const dropped = jobs.length - used.length;
   const params = new URLSearchParams({ api: '1', travelmode: 'driving' });
-  params.set('origin', used[0].query);
+
+  // No origin on purpose: Google Maps then starts from wherever the driver
+  // actually is. Naming the first stop as the origin routes *from* the first
+  // customer, which skips the leg to it — and on a one-stop day produced a
+  // route from an address to itself, which navigates nowhere.
   params.set('destination', used[used.length - 1].query);
-  if (used.length > 2) {
-    params.set('waypoints', used.slice(1, -1).map(stop => stop.query).join('|'));
+  if (used.length > 1) {
+    params.set('waypoints', used.slice(0, -1).map(stop => stop.query).join('|'));
   }
   return { url: `https://www.google.com/maps/dir/?${params.toString()}`, used: used.length, dropped };
 }
