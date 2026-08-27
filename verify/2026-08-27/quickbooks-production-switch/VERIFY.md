@@ -79,3 +79,58 @@ person being asked to approve it.
 The full production path — authorize, token exchange, CompanyInfo, reports —
 cannot be exercised until the redirect URI is registered, and then only against a
 real company file. Everything verified to date was against the sandbox.
+
+---
+
+# Retest after the redirect URI was registered (same day)
+
+Koby added the URI to the Production keys tab. Re-ran the pre-flight.
+
+## Fixed
+
+- Connect now reaches `appcenter.intuit.com/app/connect/oauth2/**authorize**`
+  instead of `.../oauth2/error`. The redirect URI is accepted. (screenshot 03)
+- The app is no longer "Test App" — the consent screen reads **"Connecting Bison
+  Lawn Care CRM to ..."**, and the footer links to this app's own terms and
+  privacy statement, which are the /terms and /privacy pages added for the Google
+  verification. Those now do double duty.
+
+## Verified live: the declined path
+
+Backed out with "No thanks" rather than authorising. This exercised the
+`declined` outcome against production for the first time — previously
+code-verified only:
+
+- server logged `quickbooks authorisation was not granted`, returned 302
+- /books rendered "Not connected — QuickBooks did not grant access. Nothing was
+  changed." (screenshot 05)
+- `quickbooks_connection` row count stayed at **0**. A refused authorisation
+  writes nothing.
+
+## Not done deliberately: the authorisation itself
+
+Intuit offered the company **"work option dev"** (realm 9341457783727668), not
+Adam's books. Two reasons not to click Connect:
+
+1. It is not his company. Binding it would put someone else's figures on his
+   Books page, and because the grant would be a *production* grant, the "not your
+   real books" banner would not appear — the banner keys on the grant's
+   environment, and this would legitimately be production. The one guard that has
+   protected this feature all along does not cover "right environment, wrong
+   company".
+2. Granting access to a QuickBooks company file is the account holder's decision
+   to make, not something to do on someone's behalf while signed in as them.
+
+The remaining production path — authorize, token exchange, CompanyInfo, reports
+against a real company file — is therefore still unproven, and can only be proven
+when Adam connects. Everything up to the consent screen is now confirmed.
+
+## Outstanding: the app logo is broken on the consent screen
+
+At 400% zoom the app tile shows a broken-image placeholder with the alt text
+"Bison Lawn Care CRM" beside the QuickBooks mark. (screenshot 04)
+
+This is the screen where Adam is asked to hand over access to his real financial
+records. A broken image there reads as "something is wrong with this app" at
+exactly the moment trust matters most. Fix by uploading the app icon on the
+Intuit dashboard listing. Cosmetic to us; not to him.
