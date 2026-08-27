@@ -40,8 +40,13 @@ if (!clientId || !clientSecret) {
 const SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
 function openBrowser(url) {
+  // NOT `cmd /c start`: cmd.exe treats & as a command separator, so it hands the
+  // browser only the part of the URL before the first &. That silently drops
+  // response_type and Google answers "Required parameter is missing:
+  // response_type" - an error that looks like a bad request rather than a
+  // mangled URL. rundll32 takes the URL as one argument, unparsed.
   const command =
-    process.platform === "win32" ? ["cmd", ["/c", "start", "", url]]
+    process.platform === "win32" ? ["rundll32", ["url.dll,FileProtocolHandler", url]]
     : process.platform === "darwin" ? ["open", [url]]
     : ["xdg-open", [url]];
   try {
@@ -120,7 +125,7 @@ server.listen(0, "127.0.0.1", () => {
   authUrl.searchParams.set("access_type", "offline");
   authUrl.searchParams.set("prompt", "consent");
 
-  console.log("\nSign in as the business Gmail account at:\n");
+  console.log("\nSign in as the account mail should be SENT FROM (it becomes the visible sender):\n");
   console.log(authUrl.toString() + "\n");
   console.log(`Waiting for the redirect on ${redirectUri} ...`);
   openBrowser(authUrl.toString());

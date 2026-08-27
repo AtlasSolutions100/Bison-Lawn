@@ -12,12 +12,12 @@ Hostname: bisonlawncare.workoptional.tech. DNS: live, resolves to 31.220.50.13.
 | Caddyfile | **bind mount, read-only**: host `/home/deploy/takeoff/Caddyfile` → `/etc/caddy/Caddyfile` |
 | Certificates | volume `takeoff_caddy-data` → `/data` |
 | Serving | `workoptional.studio`, live to ~20 clients |
-| Caddyfile shape | one site block, addressed by the **env placeholder `{$SITE_HOST}`**; no global options block; upstream is the alias `app:8100` |
+| Caddyfile shape | `import /etc/caddy/conf.d/*.caddy` at **top level, line 11 — above the site block**, not at the tail; then one site block addressed by the env placeholder `{$SITE_HOST}`, upstream alias `app:8100` |
 
 ## The safety properties this relies on
 
 1. **This runbook never edits the takeoff Caddyfile.** Vhosts are dropped into
-   `~/takeoff/caddy-sites`, which the takeoff deploy does not overwrite. (The Caddyfile
+   `/home/deploy/takeoff/caddy-sites`, which the takeoff deploy does not overwrite. (The Caddyfile
    itself is `scp`'d over on every takeoff deploy, so editing it would be
    guaranteed to be lost — that is why the drop-in directory exists.)
 2. **`caddy reload` is atomic and zero-downtime.** If the new config fails to
@@ -35,7 +35,7 @@ Hostname: bisonlawncare.workoptional.tech. DNS: live, resolves to 31.220.50.13.
 - Never `docker compose down`, `restart`, or `up` in `/home/deploy/takeoff`.
 - Never edit `/home/deploy/takeoff/Caddyfile`. Every takeoff deploy `scp`s it
   over from its own repo; edits there are guaranteed to be lost.
-- Never leave an invalid file in `~/takeoff/caddy-sites`.
+- Never leave an invalid file in `/home/deploy/takeoff/caddy-sites`.
 - Always `validate` before `reload`.
 
 ---
@@ -49,14 +49,14 @@ line and the mounted directory:
 Done on the takeoff side as of 2026-08-26. Confirm rather than assume:
 
 ```bash
-tail -3 /home/deploy/takeoff/Caddyfile          # expect: import /etc/caddy/conf.d/*.caddy
-ls -ld ~/takeoff/caddy-sites
+grep -n import /home/deploy/takeoff/Caddyfile   # expect: import /etc/caddy/conf.d/*.caddy
+ls -ld /home/deploy/takeoff/caddy-sites
 docker exec takeoff-caddy-1 ls /etc/caddy/conf.d
 docker network ls | grep web-proxy
 ```
 
 The directory is mounted **read-only into the container** — that only stops Caddy
-from writing it. Writing to the host path `~/takeoff/caddy-sites/` is normal, and
+from writing it. Writing to the host path `/home/deploy/takeoff/caddy-sites/` is normal, and
 the takeoff deploy excludes that directory, so files there survive releases.
 
 If any of those are missing, stop — there is no safe place to put a vhost.
@@ -138,14 +138,14 @@ not ready and a vhost pointing at an unreachable upstream just adds noise.
 ## 5. Add the vhost
 
 The takeoff Caddyfile now ends with `import /etc/caddy/conf.d/*.caddy`, backed by
-a mounted `~/takeoff/caddy-sites` directory that the takeoff deploy never overwrites.
+a mounted `/home/deploy/takeoff/caddy-sites` directory that the takeoff deploy never overwrites.
 **Do not edit `/home/deploy/takeoff/Caddyfile`** — every takeoff deploy `scp`s
 that file over from its own repo, so any edit there is guaranteed to be lost.
 
 ### 5a. Drop the file in
 
 ```bash
-cat > ~/takeoff/caddy-sites/bisonlawncare.caddy <<'CADDY'
+cat > /home/deploy/takeoff/caddy-sites/bisonlawncare.caddy <<'CADDY'
 bisonlawncare.workoptional.tech {
 	encode zstd gzip
 
@@ -177,7 +177,7 @@ takes takeoff down at the next unrelated restart — a host reboot, a docker
 daemon restart, an OOM kill.
 
 ```bash
-docker exec takeoff-caddy-1 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile || rm ~/takeoff/caddy-sites/bisonlawncare.caddy
+docker exec takeoff-caddy-1 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile || rm /home/deploy/takeoff/caddy-sites/bisonlawncare.caddy
 ```
 
 Never walk away from a failed validate with the file still there.
@@ -203,10 +203,10 @@ Check takeoff first, every time. Then sign in to the CRM in a browser.
 ## Undoing the whole thing
 
 ```bash
-rm -f ~/takeoff/caddy-sites/bisonlawncare.caddy
+rm -f /home/deploy/takeoff/caddy-sites/bisonlawncare.caddy
 docker exec takeoff-caddy-1 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 docker exec takeoff-caddy-1 caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
-cd ~/bisonlawn && docker compose --env-file .env.deploy   -f docker-compose.yml -f docker-compose.proxy.yml down -v
+cd /root/bisonlawn && docker compose --env-file .env.deploy   -f docker-compose.yml -f docker-compose.proxy.yml down -v
 ```
 
 Leaves the host as found. The `web-proxy` network and the `import` line stay —
@@ -215,11 +215,11 @@ they are takeoff-side infrastructure now, and both are inert with nothing in
 
 ## Residual risk
 
-With the vhost in `~/takeoff/caddy-sites` and the network declared in takeoff's compose,
+With the vhost in `/home/deploy/takeoff/caddy-sites` and the network declared in takeoff's compose,
 the two fragilities in the earlier version of this runbook are gone: nothing here
 survives only as an untracked manual change.
 
-What remains: a broken file in `~/takeoff/caddy-sites` prevents Caddy from starting, so
+What remains: a broken file in `/home/deploy/takeoff/caddy-sites` prevents Caddy from starting, so
 it would take takeoff down at the next restart rather than at the moment of the
 mistake. Step 5b's `|| rm` is the guard. A `caddy validate` gate in the takeoff
 deploy, before it restarts anything, would make that guard belt-and-braces.

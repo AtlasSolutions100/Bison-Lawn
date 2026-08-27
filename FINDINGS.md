@@ -205,3 +205,44 @@ of a line continuation. Bash would have passed `n` as an argument to
 deleted the vhost file. Every fenced bash block in the deploy docs is now
 syntax-checked with `bash -n`: 12 blocks in the runbook, 12 in DEPLOY.md, 0
 errors. Worth re-running that check after any edit to those files.
+
+## 2026-08-26 — SESSION_SECRET is dead config
+
+`SESSION_SECRET` is set in the Replit environment and appears in the handover
+notes, but **nothing in this codebase reads it** (grep across artifacts, lib,
+scripts: zero hits). Auth is entirely Clerk, which manages its own sessions via
+cookies; there is no local session store. Removed from `.env.example` and
+`.env.deploy.example`, where it had been carried over unexamined.
+
+Consequence: the value in the handover notes does not need to be transferred,
+protected, or rotated for this app.
+
+## 2026-08-27 — live Gmail send proven; two bugs fixed
+
+**Live Gmail delivery works.** Sent through the app's real path
+(`lib/clientEmail` -> `lib/gmail` -> `lib/googleOAuth` -> Gmail REST API), not a
+hand-rolled request. Gmail message id `1a04153e858bbc71`. This closes the
+largest untested surface of the Replit migration.
+
+Getting there surfaced two real bugs:
+
+1. **`scripts/google-oauth-setup.mjs` opened a broken URL on Windows.** It used
+   `cmd /c start`, and cmd.exe treats `&` as a command separator — so the browser
+   received only the URL up to the first `&`. That includes `client_id` but drops
+   `response_type`, and Google answers "Required parameter is missing:
+   response_type", which reads like a malformed request rather than a truncated
+   URL. Now uses `rundll32 url.dll,FileProtocolHandler`, which takes the URL as
+   one unparsed argument.
+
+2. **The Gmail API was not enabled on the Google Cloud project.** The OAuth
+   exchange succeeded and the failure only appeared at the API call, as a 403
+   naming the project. Worth knowing that a valid token proves nothing about
+   whether the API is on.
+
+**Also corrected:** the runbook assumed the `import` line was at the tail of the
+takeoff Caddyfile. It is at **line 11, top level, above the site block** — which
+is correct placement, but `tail -3` would not have shown it and the check would
+have looked like a failure. Now `grep -n import`.
+
+**Paths:** the SSH key authorises `root`, not `deploy`, so `~` is `/root` while
+takeoff lives at `/home/deploy/takeoff`. All runbook paths made absolute.

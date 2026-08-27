@@ -26,7 +26,8 @@ cp .env.deploy.example .env.deploy
 $EDITOR .env.deploy          # every blank must be filled
 ```
 
-`SESSION_SECRET` and `POSTGRES_PASSWORD` should be fresh random strings:
+`POSTGRES_PASSWORD` is not something to look up — it is a brand new database in
+a brand new container, so you are choosing it. Generate one:
 
 ```bash
 openssl rand -base64 48
