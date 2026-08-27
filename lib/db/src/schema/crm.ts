@@ -61,6 +61,11 @@ export const clientsTable = pgTable("clients", {
   phone: text("phone"),
   additionalContact: text("additional_contact"),
   mapNote: text("map_note"),
+  // The identifier this record had in the system it was imported from — Service
+  // Autopilot's UserName, e.g. DUPL1001. Kept so a re-import updates the same
+  // customer instead of creating a second one, which on a 698-row file is not a
+  // mistake anyone unpicks by hand. Null for customers created here.
+  externalId: text("external_id"),
   // Route zone shorthand, e.g. "PF" for Post Falls. His old system put this on
   // the client card and colour-coded the board by it, so it is a first-class
   // column rather than another property detail: routing reads it constantly.
@@ -128,6 +133,9 @@ export type PricingEquation = {
 export const servicesTable = pgTable("services", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  // Same purpose as clients.externalId. Service Autopilot's own service Code,
+  // e.g. LAWN — stable across exports, unlike the name, which he edits.
+  externalId: text("external_id"),
   description: text("description"),
   quantity: doublePrecision("quantity").notNull().default(1),
   rate: doublePrecision("rate").notNull().default(0),
