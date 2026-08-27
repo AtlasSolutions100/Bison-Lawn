@@ -531,10 +531,13 @@ async function persistTokens(
   connection: QuickbooksConnection,
   tokens: TokenResponse,
 ): Promise<QuickbooksConnection> {
-  // Both halves are written. Intuit rotates the refresh token on every refresh,
-  // so storing only the access token leaves a stale refresh token on disk that
-  // keeps working until the old one ages out — the connection then dies weeks
-  // later for no visible reason.
+  // Both halves are written, because Intuit may hand back a new refresh token on
+  // any refresh. Measured 2026-08-27 against the sandbox: two consecutive
+  // refreshes returned the *same* refresh token and a rotated access token, so
+  // rotation is occasional (roughly daily) rather than per-refresh. Writing only
+  // the access token would therefore look correct for days and then strand a
+  // dead refresh token on disk — the connection dies later for no visible
+  // reason. Storing both costs nothing and removes the failure mode entirely.
   const [row] = await db
     .update(quickbooksConnectionTable)
     .set({
