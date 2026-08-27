@@ -370,3 +370,25 @@ that an **empty** `.env` is worse than none: compose finds it, interpolates
 nothing, and reports missing variables while `.env.deploy` sits there looking
 correct. If a deploy tool writes its own `.env`, that symlink will be replaced
 and the failure returns — check `ls -la /root/bisonlawn/.env` first.
+
+### Uploads volume ownership
+
+The app runs as `node` (uid 1000); the `bison-uploads` volume holds photos and
+document attachments. The Dockerfile creates `/data/uploads` owned by `node`, and
+Docker seeds a **fresh** named volume from the image at that path, ownership
+included — so a new deployment is writable with no manual step.
+
+Docker does **not** re-seed a volume that already exists. A volume created before
+that Dockerfile line is root-owned, and the failure is delayed and misleading:
+everything deploys healthy, and the first photo upload fails with `EACCES` days
+later, looking like a bug in the upload code. One-time fix per existing volume:
+
+```
+chown -R 1000:1000 "$(docker volume inspect bisonlawn_bison-uploads --format '{{.Mountpoint}}')"
+```
+
+Confirm with:
+
+```
+docker exec bisonlawn-app sh -c 'touch /data/uploads/.probe && echo writable && rm /data/uploads/.probe'
+```

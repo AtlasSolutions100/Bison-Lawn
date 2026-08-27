@@ -50,6 +50,17 @@ COPY --from=build /app /app
 
 # Drop privileges. node:24-slim already provides the `node` user.
 RUN chown -R node:node /app
+
+# The uploads mount point, created and owned here rather than left to Docker.
+# Docker seeds a *fresh* named volume from whatever the image has at this path,
+# ownership included — so creating it as node means a new deployment gets a
+# writable volume with no manual step. Without this the volume is created
+# root-owned and the first photo upload fails with EACCES, long after deploy,
+# looking like a bug in the upload code rather than a permissions problem.
+#
+# An existing root-owned volume is NOT fixed by this: Docker only seeds an empty
+# one. See DEPLOY.md for the one-time chown.
+RUN mkdir -p /data/uploads && chown -R node:node /data
 USER node
 
 EXPOSE 8080
