@@ -277,12 +277,20 @@ router.post("/clients/:id/client-services", async (req, res) => {
     const [svc] = await db.select().from(servicesTable).where(eq(servicesTable.id, serviceId));
     if (!svc) continue;
     let amount = body.amount ?? null;
+    // The band that priced this job also carries how long that size of job
+    // takes. Captured here rather than re-derived later: an explicit amount, or
+    // a later change to the matrix, would otherwise leave the hours pointing at
+    // a band this job was never priced from.
+    let tierBudgetedHours: number | null = null;
+    if (body.sqft != null && svc.pricingEquations.length > 0) {
+      const priced = calculatePrice(svc.pricingEquations, body.sqft);
+      tierBudgetedHours = priced.equationIndex == null
+        ? null
+        : svc.pricingEquations[priced.equationIndex]?.budgetedHours ?? null;
+      if (amount == null) amount = priced.price;
+    }
     if (amount == null) {
-      if (body.sqft != null && svc.pricingEquations.length > 0) {
-        amount = calculatePrice(svc.pricingEquations, body.sqft).price;
-      } else {
-        amount = svc.rate * (body.quantity ?? svc.quantity ?? 1);
-      }
+      amount = svc.rate * (body.quantity ?? svc.quantity ?? 1);
     }
     const inherited = <K extends keyof typeof body>(
       key: K,
@@ -349,7 +357,9 @@ router.post("/clients/:id/client-services", async (req, res) => {
         firstServiceDate,
         seasonEndDate,
         renewDate,
-        budgetedHours: body.budgetedHours ?? svc.billableHours ?? null,
+        // Most specific estimate first: what the office typed, then the matrix
+        // band this property actually falls in, then the service-wide figure.
+        budgetedHours: body.budgetedHours ?? tierBudgetedHours ?? svc.billableHours ?? null,
       },
     });
   }

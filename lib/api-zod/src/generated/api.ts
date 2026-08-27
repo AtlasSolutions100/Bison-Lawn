@@ -943,7 +943,9 @@ export const ListServicesResponseItem = zod.object({
   "basePrice": zod.number(),
   "baseSqft": zod.number().describe('Base price covers the first N sqft'),
   "incrementPrice": zod.number(),
-  "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
+  "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up'),
+  "budgetedHours": zod.number().nullish().describe('Expected labour hours for a job falling in this band. Per band because the work scales with the property — a 4,000 sqft mow is not the same job as a 19,000 sqft one. Null means no estimate for this band, which is deliberately distinct from zero.'),
+  "budgetedCost": zod.number().nullish().describe('Expected cost to deliver a job in this band, for job costing against the rate. Null means no estimate, not zero.')
 })).optional(),
   "contractorOfferable": zod.boolean().optional(),
   "contractorPrice": zod.number().nullish(),
@@ -972,7 +974,9 @@ export const CreateServiceBody = zod.object({
   "basePrice": zod.number(),
   "baseSqft": zod.number().describe('Base price covers the first N sqft'),
   "incrementPrice": zod.number(),
-  "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
+  "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up'),
+  "budgetedHours": zod.number().nullish().describe('Expected labour hours for a job falling in this band. Per band because the work scales with the property — a 4,000 sqft mow is not the same job as a 19,000 sqft one. Null means no estimate for this band, which is deliberately distinct from zero.'),
+  "budgetedCost": zod.number().nullish().describe('Expected cost to deliver a job in this band, for job costing against the rate. Null means no estimate, not zero.')
 })).optional(),
   "contractorOfferable": zod.boolean().optional(),
   "contractorPrice": zod.number().nullish(),
@@ -997,7 +1001,9 @@ export const CreateServiceResponse = zod.object({
   "basePrice": zod.number(),
   "baseSqft": zod.number().describe('Base price covers the first N sqft'),
   "incrementPrice": zod.number(),
-  "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
+  "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up'),
+  "budgetedHours": zod.number().nullish().describe('Expected labour hours for a job falling in this band. Per band because the work scales with the property — a 4,000 sqft mow is not the same job as a 19,000 sqft one. Null means no estimate for this band, which is deliberately distinct from zero.'),
+  "budgetedCost": zod.number().nullish().describe('Expected cost to deliver a job in this band, for job costing against the rate. Null means no estimate, not zero.')
 })).optional(),
   "contractorOfferable": zod.boolean().optional(),
   "contractorPrice": zod.number().nullish(),
@@ -1027,7 +1033,9 @@ export const GetServiceResponse = zod.object({
   "basePrice": zod.number(),
   "baseSqft": zod.number().describe('Base price covers the first N sqft'),
   "incrementPrice": zod.number(),
-  "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
+  "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up'),
+  "budgetedHours": zod.number().nullish().describe('Expected labour hours for a job falling in this band. Per band because the work scales with the property — a 4,000 sqft mow is not the same job as a 19,000 sqft one. Null means no estimate for this band, which is deliberately distinct from zero.'),
+  "budgetedCost": zod.number().nullish().describe('Expected cost to deliver a job in this band, for job costing against the rate. Null means no estimate, not zero.')
 })).optional(),
   "contractorOfferable": zod.boolean().optional(),
   "contractorPrice": zod.number().nullish(),
@@ -1059,7 +1067,9 @@ export const UpdateServiceBody = zod.object({
   "basePrice": zod.number(),
   "baseSqft": zod.number().describe('Base price covers the first N sqft'),
   "incrementPrice": zod.number(),
-  "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
+  "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up'),
+  "budgetedHours": zod.number().nullish().describe('Expected labour hours for a job falling in this band. Per band because the work scales with the property — a 4,000 sqft mow is not the same job as a 19,000 sqft one. Null means no estimate for this band, which is deliberately distinct from zero.'),
+  "budgetedCost": zod.number().nullish().describe('Expected cost to deliver a job in this band, for job costing against the rate. Null means no estimate, not zero.')
 })).optional(),
   "contractorOfferable": zod.boolean().optional(),
   "contractorPrice": zod.number().nullish(),
@@ -1084,7 +1094,9 @@ export const UpdateServiceResponse = zod.object({
   "basePrice": zod.number(),
   "baseSqft": zod.number().describe('Base price covers the first N sqft'),
   "incrementPrice": zod.number(),
-  "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
+  "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up'),
+  "budgetedHours": zod.number().nullish().describe('Expected labour hours for a job falling in this band. Per band because the work scales with the property — a 4,000 sqft mow is not the same job as a 19,000 sqft one. Null means no estimate for this band, which is deliberately distinct from zero.'),
+  "budgetedCost": zod.number().nullish().describe('Expected cost to deliver a job in this band, for job costing against the rate. Null means no estimate, not zero.')
 })).optional(),
   "contractorOfferable": zod.boolean().optional(),
   "contractorPrice": zod.number().nullish(),
@@ -1146,7 +1158,9 @@ export const ListPackagesResponseItem = zod.object({
   "basePrice": zod.number(),
   "baseSqft": zod.number().describe('Base price covers the first N sqft'),
   "incrementPrice": zod.number(),
-  "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
+  "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up'),
+  "budgetedHours": zod.number().nullish().describe('Expected labour hours for a job falling in this band. Per band because the work scales with the property — a 4,000 sqft mow is not the same job as a 19,000 sqft one. Null means no estimate for this band, which is deliberately distinct from zero.'),
+  "budgetedCost": zod.number().nullish().describe('Expected cost to deliver a job in this band, for job costing against the rate. Null means no estimate, not zero.')
 })).optional(),
   "contractorOfferable": zod.boolean().optional(),
   "contractorPrice": zod.number().nullish(),
@@ -1200,7 +1214,9 @@ export const CreatePackageResponse = zod.object({
   "basePrice": zod.number(),
   "baseSqft": zod.number().describe('Base price covers the first N sqft'),
   "incrementPrice": zod.number(),
-  "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
+  "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up'),
+  "budgetedHours": zod.number().nullish().describe('Expected labour hours for a job falling in this band. Per band because the work scales with the property — a 4,000 sqft mow is not the same job as a 19,000 sqft one. Null means no estimate for this band, which is deliberately distinct from zero.'),
+  "budgetedCost": zod.number().nullish().describe('Expected cost to deliver a job in this band, for job costing against the rate. Null means no estimate, not zero.')
 })).optional(),
   "contractorOfferable": zod.boolean().optional(),
   "contractorPrice": zod.number().nullish(),
@@ -1257,7 +1273,9 @@ export const UpdatePackageResponse = zod.object({
   "basePrice": zod.number(),
   "baseSqft": zod.number().describe('Base price covers the first N sqft'),
   "incrementPrice": zod.number(),
-  "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up')
+  "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up'),
+  "budgetedHours": zod.number().nullish().describe('Expected labour hours for a job falling in this band. Per band because the work scales with the property — a 4,000 sqft mow is not the same job as a 19,000 sqft one. Null means no estimate for this band, which is deliberately distinct from zero.'),
+  "budgetedCost": zod.number().nullish().describe('Expected cost to deliver a job in this band, for job costing against the rate. Null means no estimate, not zero.')
 })).optional(),
   "contractorOfferable": zod.boolean().optional(),
   "contractorPrice": zod.number().nullish(),

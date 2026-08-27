@@ -91,12 +91,31 @@ export const auditEventsTable = pgTable("audit_events", {
 export type AuditEvent = typeof auditEventsTable.$inferSelect;
 
 // ---------- services ----------
+/**
+ * One band of a service's rate matrix.
+ *
+ * `upToSqft` is the band's upper bound; the lower bound is the previous band's
+ * upper bound, so the office enters only the "To" value and the "From" follows.
+ * Read every *Sqft name as "units of the field this service is priced by" —
+ * they predate `pricingFieldId` and were never really about square feet.
+ *
+ * The flat case — a band with one rate and no increment — is what Adam's old
+ * system called a Rate Matrix, and it is the common one. base+increment is a
+ * superset kept because services already priced that way must not change.
+ *
+ * budgetedHours/budgetedCost are per band because the work scales with the
+ * property: a 4,000 sqft mow is not the same job as a 19,000 sqft mow, and a
+ * single figure on the service cannot say so. Both are optional — services
+ * priced before these existed simply have no estimate of their own.
+ */
 export type PricingEquation = {
   upToSqft: number | null;
   basePrice: number;
   baseSqft: number;
   incrementPrice: number;
   incrementSqft: number;
+  budgetedHours?: number | null;
+  budgetedCost?: number | null;
 };
 
 export const servicesTable = pgTable("services", {

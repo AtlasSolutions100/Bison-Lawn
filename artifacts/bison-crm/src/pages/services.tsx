@@ -25,6 +25,9 @@ const equationSchema = z.object({
   upToSqft: z.union([z.literal(''), z.coerce.number()]),
   incrementSqft: z.coerce.number().default(0),
   incrementPrice: z.coerce.number().default(0),
+  // Blank is meaningful: "no estimate for this band", not zero hours.
+  budgetedHours: z.union([z.literal(''), z.coerce.number().finite()]).optional(),
+  budgetedCost: z.union([z.literal(''), z.coerce.number().finite()]).optional(),
 });
 
 const serviceSchema = z.object({
@@ -313,6 +316,12 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
   const { data: estimateFields } = useListEstimateFields();
   const priceableFields = (estimateFields ?? []).filter(isPriceableField);
 
+  // Open on the base+increment columns only when this service already uses them,
+  // so the common flat matrix stays as narrow as his old one while a service
+  // priced the older way still shows every value it depends on.
+  const [showAdvanced, setShowAdvanced] = useState<boolean>(
+    (serviceToEdit?.pricingEquations ?? []).some(e => e.incrementPrice || e.incrementSqft || e.baseSqft),
+  );
   const [testSqft, setTestSqft] = useState<number>(0);
   const [testPrice, setTestPrice] = useState<number | null>(null);
 
@@ -332,7 +341,9 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
       pricingEquations: serviceToEdit?.pricingEquations?.map(equation => ({
         ...equation,
         upToSqft: equation.upToSqft ?? '',
-      })) || [{ baseSqft: 0, basePrice: 0, incrementSqft: 0, incrementPrice: 0, upToSqft: '' }],
+        budgetedHours: equation.budgetedHours ?? '',
+        budgetedCost: equation.budgetedCost ?? '',
+      })) || [{ baseSqft: 0, basePrice: 0, incrementSqft: 0, incrementPrice: 0, upToSqft: '', budgetedHours: '', budgetedCost: '' }],
       contractorOfferable: serviceToEdit?.contractorOfferable ?? false,
       contractorPrice: serviceToEdit?.contractorPrice ?? '',
       vendorName: serviceToEdit?.vendorName ?? '',
@@ -356,6 +367,10 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
       pricingEquations: raw.pricingEquations.map(equation => ({
         ...equation,
         upToSqft: equation.upToSqft === '' ? null : equation.upToSqft,
+        // Blank is 'no estimate for this band'. Coercing it to 0 would claim a
+        // mow takes no time, and job costing would quietly believe it.
+        budgetedHours: equation.budgetedHours === '' || equation.budgetedHours == null ? null : Number(equation.budgetedHours),
+        budgetedCost: equation.budgetedCost === '' || equation.budgetedCost == null ? null : Number(equation.budgetedCost),
       })),
       contractorPrice: raw.contractorPrice === '' || raw.contractorPrice == null ? null : Number(raw.contractorPrice),
       vendorName: raw.vendorName?.trim() || null,
@@ -511,38 +526,117 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
                 <div className="pt-4 border-t">
                   <div className="flex items-center justify-between mb-4">
                     <h4 className="font-semibold">Pricing Equations <span className="font-normal text-muted-foreground">— priced by {unitLabel}</span></h4>
-                    <Button type="button" variant="outline" size="sm" onClick={() => append({ baseSqft: 0, basePrice: 0, upToSqft: 0, incrementSqft: 0, incrementPrice: 0 })}>
+                    <Button type="button" variant="outline" size="sm" onClick={() => append({ baseSqft: 0, basePrice: 0, upToSqft: 0, incrementSqft: 0, incrementPrice: 0, budgetedHours: '', budgetedCost: '' })}>
                       <Plus className="w-3 h-3 mr-1" /> Add Tier
                     </Button>
                   </div>
                   
-                  <div className="space-y-4">
-                    {fields.map((field, index) => (
-                      <div key={field.id} className="p-4 bg-muted/30 border rounded-lg relative">
-                        <div className="grid grid-cols-2 gap-4">
-                          <FormField control={form.control} name={`pricingEquations.${index}.baseSqft`} render={({ field }) => (
-                            <FormItem><FormLabel>Base {unitLabel}</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage/></FormItem>
-                          )} />
-                          <FormField control={form.control} name={`pricingEquations.${index}.basePrice`} render={({ field }) => (
-                            <FormItem><FormLabel>Base Price ($)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage/></FormItem>
-                          )} />
-                          <FormField control={form.control} name={`pricingEquations.${index}.incrementSqft`} render={({ field }) => (
-                            <FormItem><FormLabel>Inc. {unitLabel} Step (Optional)</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''}/></FormControl><FormMessage/></FormItem>
-                          )} />
-                          <FormField control={form.control} name={`pricingEquations.${index}.incrementPrice`} render={({ field }) => (
-                            <FormItem><FormLabel>Inc. Price ($)</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''}/></FormControl><FormMessage/></FormItem>
-                          )} />
-                          <FormField control={form.control} name={`pricingEquations.${index}.upToSqft`} render={({ field }) => (
-                            <FormItem><FormLabel>Max {unitLabel} (End of tier)</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''}/></FormControl><FormMessage/></FormItem>
-                          )} />
-                        </div>
-                        {fields.length > 1 && (
-                          <Button type="button" variant="ghost" size="icon" className="absolute top-2 right-2 text-muted-foreground hover:text-destructive" onClick={() => remove(index)}>
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        )}
-                      </div>
-                    ))}
+                  {/*
+                    One band per row, entered across rather than down.
+
+                    Asked for directly: "can we change the matrix input to
+                    horizontal instead of vertical like it is now". His mowing
+                    matrix runs to nineteen bands, and as stacked cards that is
+                    several screens of scrolling to check one price — the shape
+                    of the table is what makes a matrix readable at all.
+
+                    "From" is shown but never typed: it is the previous band's
+                    "To" plus one. Two numbers that must agree, entered twice, is
+                    a gap or an overlap waiting to happen, and a gap here prices
+                    a lawn at zero.
+                  */}
+                  <div className="overflow-x-auto rounded-lg border">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/60">
+                        <tr className="[&>th]:px-2 [&>th]:py-2 [&>th]:text-left [&>th]:font-medium [&>th]:whitespace-nowrap">
+                          <th className="w-24">From</th>
+                          <th className="w-28">To</th>
+                          <th className="w-28">Rate ($)</th>
+                          {showAdvanced && <th className="w-28">Base {unitLabel}</th>}
+                          {showAdvanced && <th className="w-28">+ per step</th>}
+                          {showAdvanced && <th className="w-28">Step size</th>}
+                          <th className="w-24">B. Hrs</th>
+                          <th className="w-28">B. Cost ($)</th>
+                          <th className="w-10"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {fields.map((field, index) => {
+                          const previousTo = index === 0 ? null : form.watch(`pricingEquations.${index - 1}.upToSqft`);
+                          const from = index === 0
+                            ? 0
+                            : previousTo === '' || previousTo == null
+                              ? '—'
+                              : Number(previousTo) + 1;
+                          return (
+                            <tr key={field.id} className="border-t [&>td]:px-2 [&>td]:py-1.5 [&>td]:align-middle">
+                              <td className="tabular-nums text-muted-foreground">{from}</td>
+                              <td>
+                                <FormField control={form.control} name={`pricingEquations.${index}.upToSqft`} render={({ field }) => (
+                                  <FormItem className="space-y-0">
+                                    <FormControl>
+                                      <Input type="number" className="h-8" placeholder="and up" {...field} value={field.value === 0 ? 0 : field.value || ''} />
+                                    </FormControl>
+                                  </FormItem>
+                                )} />
+                              </td>
+                              <td>
+                                <FormField control={form.control} name={`pricingEquations.${index}.basePrice`} render={({ field }) => (
+                                  <FormItem className="space-y-0"><FormControl><Input type="number" step="0.01" className="h-8" {...field} /></FormControl></FormItem>
+                                )} />
+                              </td>
+                              {showAdvanced && (
+                                <td>
+                                  <FormField control={form.control} name={`pricingEquations.${index}.baseSqft`} render={({ field }) => (
+                                    <FormItem className="space-y-0"><FormControl><Input type="number" className="h-8" {...field} /></FormControl></FormItem>
+                                  )} />
+                                </td>
+                              )}
+                              {showAdvanced && (
+                                <td>
+                                  <FormField control={form.control} name={`pricingEquations.${index}.incrementPrice`} render={({ field }) => (
+                                    <FormItem className="space-y-0"><FormControl><Input type="number" step="0.01" className="h-8" {...field} value={field.value || ''} /></FormControl></FormItem>
+                                  )} />
+                                </td>
+                              )}
+                              {showAdvanced && (
+                                <td>
+                                  <FormField control={form.control} name={`pricingEquations.${index}.incrementSqft`} render={({ field }) => (
+                                    <FormItem className="space-y-0"><FormControl><Input type="number" className="h-8" {...field} value={field.value || ''} /></FormControl></FormItem>
+                                  )} />
+                                </td>
+                              )}
+                              <td>
+                                <FormField control={form.control} name={`pricingEquations.${index}.budgetedHours`} render={({ field }) => (
+                                  <FormItem className="space-y-0"><FormControl><Input type="number" step="0.05" className="h-8" placeholder="—" {...field} value={field.value ?? ''} /></FormControl></FormItem>
+                                )} />
+                              </td>
+                              <td>
+                                <FormField control={form.control} name={`pricingEquations.${index}.budgetedCost`} render={({ field }) => (
+                                  <FormItem className="space-y-0"><FormControl><Input type="number" step="0.01" className="h-8" placeholder="—" {...field} value={field.value ?? ''} /></FormControl></FormItem>
+                                )} />
+                              </td>
+                              <td>
+                                {fields.length > 1 && (
+                                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => remove(index)}>
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="flex items-center justify-between pt-1">
+                    <p className="text-xs text-muted-foreground">
+                      Leave the last <strong>To</strong> empty for “and up”. Budgeted hours and cost are optional —
+                      blank means no estimate for that band, which is different from zero.
+                    </p>
+                    <Button type="button" variant="ghost" size="sm" className="shrink-0 text-xs" onClick={() => setShowAdvanced(v => !v)}>
+                      {showAdvanced ? 'Hide' : 'Show'} base + increment
+                    </Button>
                   </div>
                 </div>
               </form>

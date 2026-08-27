@@ -18,4 +18,14 @@ export interface PricingEquation {
   incrementPrice: number;
   /** Additional price per N sqft, rounded up */
   incrementSqft: number;
+  /**
+     * Expected labour hours for a job falling in this band. Per band because the work scales with the property — a 4,000 sqft mow is not the same job as a 19,000 sqft one. Null means no estimate for this band, which is deliberately distinct from zero.
+     * @nullable
+     */
+  budgetedHours?: number | null;
+  /**
+     * Expected cost to deliver a job in this band, for job costing against the rate. Null means no estimate, not zero.
+     * @nullable
+     */
+  budgetedCost?: number | null;
 }
