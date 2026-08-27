@@ -278,8 +278,14 @@ switched to production. Sandbox figures cannot silently render as real books.
 On the server:
 
 ```
-/root/bisonlawn/deploy/deploy.sh
+bash /root/bisonlawn/deploy/deploy.sh
 ```
+
+Invoked through `bash` on purpose. The repository is edited from Windows, where
+NTFS has no executable bit, so every `git add` resets the file mode back to
+100644 no matter how many times it is set with `git update-index --chmod=+x`.
+Relying on the bit produces `Permission denied` on the server at the least
+convenient moment; naming the interpreter sidesteps the whole question.
 
 That is the whole thing. It fetches, fast-forwards, rebuilds, waits for the
 container to report healthy, checks the public health endpoint through Caddy, and
