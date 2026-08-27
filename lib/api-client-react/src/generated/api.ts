@@ -46,6 +46,7 @@ import type {
   CompanyProfile,
   CompanyProfileInput,
   ContractorEarnings,
+  CostingReport,
   DashboardSummary,
   DispatchInput,
   DocumentPreview,
@@ -68,6 +69,7 @@ import type {
   FieldNote,
   FieldNoteInput,
   GetContractorEarningsParams,
+  GetCostingReportParams,
   GetMyRouteParams,
   GetQuickbooksExpensesParams,
   GetQuickbooksProfitAndLossParams,
@@ -110,6 +112,8 @@ import type {
   PriceResult,
   QuickbooksReport,
   QuickbooksStatus,
+  ReportAnswer,
+  ReportQuestion,
   RouteBuildInput,
   RouteBuildResult,
   RouteResult,
@@ -10159,5 +10163,168 @@ export const useBuildRouteFromWaitingList = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getBuildRouteFromWaitingListMutationOptions(options));
+    }
+
+export const getGetCostingReportUrl = (params: GetCostingReportParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/reports/costing?${stringifiedParams}` : `/api/reports/costing`
+}
+
+/**
+ * @summary Budgeted against actual hours, by crew, service and customer
+ */
+export const getCostingReport = async (params: GetCostingReportParams, options?: Parameters<typeof customFetch>[1]): Promise<CostingReport> => {
+
+  return customFetch<CostingReport>(getGetCostingReportUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCostingReportQueryKey = (params?: GetCostingReportParams,) => {
+    return [
+    `/api/reports/costing`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetCostingReportQueryOptions = <TData = Awaited<ReturnType<typeof getCostingReport>>, TError = ErrorType<void>>(params: GetCostingReportParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCostingReport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCostingReportQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCostingReport>>> = ({ signal }) => getCostingReport(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCostingReport>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCostingReportQueryResult = NonNullable<Awaited<ReturnType<typeof getCostingReport>>>
+export type GetCostingReportQueryError = ErrorType<void>
+
+
+/**
+ * @summary Budgeted against actual hours, by crew, service and customer
+ */
+
+export function useGetCostingReport<TData = Awaited<ReturnType<typeof getCostingReport>>, TError = ErrorType<void>>(
+ params: GetCostingReportParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCostingReport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCostingReportQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAskReportQuestionUrl = () => {
+
+
+
+
+  return `/api/reports/ask`
+}
+
+/**
+ * The model chooses which curated report answers the question and writes the prose around the result. It never writes a query and never produces a figure; every number comes from the report that ran, and the rows are returned alongside so the answer can be checked.
+ * @summary Ask a question in plain English about the business's own data
+ */
+export const askReportQuestion = async (reportQuestion: ReportQuestion, options?: Parameters<typeof customFetch>[1]): Promise<ReportAnswer> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<ReportAnswer>(getAskReportQuestionUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(reportQuestion)
+  }
+);}
+
+
+
+
+
+export const getAskReportQuestionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof askReportQuestion>>, TError,AskReportQuestionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof askReportQuestion>>, TError,AskReportQuestionMutationVariables, TContext> => {
+
+const mutationKey = ['askReportQuestion'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof askReportQuestion>>, AskReportQuestionMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  askReportQuestion(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AskReportQuestionMutationResult = NonNullable<Awaited<ReturnType<typeof askReportQuestion>>>
+    export type AskReportQuestionMutationBody = BodyType<ReportQuestion>
+    export type AskReportQuestionMutationError = ErrorType<void>
+    export type AskReportQuestionMutationVariables = {data: BodyType<ReportQuestion>}
+
+    /**
+ * @summary Ask a question in plain English about the business's own data
+ */
+export const useAskReportQuestion = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof askReportQuestion>>, TError,AskReportQuestionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof askReportQuestion>>,
+        TError,
+        AskReportQuestionMutationVariables,
+        TContext
+      > => {
+      return useMutation(getAskReportQuestionMutationOptions(options));
     }
 

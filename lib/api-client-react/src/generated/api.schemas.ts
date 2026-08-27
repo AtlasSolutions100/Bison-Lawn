@@ -5,6 +5,71 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+export interface CostingRow {
+  key: string;
+  label: string;
+  jobs: number;
+  /** How many of those jobs have a closed clock entry. Everything derived from actual hours rests on this number. */
+  measuredJobs: number;
+  revenue: number;
+  /** @nullable */
+  budgetedHours?: number | null;
+  /**
+     * Null means the work was never clocked, which is not the same as zero hours
+     * @nullable
+     */
+  actualHours?: number | null;
+  /**
+     * actual minus budgeted; positive means it took longer than it was priced for
+     * @nullable
+     */
+  varianceHours?: number | null;
+  /** @nullable */
+  revenuePerHour?: number | null;
+}
+
+export interface CostingSummary {
+  from: string;
+  to: string;
+  completedJobs: number;
+  measuredJobs: number;
+  revenue: number;
+  /** @nullable */
+  budgetedHours?: number | null;
+  /** @nullable */
+  actualHours?: number | null;
+  /** @nullable */
+  varianceHours?: number | null;
+  /** @nullable */
+  revenuePerHour?: number | null;
+}
+
+export interface CostingReport {
+  summary: CostingSummary;
+  bySub: CostingRow[];
+  byService: CostingRow[];
+  byClient: CostingRow[];
+  /** Whether an XAI_API_KEY is set, so the UI can hide the question box rather than offer a control that always fails */
+  assistantAvailable: boolean;
+}
+
+export interface ReportQuestion {
+  /** @maxLength 500 */
+  question: string;
+  from: string;
+  to: string;
+}
+
+export interface ReportAnswer {
+  question: string;
+  /** @nullable */
+  reportKey?: string | null;
+  /** @nullable */
+  reportTitle?: string | null;
+  answer: string;
+  rows: CostingRow[];
+}
+
 /**
  * Coordinates are optional. A phone can refuse location and the work still happened, so a missing fix must never stop a crew clocking in or out.
  */
@@ -2505,4 +2570,9 @@ export const ListWebRequestsStatus = {
   converted: 'converted',
   dismissed: 'dismissed',
 } as const;
+
+export type GetCostingReportParams = {
+from: string;
+to: string;
+};
 

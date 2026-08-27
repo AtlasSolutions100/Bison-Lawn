@@ -2156,6 +2156,48 @@ paths:
         "400":
           description: Invalid cap or date
 
+  /reports/costing:
+    get:
+      operationId: getCostingReport
+      tags: [reports]
+      summary: Budgeted against actual hours, by crew, service and customer
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string } }
+        - { name: to, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Job costing
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CostingReport" }
+        "400":
+          description: Invalid date range
+  /reports/ask:
+    post:
+      operationId: askReportQuestion
+      tags: [reports]
+      summary: Ask a question in plain English about the business's own data
+      description: >-
+        The model chooses which curated report answers the question and writes
+        the prose around the result. It never writes a query and never produces a
+        figure; every number comes from the report that ran, and the rows are
+        returned alongside so the answer can be checked.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReportQuestion" }
+      responses:
+        "200":
+          description: The answer, with the rows it was drawn from
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReportAnswer" }
+        "400":
+          description: Missing or malformed question or range
+        "503":
+          description: No assistant is configured on this server
+
 components:
   parameters:
     IdParam:
@@ -2165,6 +2207,75 @@ components:
       schema:
         type: integer
   schemas:
+    CostingRow:
+      type: object
+      required: [key, label, jobs, measuredJobs, revenue]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        jobs: { type: integer }
+        measuredJobs:
+          type: integer
+          description: >-
+            How many of those jobs have a closed clock entry. Everything derived
+            from actual hours rests on this number.
+        revenue: { type: number }
+        budgetedHours: { type: ["number", "null"] }
+        actualHours:
+          type: ["number", "null"]
+          description: "Null means the work was never clocked, which is not the same as zero hours"
+        varianceHours:
+          type: ["number", "null"]
+          description: "actual minus budgeted; positive means it took longer than it was priced for"
+        revenuePerHour: { type: ["number", "null"] }
+    CostingSummary:
+      type: object
+      required: [from, to, completedJobs, measuredJobs, revenue]
+      properties:
+        from: { type: string }
+        to: { type: string }
+        completedJobs: { type: integer }
+        measuredJobs: { type: integer }
+        revenue: { type: number }
+        budgetedHours: { type: ["number", "null"] }
+        actualHours: { type: ["number", "null"] }
+        varianceHours: { type: ["number", "null"] }
+        revenuePerHour: { type: ["number", "null"] }
+    CostingReport:
+      type: object
+      required: [summary, bySub, byService, byClient, assistantAvailable]
+      properties:
+        summary: { $ref: "#/components/schemas/CostingSummary" }
+        bySub:
+          type: array
+          items: { $ref: "#/components/schemas/CostingRow" }
+        byService:
+          type: array
+          items: { $ref: "#/components/schemas/CostingRow" }
+        byClient:
+          type: array
+          items: { $ref: "#/components/schemas/CostingRow" }
+        assistantAvailable:
+          type: boolean
+          description: "Whether an XAI_API_KEY is set, so the UI can hide the question box rather than offer a control that always fails"
+    ReportQuestion:
+      type: object
+      required: [question, from, to]
+      properties:
+        question: { type: string, maxLength: 500 }
+        from: { type: string }
+        to: { type: string }
+    ReportAnswer:
+      type: object
+      required: [question, answer, rows]
+      properties:
+        question: { type: string }
+        reportKey: { type: ["string", "null"] }
+        reportTitle: { type: ["string", "null"] }
+        answer: { type: string }
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/CostingRow" }
     ClockInput:
       type: object
       properties:

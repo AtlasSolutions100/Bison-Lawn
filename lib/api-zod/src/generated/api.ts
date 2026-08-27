@@ -3450,3 +3450,93 @@ export const BuildRouteFromWaitingListResponse = zod.object({
 })
 
 
+/**
+ * @summary Budgeted against actual hours, by crew, service and customer
+ */
+export const GetCostingReportQueryParams = zod.object({
+  "from": zod.coerce.string(),
+  "to": zod.coerce.string()
+})
+
+export const GetCostingReportResponse = zod.object({
+  "summary": zod.object({
+  "from": zod.string(),
+  "to": zod.string(),
+  "completedJobs": zod.int(),
+  "measuredJobs": zod.int(),
+  "revenue": zod.number(),
+  "budgetedHours": zod.number().nullish(),
+  "actualHours": zod.number().nullish(),
+  "varianceHours": zod.number().nullish(),
+  "revenuePerHour": zod.number().nullish()
+}),
+  "bySub": zod.array(zod.object({
+  "key": zod.string(),
+  "label": zod.string(),
+  "jobs": zod.int(),
+  "measuredJobs": zod.int().describe('How many of those jobs have a closed clock entry. Everything derived from actual hours rests on this number.'),
+  "revenue": zod.number(),
+  "budgetedHours": zod.number().nullish(),
+  "actualHours": zod.number().nullish().describe('Null means the work was never clocked, which is not the same as zero hours'),
+  "varianceHours": zod.number().nullish().describe('actual minus budgeted; positive means it took longer than it was priced for'),
+  "revenuePerHour": zod.number().nullish()
+})),
+  "byService": zod.array(zod.object({
+  "key": zod.string(),
+  "label": zod.string(),
+  "jobs": zod.int(),
+  "measuredJobs": zod.int().describe('How many of those jobs have a closed clock entry. Everything derived from actual hours rests on this number.'),
+  "revenue": zod.number(),
+  "budgetedHours": zod.number().nullish(),
+  "actualHours": zod.number().nullish().describe('Null means the work was never clocked, which is not the same as zero hours'),
+  "varianceHours": zod.number().nullish().describe('actual minus budgeted; positive means it took longer than it was priced for'),
+  "revenuePerHour": zod.number().nullish()
+})),
+  "byClient": zod.array(zod.object({
+  "key": zod.string(),
+  "label": zod.string(),
+  "jobs": zod.int(),
+  "measuredJobs": zod.int().describe('How many of those jobs have a closed clock entry. Everything derived from actual hours rests on this number.'),
+  "revenue": zod.number(),
+  "budgetedHours": zod.number().nullish(),
+  "actualHours": zod.number().nullish().describe('Null means the work was never clocked, which is not the same as zero hours'),
+  "varianceHours": zod.number().nullish().describe('actual minus budgeted; positive means it took longer than it was priced for'),
+  "revenuePerHour": zod.number().nullish()
+})),
+  "assistantAvailable": zod.boolean().describe('Whether an XAI_API_KEY is set, so the UI can hide the question box rather than offer a control that always fails')
+})
+
+
+/**
+ * The model chooses which curated report answers the question and writes the prose around the result. It never writes a query and never produces a figure; every number comes from the report that ran, and the rows are returned alongside so the answer can be checked.
+ * @summary Ask a question in plain English about the business's own data
+ */
+export const askReportQuestionBodyQuestionMax = 500;
+
+
+
+export const AskReportQuestionBody = zod.object({
+  "question": zod.string().max(askReportQuestionBodyQuestionMax),
+  "from": zod.string(),
+  "to": zod.string()
+})
+
+export const AskReportQuestionResponse = zod.object({
+  "question": zod.string(),
+  "reportKey": zod.string().nullish(),
+  "reportTitle": zod.string().nullish(),
+  "answer": zod.string(),
+  "rows": zod.array(zod.object({
+  "key": zod.string(),
+  "label": zod.string(),
+  "jobs": zod.int(),
+  "measuredJobs": zod.int().describe('How many of those jobs have a closed clock entry. Everything derived from actual hours rests on this number.'),
+  "revenue": zod.number(),
+  "budgetedHours": zod.number().nullish(),
+  "actualHours": zod.number().nullish().describe('Null means the work was never clocked, which is not the same as zero hours'),
+  "varianceHours": zod.number().nullish().describe('actual minus budgeted; positive means it took longer than it was priced for'),
+  "revenuePerHour": zod.number().nullish()
+}))
+})
+
+

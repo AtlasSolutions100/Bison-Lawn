@@ -19,6 +19,7 @@ import quickbooksRouter from "./quickbooks";
 import timeTrackingRouter from "./time-tracking";
 import photosRouter from "./photos";
 import routeBuilderRouter from "./route-builder";
+import reportsRouter from "./reports";
 
 const router: IRouter = Router();
 
@@ -51,6 +52,7 @@ router.use(feedbackRouter);
 router.use(timeTrackingRouter);
 router.use(photosRouter);
 router.use(routeBuilderRouter);
+router.use(reportsRouter);
 router.use(settingsRouter);
 
 export default router;

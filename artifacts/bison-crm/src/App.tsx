@@ -26,6 +26,7 @@ import Invoices from '@/pages/invoices';
 import Tickets from '@/pages/tickets';
 import SprayRuns from '@/pages/spray-runs';
 import SpringLetters from '@/pages/spring-letters';
+import Reports from '@/pages/reports';
 import WebRequests from '@/pages/web-requests';
 import Automation from '@/pages/automation';
 import Team from '@/pages/team';
@@ -338,6 +339,7 @@ function ClerkProviderWithRoutes() {
               <Route path="/tickets"><SignedIn><AdminRoute component={Tickets} /></SignedIn></Route>
               <Route path="/spray-runs"><SignedIn><AdminRoute component={SprayRuns} /></SignedIn></Route>
               <Route path="/spring-letters"><SignedIn><AdminRoute component={SpringLetters} /></SignedIn></Route>
+              <Route path="/reports"><SignedIn><AdminRoute component={Reports} /></SignedIn></Route>
               <Route path="/web-requests"><SignedIn><AdminRoute component={WebRequests} /></SignedIn></Route>
               <Route path="/automation"><SignedIn><AdminRoute component={Automation} /></SignedIn></Route>
               <Route path="/team"><SignedIn><AdminRoute component={Team} /></SignedIn></Route>
