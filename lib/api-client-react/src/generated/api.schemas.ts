@@ -431,6 +431,47 @@ export interface BulkPriceAdjustResult {
   changes: BulkPriceAdjustResultChangesItem[];
 }
 
+export interface QuickbooksStatus {
+  connected: boolean;
+  /** Whether Intuit client credentials are present on the server */
+  configured: boolean;
+  /** @nullable */
+  companyName?: string | null;
+  /** @nullable */
+  realmId?: string | null;
+  /** @nullable */
+  environment?: string | null;
+  /** @nullable */
+  connectedAt?: string | null;
+  /** @nullable */
+  connectedByName?: string | null;
+  /** @nullable */
+  lastSyncedAt?: string | null;
+  /** @nullable */
+  lastError?: string | null;
+  /**
+     * Where to send the browser to authorise. Null when not configured.
+     * @nullable
+     */
+  connectUrl?: string | null;
+}
+
+export interface QuickbooksReportRow {
+  label: string;
+  amount: number;
+  isTotal?: boolean;
+  depth?: number;
+}
+
+export interface QuickbooksReport {
+  title: string;
+  from: string;
+  to: string;
+  /** @nullable */
+  currency?: string | null;
+  rows: QuickbooksReportRow[];
+}
+
 export type ClientStatus = typeof ClientStatus[keyof typeof ClientStatus];
 
 
@@ -2109,6 +2150,16 @@ export const ListFeedbackStatus = {
   read: 'read',
   done: 'done',
 } as const;
+
+export type GetQuickbooksProfitAndLossParams = {
+from?: string;
+to?: string;
+};
+
+export type GetQuickbooksExpensesParams = {
+from?: string;
+to?: string;
+};
 
 export type ListClientsParams = {
 status?: ListClientsStatus;

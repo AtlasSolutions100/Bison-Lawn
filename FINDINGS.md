@@ -587,3 +587,56 @@ block.
 
 Gate: full typecheck (build info cleared), 94/94 tests, production build passes
 — which also confirms the spray matcher's cross-package import bundles.
+
+## 2026-08-27 — full customer workflow proven live, and QuickBooks (read-only)
+
+**The end-to-end chain finally ran in production**, which had been the largest
+standing gap. New lead created through the estimate builder's "new prospect"
+flow → estimate built (Turf 7,400 → $148, Sprinkler Zones 8 → $96, Sprinkler
+Blow-Out 8 zones → **$135**, Weekly Mowing 7,400 sqft → $60, total $439) →
+emailed → customer unticked mowing and accepted.
+
+Result, read from the production database:
+- `accepted_lines [0,1,2]`, `accepted_total 379` against a quoted `439`
+- **one** job created — Sprinkler Blow-Out, dispatched 2026-08-28, $135
+- Weekly Mowing declined and **not** scheduled
+- audit: *"Accepted estimate #4 in part (3 of 4 items, $379.00 of $439.00).
+  Declined: Weekly Mowing"*
+- property details written back to the lead record
+
+That is per-service acceptance, zone pricing, the scheduler honouring the
+selection, and the vendor/service rules all working together on the real host.
+
+**QuickBooks: read-only, on-demand, nothing stored.** OAuth with a discovery
+document, transparent token refresh (both tokens persisted — storing only the
+access token kills the grant ~100 days later for no visible reason), and the
+expense view taken from the P&L's own Expenses/COGS/OtherExpenses sections so
+the two figures on screen cannot disagree.
+
+Notable decisions:
+- The QuickBooks router is mounted **immediately after health**, ahead of the
+  first router that calls `router.use(requireAuth)` with no path prefix.
+  Mounted later, the OAuth callback returns 401. There is a comment saying so;
+  a future reorder would break it silently.
+- `state` is 32 CSPRNG bytes, single-use, 15-minute TTL, deleted on lookup. The
+  callback trusts nothing else from the query string: `realmId` is shape-checked
+  then *proved* by fetching CompanyInfo, the redirect target only honours a
+  rooted single-slash path, and Intuit's `error` param is never echoed back.
+- Unknown `INTUIT_ENVIRONMENT` values fall back to sandbox deliberately, so a
+  typo cannot point real credentials at the live host.
+
+**Correction to something I told the owner:** I said no Intuit credential
+reaches the browser. The client **secret** never does (verified: 0 occurrences
+across a full `LOG_LEVEL=trace` run). The client **id** does — it is a query
+parameter of the authorize URL and therefore in the address bar during any
+authorization-code flow. That is how OAuth works and Intuit treats it as public,
+but "nothing reaches the browser" was too strong.
+
+**Not verified without a live grant:** the authorize → code → token round trip,
+the refresh *success* path and rotation persistence, the 401 retry, CompanyInfo
+realm verification, and real report JSON. The flattener is verified against a
+captured real payload plus synthetic depth-6 and empty-section variants.
+
+**Action before connecting:** the redirect URI must be registered on the Intuit
+dashboard exactly — `https://bisonlawncare.workoptional.tech/api/quickbooks/callback`
+for the deployed app, `http://localhost:5173/api/quickbooks/callback` for local.

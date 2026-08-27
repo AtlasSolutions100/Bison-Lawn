@@ -68,6 +68,8 @@ import type {
   FieldNoteInput,
   GetContractorEarningsParams,
   GetMyRouteParams,
+  GetQuickbooksExpensesParams,
+  GetQuickbooksProfitAndLossParams,
   HealthStatus,
   Invitation,
   InvitationInput,
@@ -102,6 +104,8 @@ import type {
   PaymentInput,
   PriceQueryInput,
   PriceResult,
+  QuickbooksReport,
+  QuickbooksStatus,
   RouteResult,
   SchedulingRule,
   SchedulingRuleInput,
@@ -1942,6 +1946,323 @@ export const useBulkAdjustServicePrices = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getBulkAdjustServicePricesMutationOptions(options));
     }
+
+export const getGetQuickbooksStatusUrl = () => {
+
+
+
+
+  return `/api/quickbooks/status`
+}
+
+/**
+ * @summary Whether QuickBooks is connected, and to which company
+ */
+export const getQuickbooksStatus = async ( options?: Parameters<typeof customFetch>[1]): Promise<QuickbooksStatus> => {
+
+  return customFetch<QuickbooksStatus>(getGetQuickbooksStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetQuickbooksStatusQueryKey = () => {
+    return [
+    `/api/quickbooks/status`
+    ] as const;
+    }
+
+
+export const getGetQuickbooksStatusQueryOptions = <TData = Awaited<ReturnType<typeof getQuickbooksStatus>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getQuickbooksStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetQuickbooksStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getQuickbooksStatus>>> = ({ signal }) => getQuickbooksStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getQuickbooksStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetQuickbooksStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getQuickbooksStatus>>>
+export type GetQuickbooksStatusQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Whether QuickBooks is connected, and to which company
+ */
+
+export function useGetQuickbooksStatus<TData = Awaited<ReturnType<typeof getQuickbooksStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getQuickbooksStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetQuickbooksStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDisconnectQuickbooksUrl = () => {
+
+
+
+
+  return `/api/quickbooks/disconnect`
+}
+
+/**
+ * @summary Forget the stored QuickBooks grant
+ */
+export const disconnectQuickbooks = async ( options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDisconnectQuickbooksUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getDisconnectQuickbooksMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectQuickbooks>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof disconnectQuickbooks>>, TError,void, TContext> => {
+
+const mutationKey = ['disconnectQuickbooks'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof disconnectQuickbooks>>, void> = () => {
+
+
+          return  disconnectQuickbooks(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DisconnectQuickbooksMutationResult = NonNullable<Awaited<ReturnType<typeof disconnectQuickbooks>>>
+
+    export type DisconnectQuickbooksMutationError = ErrorType<unknown>
+
+
+    /**
+ * @summary Forget the stored QuickBooks grant
+ */
+export const useDisconnectQuickbooks = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectQuickbooks>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof disconnectQuickbooks>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDisconnectQuickbooksMutationOptions(options));
+    }
+
+export const getGetQuickbooksProfitAndLossUrl = (params?: GetQuickbooksProfitAndLossParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/quickbooks/profit-and-loss?${stringifiedParams}` : `/api/quickbooks/profit-and-loss`
+}
+
+/**
+ * @summary Profit and loss for a date range
+ */
+export const getQuickbooksProfitAndLoss = async (params?: GetQuickbooksProfitAndLossParams, options?: Parameters<typeof customFetch>[1]): Promise<QuickbooksReport> => {
+
+  return customFetch<QuickbooksReport>(getGetQuickbooksProfitAndLossUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetQuickbooksProfitAndLossQueryKey = (params?: GetQuickbooksProfitAndLossParams,) => {
+    return [
+    `/api/quickbooks/profit-and-loss`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetQuickbooksProfitAndLossQueryOptions = <TData = Awaited<ReturnType<typeof getQuickbooksProfitAndLoss>>, TError = ErrorType<unknown>>(params?: GetQuickbooksProfitAndLossParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getQuickbooksProfitAndLoss>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetQuickbooksProfitAndLossQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getQuickbooksProfitAndLoss>>> = ({ signal }) => getQuickbooksProfitAndLoss(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getQuickbooksProfitAndLoss>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetQuickbooksProfitAndLossQueryResult = NonNullable<Awaited<ReturnType<typeof getQuickbooksProfitAndLoss>>>
+export type GetQuickbooksProfitAndLossQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Profit and loss for a date range
+ */
+
+export function useGetQuickbooksProfitAndLoss<TData = Awaited<ReturnType<typeof getQuickbooksProfitAndLoss>>, TError = ErrorType<unknown>>(
+ params?: GetQuickbooksProfitAndLossParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getQuickbooksProfitAndLoss>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetQuickbooksProfitAndLossQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetQuickbooksExpensesUrl = (params?: GetQuickbooksExpensesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/quickbooks/expenses?${stringifiedParams}` : `/api/quickbooks/expenses`
+}
+
+/**
+ * @summary Expenses by category for a date range
+ */
+export const getQuickbooksExpenses = async (params?: GetQuickbooksExpensesParams, options?: Parameters<typeof customFetch>[1]): Promise<QuickbooksReport> => {
+
+  return customFetch<QuickbooksReport>(getGetQuickbooksExpensesUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetQuickbooksExpensesQueryKey = (params?: GetQuickbooksExpensesParams,) => {
+    return [
+    `/api/quickbooks/expenses`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetQuickbooksExpensesQueryOptions = <TData = Awaited<ReturnType<typeof getQuickbooksExpenses>>, TError = ErrorType<unknown>>(params?: GetQuickbooksExpensesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getQuickbooksExpenses>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetQuickbooksExpensesQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getQuickbooksExpenses>>> = ({ signal }) => getQuickbooksExpenses(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getQuickbooksExpenses>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetQuickbooksExpensesQueryResult = NonNullable<Awaited<ReturnType<typeof getQuickbooksExpenses>>>
+export type GetQuickbooksExpensesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Expenses by category for a date range
+ */
+
+export function useGetQuickbooksExpenses<TData = Awaited<ReturnType<typeof getQuickbooksExpenses>>, TError = ErrorType<unknown>>(
+ params?: GetQuickbooksExpensesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getQuickbooksExpenses>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetQuickbooksExpensesQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getListClientsUrl = (params?: ListClientsParams,) => {
   const normalizedParams = new URLSearchParams();

@@ -608,6 +608,39 @@ export const documentTemplatesTable = pgTable("document_templates", {
 });
 export type DocumentTemplate = typeof documentTemplatesTable.$inferSelect;
 
+// ---------- QuickBooks connection ----------
+// The owner asked to "see the data from quickbooks without logging into quick
+// books. Mostly expenses and P&L statement".
+//
+// Read-only by intent: this stores an Intuit OAuth grant so the app can pull
+// reports, and nothing in the app ever writes back. Bookkeeping stays in
+// QuickBooks, where his accountant expects to find it.
+//
+// A singleton in practice — one business, one QuickBooks company — but keyed on
+// realmId so reconnecting to a different company is a visible new row rather
+// than a silent overwrite of the one his numbers came from.
+export const quickbooksConnectionTable = pgTable("quickbooks_connection", {
+  id: serial("id").primaryKey(),
+  // Intuit's id for the company file. Every API path includes it.
+  realmId: text("realm_id").notNull().unique(),
+  companyName: text("company_name"),
+  accessToken: text("access_token").notNull(),
+  // Access tokens last an hour; the refresh token is the thing worth protecting
+  // and the thing that expires (100 days) if nobody uses the integration.
+  refreshToken: text("refresh_token").notNull(),
+  accessTokenExpiresAt: timestamp("access_token_expires_at").notNull(),
+  refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
+  // sandbox | production. Development keys only reach Intuit's sandbox, so the
+  // environment has to travel with the grant — pointing a sandbox token at the
+  // production API fails in a way that looks like a permissions problem.
+  environment: text("environment").notNull().default("sandbox"),
+  connectedByName: text("connected_by_name"),
+  connectedAt: timestamp("connected_at").notNull().defaultNow(),
+  lastSyncedAt: timestamp("last_synced_at"),
+  lastError: text("last_error"),
+});
+export type QuickbooksConnection = typeof quickbooksConnectionTable.$inferSelect;
+
 // ---------- feedback ----------
 // In-app feedback from whoever is using the system, captured where they hit the
 // problem rather than in a separate email thread that loses its context.

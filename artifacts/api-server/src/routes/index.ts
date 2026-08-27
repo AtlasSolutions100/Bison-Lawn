@@ -15,10 +15,15 @@ import lettersRouter from "./letters";
 import webRequestsRouter from "./web-requests";
 import feedbackRouter from "./feedback";
 import settingsRouter from "./settings";
+import quickbooksRouter from "./quickbooks";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+// Ahead of jobsRouter, which is the first router to apply requireAuth to every
+// request that reaches it. The QuickBooks OAuth callback has to stay reachable
+// without a session — Intuit sends the browser to it, not the app.
+router.use(quickbooksRouter);
 router.use(usersRouter);
 router.use(clientsRouter);
 router.use(servicesRouter);

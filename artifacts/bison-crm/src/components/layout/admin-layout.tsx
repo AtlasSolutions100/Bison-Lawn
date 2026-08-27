@@ -15,7 +15,7 @@ import {
   Menu,
   SprayCan,
   Mail,
-  Globe, MessageSquarePlus , Settings2 } from 'lucide-react';
+  Globe, MessageSquarePlus , Settings2, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
 import { FeedbackButton } from '@/components/feedback-button';
@@ -27,6 +27,7 @@ const ADMIN_NAV = [
   { name: 'Clients', href: '/clients', icon: Users },
   { name: 'Estimates', href: '/estimates', icon: FileText },
   { name: 'Invoices', href: '/invoices', icon: Receipt },
+  { name: 'Books', href: '/books', icon: BookOpen },
   { name: 'Spray Runs', href: '/spray-runs', icon: SprayCan },
   { name: 'Services', href: '/services', icon: Settings },
   { name: 'Spring Letters', href: '/spring-letters', icon: Mail },

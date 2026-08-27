@@ -512,6 +512,73 @@ export const BulkAdjustServicePricesResponse = zod.object({
 
 
 /**
+ * @summary Whether QuickBooks is connected, and to which company
+ */
+export const GetQuickbooksStatusResponse = zod.object({
+  "connected": zod.boolean(),
+  "configured": zod.boolean().describe('Whether Intuit client credentials are present on the server'),
+  "companyName": zod.string().nullish(),
+  "realmId": zod.string().nullish(),
+  "environment": zod.string().nullish(),
+  "connectedAt": zod.string().nullish(),
+  "connectedByName": zod.string().nullish(),
+  "lastSyncedAt": zod.string().nullish(),
+  "lastError": zod.string().nullish(),
+  "connectUrl": zod.string().nullish().describe('Where to send the browser to authorise. Null when not configured.')
+})
+
+
+/**
+ * @summary Forget the stored QuickBooks grant
+ */
+export const DisconnectQuickbooksResponse = zod.void()
+
+
+/**
+ * @summary Profit and loss for a date range
+ */
+export const GetQuickbooksProfitAndLossQueryParams = zod.object({
+  "from": zod.coerce.string().optional(),
+  "to": zod.coerce.string().optional()
+})
+
+export const GetQuickbooksProfitAndLossResponse = zod.object({
+  "title": zod.string(),
+  "from": zod.string(),
+  "to": zod.string(),
+  "currency": zod.string().nullish(),
+  "rows": zod.array(zod.object({
+  "label": zod.string(),
+  "amount": zod.number(),
+  "isTotal": zod.boolean().optional(),
+  "depth": zod.int().optional()
+}))
+})
+
+
+/**
+ * @summary Expenses by category for a date range
+ */
+export const GetQuickbooksExpensesQueryParams = zod.object({
+  "from": zod.coerce.string().optional(),
+  "to": zod.coerce.string().optional()
+})
+
+export const GetQuickbooksExpensesResponse = zod.object({
+  "title": zod.string(),
+  "from": zod.string(),
+  "to": zod.string(),
+  "currency": zod.string().nullish(),
+  "rows": zod.array(zod.object({
+  "label": zod.string(),
+  "amount": zod.number(),
+  "isTotal": zod.boolean().optional(),
+  "depth": zod.int().optional()
+}))
+})
+
+
+/**
  * @summary List clients/leads with optional filters
  */
 export const ListClientsQueryParams = zod.object({

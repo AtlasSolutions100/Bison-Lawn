@@ -378,6 +378,68 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BulkPriceAdjustResult"
+  /quickbooks/status:
+    get:
+      operationId: getQuickbooksStatus
+      tags: [quickbooks]
+      summary: Whether QuickBooks is connected, and to which company
+      responses:
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuickbooksStatus"
+  /quickbooks/disconnect:
+    post:
+      operationId: disconnectQuickbooks
+      tags: [quickbooks]
+      summary: Forget the stored QuickBooks grant
+      responses:
+        "204":
+          description: Disconnected
+  /quickbooks/profit-and-loss:
+    get:
+      operationId: getQuickbooksProfitAndLoss
+      tags: [quickbooks]
+      summary: Profit and loss for a date range
+      parameters:
+        - in: query
+          name: from
+          required: false
+          schema: { type: string }
+        - in: query
+          name: to
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: Report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuickbooksReport"
+  /quickbooks/expenses:
+    get:
+      operationId: getQuickbooksExpenses
+      tags: [quickbooks]
+      summary: Expenses by category for a date range
+      parameters:
+        - in: query
+          name: from
+          required: false
+          schema: { type: string }
+        - in: query
+          name: to
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: Report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuickbooksReport"
   /clients:
     get:
       operationId: listClients
@@ -2178,6 +2240,44 @@ components:
               serviceName: { type: string }
               from: { type: number }
               to: { type: number }
+    QuickbooksStatus:
+      type: object
+      required: [connected, configured]
+      properties:
+        connected: { type: boolean }
+        configured:
+          type: boolean
+          description: "Whether Intuit client credentials are present on the server"
+        companyName: { type: ["string", "null"] }
+        realmId: { type: ["string", "null"] }
+        environment: { type: ["string", "null"] }
+        connectedAt: { type: ["string", "null"] }
+        connectedByName: { type: ["string", "null"] }
+        lastSyncedAt: { type: ["string", "null"] }
+        lastError: { type: ["string", "null"] }
+        connectUrl:
+          type: ["string", "null"]
+          description: "Where to send the browser to authorise. Null when not configured."
+    QuickbooksReportRow:
+      type: object
+      required: [label, amount]
+      properties:
+        label: { type: string }
+        amount: { type: number }
+        isTotal: { type: boolean }
+        depth: { type: integer }
+    QuickbooksReport:
+      type: object
+      required: [title, from, to, rows]
+      properties:
+        title: { type: string }
+        from: { type: string }
+        to: { type: string }
+        currency: { type: ["string", "null"] }
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuickbooksReportRow"
     Client:
       type: object
       required: [id, name, status, accountBalance]

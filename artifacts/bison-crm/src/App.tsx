@@ -31,6 +31,7 @@ import Automation from '@/pages/automation';
 import Team from '@/pages/team';
 import FeedbackPage from '@/pages/feedback';
 import Settings from '@/pages/settings';
+import Books from '@/pages/books';
 import MyJobs from '@/pages/my-jobs';
 import MyRoute from '@/pages/my-route';
 
@@ -333,6 +334,7 @@ function ClerkProviderWithRoutes() {
               <Route path="/waiting-list"><SignedIn><AdminRoute component={WaitingList} /></SignedIn></Route>
               <Route path="/dispatch"><SignedIn><AdminRoute component={Dispatch} /></SignedIn></Route>
               <Route path="/invoices"><SignedIn><AdminRoute component={Invoices} /></SignedIn></Route>
+              <Route path="/books"><SignedIn><AdminRoute component={Books} /></SignedIn></Route>
               <Route path="/tickets"><SignedIn><AdminRoute component={Tickets} /></SignedIn></Route>
               <Route path="/spray-runs"><SignedIn><AdminRoute component={SprayRuns} /></SignedIn></Route>
               <Route path="/spring-letters"><SignedIn><AdminRoute component={SpringLetters} /></SignedIn></Route>
