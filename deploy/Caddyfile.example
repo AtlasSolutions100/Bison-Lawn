@@ -18,7 +18,7 @@
 # 25MB body cap rather than takeoff's 512MB: this app has no large-upload route.
 # The cap is a floor under memory, not a target.
 
-bisonlawn.workoptional.tech {
+bisonlawncare.workoptional.tech {
 	encode zstd gzip
 
 	reverse_proxy bisonlawn-app:8080

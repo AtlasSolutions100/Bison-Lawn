@@ -50,7 +50,7 @@ docker exec takeoff-caddy-1 caddy validate --config /etc/caddy/Caddyfile --adapt
 Validation errors name the file and line and print the import chain, e.g.:
 
 ```
-Error: adapting config using caddyfile: unexpected EOF, at /etc/caddy/conf.d/bisonlawn.caddy:3
+Error: adapting config using caddyfile: unexpected EOF, at /etc/caddy/conf.d/bisonlawncare.caddy:3
   import chain ['/etc/caddy/Caddyfile:10 (import)']
 ```
 

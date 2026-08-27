@@ -110,7 +110,7 @@ containerised, so this stack uses `docker-compose.proxy.yml`: no host port, join
 Caddy's network, and Caddy reaches it as `bisonlawn-app:8080`. The existing site
 is not touched.
 
-Domain is `bisonlawn.workoptional.tech` (was written as `bison.` — corrected).
+Domain is `bisonlawncare.workoptional.tech` (was written as `bison.` — corrected).
 Container name standardised to `bisonlawn-app`.
 
 Clerk stays on the existing development keys for now — they work on a custom
@@ -195,6 +195,13 @@ an empty/absent `conf.d` is valid. Two cases only measured here:
 Hence the mandatory `|| rm` after validate, and the suggestion that the takeoff
 deploy gate restarts on `caddy validate`.
 
-**Open:** hostname not settled — `bisonlawn` (told to this session) vs
-`bisonlawncare` (told to the takeoff session). Different DNS record, different
-cert. DNS target is 31.220.50.13.
+**Settled:** hostname is `bisonlawncare.workoptional.tech`; DNS is live and
+resolves to 31.220.50.13 (verified from this machine).
+
+**Process note:** heredocs in this session were silently collapsing backslashes,
+which put a literal two-character `backslash-n` into a runbook command instead
+of a line continuation. Bash would have passed `n` as an argument to
+`caddy validate`, failing it, which would then have fired the `|| rm` and
+deleted the vhost file. Every fenced bash block in the deploy docs is now
+syntax-checked with `bash -n`: 12 blocks in the runbook, 12 in DEPLOY.md, 0
+errors. Worth re-running that check after any edit to those files.

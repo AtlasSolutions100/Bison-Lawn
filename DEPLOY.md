@@ -37,7 +37,7 @@ match it in the proxy config.
 
 ## 2. Point DNS at the box
 
-An `A` record for `bisonlawn.workoptional.tech` → the VPS IP. Do this *before*
+An `A` record for `bisonlawncare.workoptional.tech` → the VPS IP. Do this *before*
 starting Caddy, or certificate issuance fails and Caddy backs off for a while.
 
 ## 3. Build and start
@@ -105,7 +105,7 @@ Then point the proxy at `http://bisonlawn-app:8080`:
 - Traefik — uncomment the labels in `docker-compose.proxy.yml`.
 - Caddy (containerised) — add the block from `deploy/Caddyfile.example` to its
   Caddyfile, changing `reverse_proxy 127.0.0.1:8080` to `reverse_proxy bisonlawn-app:8080`.
-- Nginx Proxy Manager — add a Proxy Host: `bisonlawn.workoptional.tech` →
+- Nginx Proxy Manager — add a Proxy Host: `bisonlawncare.workoptional.tech` →
   forward to `bisonlawn-app` port `8080`, with "Websockets" on and an SSL cert
   requested. Make sure NPM is on the same network as `PROXY_NETWORK`.
 
@@ -122,7 +122,7 @@ nginx — add a server block and issue a cert with certbot:
 
 ```nginx
 server {
-    server_name bisonlawn.workoptional.tech;
+    server_name bisonlawncare.workoptional.tech;
     location / {
         proxy_pass         http://127.0.0.1:8080;
         proxy_http_version 1.1;
@@ -141,8 +141,8 @@ the Clerk proxy middleware builds its `Clerk-Proxy-Url` from them.
 ## 6. Check it
 
 ```bash
-curl -s https://bisonlawn.workoptional.tech/api/healthz     # {"status":"ok"}
-curl -s -o /dev/null -w '%{http_code}\n' https://bisonlawn.workoptional.tech/dispatch   # 200, not 404
+curl -s https://bisonlawncare.workoptional.tech/api/healthz     # {"status":"ok"}
+curl -s -o /dev/null -w '%{http_code}\n' https://bisonlawncare.workoptional.tech/dispatch   # 200, not 404
 docker compose --env-file .env.deploy logs -f app
 ```
 

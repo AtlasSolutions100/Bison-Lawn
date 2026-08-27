@@ -34,7 +34,7 @@ services:
     # http://bisonlawn-app:8080 instead.
     # labels:
     #   traefik.enable: "true"
-    #   traefik.http.routers.bisonlawn.rule: "Host(`bisonlawn.workoptional.tech`)"
+    #   traefik.http.routers.bisonlawn.rule: "Host(`bisonlawncare.workoptional.tech`)"
     #   traefik.http.routers.bisonlawn.entrypoints: "websecure"
     #   traefik.http.routers.bisonlawn.tls.certresolver: "letsencrypt"
     #   traefik.http.services.bisonlawn.loadbalancer.server.port: "8080"

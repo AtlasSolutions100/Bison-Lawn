@@ -1,6 +1,7 @@
 # Runbook — deploying alongside the live `takeoff` stack
 
 Written against the actual host as inspected 2026-08-26.
+Hostname: bisonlawncare.workoptional.tech. DNS: live, resolves to 31.220.50.13.
 
 ## What is already running
 
@@ -62,14 +63,14 @@ If any of those are missing, stop — there is no safe place to put a vhost.
 
 ## 2. DNS
 
-A record for the chosen hostname → **31.220.50.13**.
+A record for bisonlawncare.workoptional.tech → **31.220.50.13**.
 (`workoptional.tech` itself points at 2.57.91.91 and is hosted elsewhere — only
 the subdomain comes here.) Confirm it resolves
 *before* touching Caddy — Caddy tries to issue a certificate the moment the
 vhost loads, and repeated failures put it in a backoff.
 
 ```bash
-dig +short <hostname>            # must return 31.220.50.13
+dig +short bisonlawncare.workoptional.tech    # must return 31.220.50.13
 ```
 
 ## 3. Shared network
@@ -144,8 +145,8 @@ that file over from its own repo, so any edit there is guaranteed to be lost.
 ### 5a. Drop the file in
 
 ```bash
-cat > ~/takeoff/caddy-sites/bisonlawn.caddy <<'CADDY'
-bisonlawn.workoptional.tech {
+cat > ~/takeoff/caddy-sites/bisonlawncare.caddy <<'CADDY'
+bisonlawncare.workoptional.tech {
 	encode zstd gzip
 
 	reverse_proxy bisonlawn-app:8080
@@ -176,7 +177,7 @@ takes takeoff down at the next unrelated restart — a host reboot, a docker
 daemon restart, an OOM kill.
 
 ```bash
-docker exec takeoff-caddy-1 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile \n  || rm ~/takeoff/caddy-sites/bisonlawn.caddy
+docker exec takeoff-caddy-1 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile || rm ~/takeoff/caddy-sites/bisonlawncare.caddy
 ```
 
 Never walk away from a failed validate with the file still there.
@@ -193,8 +194,8 @@ A failed reload leaves the previous config running — takeoff keeps serving.
 
 ```bash
 curl -sI https://workoptional.studio | head -1                    # takeoff: unchanged
-curl -s  https://bisonlawn.workoptional.tech/api/healthz          # {"status":"ok"}
-curl -s -o /dev/null -w '%{http_code}\n' https://bisonlawn.workoptional.tech/dispatch   # 200
+curl -s  https://bisonlawncare.workoptional.tech/api/healthz          # {"status":"ok"}
+curl -s -o /dev/null -w '%{http_code}\n' https://bisonlawncare.workoptional.tech/dispatch   # 200
 ```
 
 Check takeoff first, every time. Then sign in to the CRM in a browser.
@@ -202,7 +203,7 @@ Check takeoff first, every time. Then sign in to the CRM in a browser.
 ## Undoing the whole thing
 
 ```bash
-rm -f ~/takeoff/caddy-sites/bisonlawn.caddy
+rm -f ~/takeoff/caddy-sites/bisonlawncare.caddy
 docker exec takeoff-caddy-1 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 docker exec takeoff-caddy-1 caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 cd ~/bisonlawn && docker compose --env-file .env.deploy   -f docker-compose.yml -f docker-compose.proxy.yml down -v
