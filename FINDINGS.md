@@ -115,3 +115,30 @@ Container name standardised to `bisonlawn-app`.
 
 Clerk stays on the existing development keys for now — they work on a custom
 domain, with Clerk's dev banner and usage limits. No key rotation needed.
+
+## 2026-08-26 — deploy alongside a live production stack
+
+The target host also runs `takeoff` (caddy:2-alpine on 80/443 + an app on 8100),
+serving `workoptional.studio` to ~20 clients. That constrains the deploy.
+
+**Changed**
+- `docker-compose.proxy.yml` now expects a **dedicated** shared network
+  (`web-proxy`), not the proxy's own project network. Attaching this stack to
+  `takeoff_default` would have made `docker compose down` in the takeoff project
+  fail with "network in use" — coupling an unrelated live stack to ours.
+- `deploy/RUNBOOK-srv1928610.md`: host-specific procedure with backup,
+  validate-before-reload, per-step checks of the live site, and a full undo.
+
+**Verified**
+- Both compose configurations resolve: overlay yields `bisonlawn-app` on
+  `default` + external `web-proxy`, zero published ports; base file alone keeps
+  the `127.0.0.1` binding.
+
+**Notes for whoever runs it**
+- The takeoff Caddyfile is a host bind mount (`/home/deploy/takeoff/Caddyfile`,
+  read-only into the container), so it can be backed up and restored on the host.
+- `caddy reload` is atomic: an invalid config fails to load and the previous one
+  keeps serving. Never `restart`.
+- `docker network connect` attaches a running container with no restart.
+- Remaining fragility: recreating the takeoff stack can drop the manually added
+  network from its Caddy container. That 502s bisonlawn, never takeoff.

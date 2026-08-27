@@ -1,32 +1,46 @@
-# Overlay for a VPS that already runs a reverse-proxy container owning 80/443.
+# Overlay for a host where a reverse-proxy container already owns 80/443.
 #
-# Instead of publishing a host port, the app joins the proxy's Docker network and
-# the proxy reaches it by container name. Nothing about the existing stack changes.
+# The app publishes no host port; the proxy reaches it by container name over a
+# shared Docker network.
 #
 #   docker compose --env-file .env.deploy \
 #     -f docker-compose.yml -f docker-compose.proxy.yml up -d --build
 #
-# Set PROXY_NETWORK in .env.deploy to the network the proxy container is on
-# (find it with: docker inspect <proxy-container> --format '{{json .NetworkSettings.Networks}}').
+# IMPORTANT — use a DEDICATED network, not the proxy's own project network.
+# Attaching this stack to another project's network (e.g. takeoff_default) makes
+# `docker compose down` on that project fail with "network in use", because this
+# container is still attached. A separate shared network keeps the two projects
+# independent in both directions. Create it once:
+#
+#   docker network create web-proxy
+#   docker network connect web-proxy takeoff-caddy-1   # live; no restart
+#
+# Then set PROXY_NETWORK=web-proxy in .env.deploy.
+#
+# Trade-off, stated plainly: if the proxy's own stack is later recreated
+# (`docker compose up -d` in its directory), Compose may drop the manually added
+# network from the proxy container and this site starts returning 502 until
+# `docker network connect web-proxy <proxy-container>` is run again. That
+# failure lands on THIS app, never on the proxy's own site — which is the right
+# way round.
 services:
   app:
-    # Drop the host port binding from the base file: the proxy is the only
-    # thing that needs to reach this, and it does so over the shared network.
+    # Drop the host port binding from the base file.
     ports: !reset []
     networks:
       - default
       - proxy
-    # Traefik users: uncomment and adjust. Caddy/nginx users ignore these and
-    # add a vhost pointing at http://bisonlawn-app:8080 instead.
+    # Traefik only. Caddy/nginx users add a vhost pointing at
+    # http://bisonlawn-app:8080 instead.
     # labels:
     #   traefik.enable: "true"
-    #   traefik.http.routers.bison.rule: "Host(`bisonlawn.workoptional.tech`)"
-    #   traefik.http.routers.bison.entrypoints: "websecure"
-    #   traefik.http.routers.bison.tls.certresolver: "letsencrypt"
-    #   traefik.http.services.bison.loadbalancer.server.port: "8080"
+    #   traefik.http.routers.bisonlawn.rule: "Host(`bisonlawn.workoptional.tech`)"
+    #   traefik.http.routers.bisonlawn.entrypoints: "websecure"
+    #   traefik.http.routers.bisonlawn.tls.certresolver: "letsencrypt"
+    #   traefik.http.services.bisonlawn.loadbalancer.server.port: "8080"
     container_name: bisonlawn-app
 
 networks:
   proxy:
     external: true
-    name: ${PROXY_NETWORK:?set PROXY_NETWORK in .env.deploy to the existing proxy network}
+    name: "${PROXY_NETWORK:?set PROXY_NETWORK in .env.deploy - create the network first with docker network create web-proxy}"
