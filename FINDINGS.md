@@ -716,3 +716,27 @@ owing the customer. Server now returns a floored `balance`.
 **Not browser-verified.** The Chrome extension would not connect this session,
 so the five UI changes typecheck and are wired to endpoints proven at the API
 layer, but have not been seen in a browser. Not deployed.
+
+## 2026-09-03 — browser pass, live sends, and the coupon page break
+
+Browser pass done, so the previous entry's "not browser-verified" no longer
+stands: Invoice #/Terms column, PDF, Send/Resend, the New Invoice line editor,
+the skip toast and the durable "Chargeable" marker were all seen working in
+Chrome. Two real invoice emails went out through the production Gmail path to
+Work Optional addresses (message ids `1a0697bfb532fa5b`, `1a0697c2442fdc76`).
+
+The browser pass earned its keep: the invoice rendered as **two pages with the
+payment coupon alone on the second**. `needSpace` compared against a hardcoded
+`700` when a Letter page's real content bottom is `738`, wasting 38pt of every
+sheet. A three-line invoice with a note now fits on one page, as his own #4848
+does. Guarded by two new tests in both directions.
+
+`invoiceDocument.test.ts` was never in the `pnpm test` script — it had only ever
+been run by hand. Added; the suite is now 107 tests.
+
+The extension's failure to connect was **Chrome not running at all**, not a
+missing install. Separately, `npx` in Git Bash translates `BASE_PATH=/` into the
+MSYS root, serving the app at `/Program%20Files/Git/`; launch vite through
+`node .../vite/dist/node/cli.js` instead.
+
+Still not deployed, and the `ALTER TABLE` has not been run anywhere.

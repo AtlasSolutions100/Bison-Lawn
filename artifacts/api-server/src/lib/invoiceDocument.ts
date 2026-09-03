@@ -102,8 +102,13 @@ export async function createInvoicePdf(data: InvoiceDocumentData): Promise<Buffe
     doc.on("error", reject);
 
     let y = 0;
+    // The last y a block may still start at. Taken from the page rather than
+    // hardcoded: a literal 700 left 38pt of every Letter page unused, which was
+    // enough to push the payment coupon onto a sheet of its own on an invoice
+    // with as few as three lines.
+    const contentBottom = () => doc.page.height - doc.page.margins.bottom;
     const needSpace = (needed: number) => {
-      if (y + needed > 700) {
+      if (y + needed > contentBottom()) {
         doc.addPage();
         y = 54;
       }
@@ -269,7 +274,13 @@ export async function createInvoicePdf(data: InvoiceDocumentData): Promise<Buffe
     // --- payment coupon ---------------------------------------------------
     // A detachable stub, as on his own invoices: the customer tears it off and
     // returns it with a cheque, which is how a real share of his book pays.
-    needSpace(150);
+    // What the block below actually occupies: the gap and rule (32), the
+    // heading and its gap (20), the taller of the address and the three meta
+    // rows, the gap above the remit line (12), and the remit and contact lines
+    // with room for the remit to wrap (48). Measured at 133.9pt for a
+    // three-line address, so this stays an upper bound — it has to be, or the
+    // coupon tears across the page break, which is worse than a second sheet.
+    needSpace(32 + 20 + Math.max(billTo.length * 13.5, 45) + 12 + 48);
     y += 16;
     doc.save().dash(3, { space: 3 }).moveTo(54, y).lineTo(558, y).lineWidth(1).strokeColor(MUTED).stroke().restore();
     y += 16;

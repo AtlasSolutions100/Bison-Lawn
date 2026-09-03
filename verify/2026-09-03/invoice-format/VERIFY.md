@@ -4,12 +4,15 @@ Date: 2026-09-03
 Scope: bring invoices to the format Adam already sends (from `Invoice.pdf`,
 his "Bison Bill"), plus the one-free-skip-a-year term from his quote.
 
-## Status: verified at the API and document layer. **Browser pass not done.**
+## Status: verified in a browser, and by two real emails. Not deployed.
 
-The Chrome extension was not connected this session
-(`tabs_context_mcp` -> "Browser extension is not connected"), so the working
-contract's browser requirement is **not** satisfied for the UI changes. What was
-verified is stated precisely below; what was not is stated just as plainly.
+The browser pass and the live send are both done. The browser pass found one
+real defect — the payment coupon was landing on a page of its own — which is
+fixed and guarded by tests below. What is still outstanding is only the deploy.
+
+The extension would not connect at first. The cause was not a missing install:
+**Chrome was not running at all** (0 processes). Started it and it paired first
+try. Worth knowing before assuming an extension fault next time.
 
 ## What was built
 
@@ -145,20 +148,98 @@ customer. The server now returns a floored `balance` and the UI uses it. The
 overpayment was already correctly held as account credit; only the display was
 wrong.
 
+## Evidence 4 — the browser pass (2026-09-03)
+
+Chrome, signed in as the owner, against the local API and database.
+
+| Item | Result |
+|---|---|
+| Invoice # column with terms beneath | `#4900` over `Net 15`. Legacy rows show their id |
+| PDF button | Opens `/api/invoices/412/pdf` inline in a new tab, titled "Invoice 4900" |
+| Send vs Resend | #4900 reads **Resend** (it has a `sentAt`); every other row reads **Send** |
+| Resend confirm | "This invoice was already emailed on Sep 3, 2026. Send it again?" |
+| New Invoice line editor | Client pick showed "Terms: Net 15"; live total `$147.00` for 3 x $49 |
+| Create through the dialog | Created **#4901**, $147.00, Net 15 — numbering advanced through the UI |
+| Skip toast (first skip) | "Skip recorded — free / Free skip — the customer's one allowed skip for 2026." |
+| Skip toast (second skip) | "Skip recorded — chargeable / ... already used their free skip in 2026." |
+| "Chargeable" marker | Renders under SKIPPED on the second skip only, and **survives a reload** |
+
+Database after the two skips, confirming the toast was not merely cosmetic:
+
+```
+  id  | client_id | status  | skip_billable |       skipped_at
+  867 |       309 | skipped | f             | 2026-09-03 23:23:16.671
+ 1237 |       309 | skipped | t             | 2026-09-03 23:23:31.664
+```
+
+`window.confirm` was stubbed to return **false** for the Resend check rather than
+clicked through — a native modal freezes the extension, and cancelling also
+proved the cancel path: `sent_at` stayed at `22:55:25.146`, unchanged.
+
+Screenshots: `browser-invoice-one-page.jpg`, `browser-skip-chargeable.jpg`.
+
+## Evidence 5 — two real invoice emails
+
+`POST /invoices/:id/send` through the real route, the real PDF builder and the
+real Gmail API. Nothing mocked but Clerk. Sent to Work Optional addresses only,
+via the route's `toEmail` override, so no customer record was touched.
+
+| To | Gmail message id | `sentAt` stamped |
+|---|---|---|
+| koby@radiantaisoftware.com | `1a0697bfb532fa5b` | 2026-09-03 22:55:25 |
+| kobystull123@gmail.com | `1a0697c2442fdc76` | 2026-09-03 22:55:35 |
+
+Attachment `Bison-Lawn-Care-LLC-Invoice-4902.pdf`, 32,897 bytes. Numbering ran
+4900 -> 4903 across four invoices with no gaps.
+
+## The defect the browser pass found: the coupon on its own page
+
+The rendered invoice was **two pages**, the second holding nothing but the
+payment coupon. His own #4848 is one page with the coupon at the bottom — a
+tear-off stub on a separate sheet is not a tear-off stub, and it doubles the
+paper and postage on every mailed invoice.
+
+Cause: `needSpace` compared against a hardcoded `700`, but a Letter page's real
+content bottom is `792 - 54 = 738`. That wasted 38pt of every sheet. The coupon
+also claimed a flat `150pt` when it measures **133.9pt**.
+
+Measured page counts, before and after:
+
+| Lines | Note | Before | After |
+|---|---|---|---|
+| 3 | yes | 2 | **1** |
+| 5 | no | 2 | **1** |
+| 24 | yes | 3 | **2** |
+
+Nothing overflows: across every line count the largest single-page coupon ends
+at **706.9** against the 738 bottom, and every spilled case starts the coupon
+cleanly at the top of the next page rather than tearing across the break. The
+`needed` figure is now derived from the address block's real line count and
+deliberately kept an upper bound — underestimating splits the coupon, which is
+worse than a second sheet.
+
+The other two `needSpace` bounds were checked before raising the limit and are
+honest: a row asks `descHeight + 22` and draws `descHeight + 18`; the totals
+block asks `96` and draws at most `78`.
+
+Two tests now guard it, in both directions — that ordinary invoices stay on one
+page, and that long ones still break. **`invoiceDocument.test.ts` was not in the
+`pnpm test` script**, so it had never run in the aggregate; it is now.
+
+## Tests
+
+`107 pass / 0 fail` across all nine suites (94 previously + 13 invoice-document,
+up from 11). Workspace typecheck clean.
+
 ## Not verified — be specific about this
 
-- **No browser pass.** The extension would not connect. Unverified in a browser:
-  the Invoice # / Terms column, the PDF and Send buttons, the line-item editor in
-  New Invoice, the skip toast, and the "Chargeable" marker on the dispatch board.
-  All typecheck and are wired to endpoints proven at the API layer, but per the
-  working contract that is **not** the same as done.
-- **No live email send.** `POST /invoices/:id/send` is proven only against a fake
-  Gmail proxy in tests. The real Gmail path is the same one estimates already use
-  in production, but this specific endpoint has not sent a real message.
-- **Not deployed.** All of the above is local.
+- **Not deployed.** Everything above is local. Production has not been touched.
+- **The `ALTER TABLE` has not been run anywhere.** See the deploy hazard above.
+- Reports and Books were not re-checked after the skip rows were added; the two
+  skipped jobs are demo data created for this pass and are still in the local
+  database.
 
 ## Next
 
-1. Reconnect the Chrome extension and do the browser crawl on the five UI items.
-2. Send one real invoice to a Work Optional address before Adam sees the button.
-3. Deploy: `ALTER TABLE` first, then `push`, then the app — per DEPLOY.md.
+1. Deploy: `ALTER TABLE` first, then `push`, then the app — per DEPLOY.md.
+2. Decide the `weatherScheduler.ts` `America/Chicago` question (flagged, not changed).

@@ -170,6 +170,71 @@ test("an invoice with no lines still renders rather than throwing", async () => 
   assert.equal(pdf.subarray(0, 5).toString("latin1"), "%PDF-");
 });
 
+const pageCount = (pdf: Buffer) => (pdf.toString("latin1").match(/\/Type\s*\/Page[^s]/g) ?? []).length;
+
+const manyLines = (n: number) =>
+  Array.from({ length: n }, (_, i) => ({
+    id: i + 1,
+    invoiceId: 12,
+    description: `Service line ${i + 1}`,
+    serviceDate: "2026-08-12",
+    quantity: 1,
+    unitPrice: 49,
+    total: 49,
+    sortOrder: i,
+  })) as unknown as InvoiceLineItem[];
+
+// The page break used to be measured against a hardcoded 700 rather than the
+// page's real content bottom of 738. That wasted 38pt of every sheet, which was
+// enough to push the payment coupon alone onto a second page on an invoice with
+// three lines and a note — doubling the paper and postage on a mailed invoice.
+test("an ordinary invoice keeps its payment coupon on one page", async () => {
+  const withNote = { ...baseInvoice, notes: "Thanks — please return the stub with your cheque." } as Invoice;
+
+  for (const [count, invoice] of [
+    [3, withNote],
+    [5, baseInvoice],
+  ] as const) {
+    const pdf = await createInvoicePdf({
+      invoice,
+      client: baseClient,
+      lines: manyLines(count),
+      company,
+    });
+    assert.equal(
+      pageCount(pdf),
+      1,
+      `${count} lines${invoice.notes ? " with a note" : ""} should fit on a single page`,
+    );
+  }
+});
+
+// The other half of the same guard, in the other direction: `needed` must stay
+// an upper bound on what the coupon actually draws, or it starts too near the
+// bottom and tears across the break — a dashed rule on one sheet and the remit
+// details on the next, which is worse than a clean second page. These counts
+// were measured against the rendered output; a change either way means the
+// break moved and wants looking at.
+test("invoices spill to a second page only when they genuinely need one", async () => {
+  const expected: [lines: number, pages: number][] = [
+    [1, 1],
+    [5, 1],
+    [8, 2],
+    [24, 2],
+    [30, 3],
+  ];
+
+  for (const [count, pages] of expected) {
+    const pdf = await createInvoicePdf({
+      invoice: baseInvoice,
+      client: baseClient,
+      lines: manyLines(count),
+      company,
+    });
+    assert.equal(pageCount(pdf), pages, `${count} lines should render as ${pages} page(s)`);
+  }
+});
+
 test("Gmail delivery attaches the PDF and names it for the customer's filing", async () => {
   let captured: any;
   const fakeProxy = async (_connector: string, path: string, init: any) => {
