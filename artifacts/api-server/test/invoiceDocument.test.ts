@@ -98,6 +98,18 @@ test("balance never goes negative when a customer overpays", () => {
   assert.equal(balanceOf({ total: 0.3, amountPaid: 0.1 } as Invoice), 0.2);
 });
 
+// recalcClientBalance already excludes void invoices from what the customer
+// owes, so a void invoice showing its old total under "Balance Due" — in red,
+// on the list and on the printed invoice — contradicted the account balance it
+// fed. Voiding cancels the debt; money already received stays as credit.
+test("a void invoice owes nothing", () => {
+  assert.equal(balanceOf({ total: 200, amountPaid: 0, status: "void" } as Invoice), 0);
+  assert.equal(balanceOf({ total: 200, amountPaid: 50, status: "void" } as Invoice), 0);
+  // Every other status is unaffected.
+  assert.equal(balanceOf({ total: 200, amountPaid: 50, status: "open" } as Invoice), 150);
+  assert.equal(balanceOf({ total: 200, amountPaid: 200, status: "paid" } as Invoice), 0);
+});
+
 test("bill-to uses the billing address when one is recorded", () => {
   const managed = {
     ...baseClient,

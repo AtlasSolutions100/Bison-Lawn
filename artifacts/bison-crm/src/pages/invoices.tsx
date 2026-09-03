@@ -326,7 +326,11 @@ function InvoiceRow({ invoice }: { invoice: any }) {
   // overpaid invoice as a negative "Balance Due", which reads as the company
   // owing the customer — the overpayment is credit on the account, and that is
   // what the credit line above says.
-  const balanceDue = invoice.balance ?? Math.max(0, (invoice.total || 0) - (invoice.amountPaid || 0));
+  // The fallback mirrors the server's rule, void included, so an older cached
+  // response cannot resurrect the red total on a voided invoice.
+  const balanceDue =
+    invoice.balance ??
+    (invoice.status === 'void' ? 0 : Math.max(0, (invoice.total || 0) - (invoice.amountPaid || 0)));
 
   return (
     <TableRow className="hover:bg-muted/50">

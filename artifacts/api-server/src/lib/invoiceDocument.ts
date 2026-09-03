@@ -35,9 +35,18 @@ const escapeHtml = (s: string) =>
 /** The number a customer quotes on the phone, falling back to the row id. */
 export const invoiceNumberOf = (invoice: Pick<Invoice, "id" | "number">) => invoice.number ?? invoice.id;
 
-/** What is still owed on this invoice. Never negative — overpayment is credit, not a negative bill. */
-export const balanceOf = (invoice: Pick<Invoice, "total" | "amountPaid">) =>
-  Math.max(0, Math.round((invoice.total - invoice.amountPaid) * 100) / 100);
+/**
+ * What is still owed on this invoice.
+ *
+ * Never negative — overpayment is credit, not a negative bill — and always zero
+ * on a void invoice. Voiding cancels the debt: `recalcClientBalance` already
+ * excludes void invoices from the account balance, so an invoice stamped VOID
+ * that still showed its old total under "Balance Due" contradicted the very
+ * account balance it fed, in red, on both the list and the printed invoice.
+ * Any money actually received against it stays on the account as credit.
+ */
+export const balanceOf = (invoice: Pick<Invoice, "total" | "amountPaid"> & { status?: string | null }) =>
+  invoice.status === "void" ? 0 : Math.max(0, Math.round((invoice.total - invoice.amountPaid) * 100) / 100);
 
 const dateLabel = (value: string | null | undefined) => {
   const raw = (value ?? "").trim();
