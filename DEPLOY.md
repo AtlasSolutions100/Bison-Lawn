@@ -86,19 +86,43 @@ truncate it. Postgres allows any number of NULLs in a unique constraint, so on a
 table of existing invoices — every one of which has `number = NULL` until it is
 next issued — the constraint is safe to add in place.
 
-Add it once, by hand, **before** the first `push` that carries the column:
+Add **both the column and the constraint** by hand, before the first `push` that
+carries them. One command, and `push` then has nothing left to ask about:
 
 ```bash
 docker compose --env-file .env.deploy exec db \
-  psql -U bison -d bisonlawn -c \
-  "ALTER TABLE invoices ADD CONSTRAINT invoices_number_unique UNIQUE (number);"
+  psql -U bison -d bisonlawn \
+  -c "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS number integer;" \
+  -c "ALTER TABLE invoices ADD CONSTRAINT invoices_number_unique UNIQUE (number);"
 ```
 
-If the column does not exist yet, run `push` first (it adds the column and stops
-at the constraint prompt with nothing applied), then the `ALTER TABLE`, then
-`push` again — the second run sees the constraint already present and applies
-cleanly. Verified against a local database holding six invoices: all six
-survived, and the second push reported changes applied with no prompt.
+Then run `push` (step 4). It creates `invoice_line_items`, the remaining invoice
+columns, the twelve billing columns on `clients` and `jobs.skip_billable`, and
+reports `Changes applied` without prompting.
+
+**Correction, 2026-09-03.** An earlier version of this section said that if the
+column did not exist you could run `push` first, because it "adds the column and
+stops at the constraint prompt with nothing applied", then add the constraint and
+push again. **That is wrong and would strand a deploy half-way.** `push` computes
+the whole diff before it applies any of it, so when it stops at the prompt it has
+applied *nothing* — no column, no `invoice_line_items`, no billing columns. The
+follow-up `ALTER TABLE ... ADD CONSTRAINT` then fails with `column "number" does
+not exist`, on a production database, mid-deploy.
+
+Verified against two scratch databases restored to the pre-deploy schema, each
+holding six invoices:
+
+- **Column and constraint added first, then `push`:** `[✓] Changes applied`, no
+  prompt, all six invoices intact, every new column, table and constraint
+  present. Run with stdin closed, so it provably never went interactive.
+- **`push` first:** stops on `"You're about to add invoices_number_unique unique
+  constraint to the table, which contains 6 items ... Do you want to truncate
+  invoices table?"` and afterwards the database is completely unchanged — zero of
+  the six new invoice columns, no `invoice_line_items`, no `skip_billable`.
+
+`ADD COLUMN IF NOT EXISTS` makes the first command safe to re-run. The `ADD
+CONSTRAINT` is not idempotent and will error with `already exists` on a second
+run; that error is harmless and means the work is already done.
 
 Existing invoices keep `number = NULL` on purpose. They display their row id
 instead, and numbering for new invoices starts at `INVOICE_NUMBER_START`
