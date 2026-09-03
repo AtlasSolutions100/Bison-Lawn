@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useToast } from '@/hooks/use-toast';
 
 export default function MyJobs() {
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -53,6 +54,7 @@ function JobCard({ job, index }: { job: Job, index: number }) {
   const updateJob = useUpdateJob();
   const completeJob = useCompleteJob();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const handleStatus = (status: string) => {
     updateJob.mutate({ id: job.id, data: { status: status as any } }, {
@@ -77,7 +79,18 @@ function JobCard({ job, index }: { job: Job, index: number }) {
     const trimmed = reason.trim();
     if (!trimmed) return; // the office needs a reason, so a blank entry doesn't send
     updateJob.mutate({ id: job.id, data: { status: 'skipped' as any, skipReason: trimmed } }, {
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/my/jobs'] })
+      onSuccess: (result: any) => {
+        queryClient.invalidateQueries({ queryKey: ['/api/my/jobs'] });
+        // Whether the customer is charged for this is something the crew should
+        // hear while they are still standing in the yard, not something the
+        // office discovers at invoicing.
+        if (result?.skipNotice) {
+          toast({
+            title: result.skipBillable ? 'Skip recorded — chargeable' : 'Skip recorded — free',
+            description: result.skipNotice,
+          });
+        }
+      },
     });
   };
 

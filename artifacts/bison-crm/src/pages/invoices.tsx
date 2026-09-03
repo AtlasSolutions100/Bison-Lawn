@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { 
   useListInvoices, useUpdateInvoice, useCreatePayment, useListPayments, useDeletePayment, useGetInvoice,
-  useListClients, useCreateInvoice, useApplyPayment
+  useListClients, useCreateInvoice, useApplyPayment, useSendInvoice
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocation, useSearch } from 'wouter';
@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { format } from 'date-fns';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Trash2, Plus } from 'lucide-react';
+import { Trash2, Plus, FileText, Send } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 export default function Invoices() {
@@ -83,19 +83,20 @@ export default function Invoices() {
             <Table>
               <TableHeader className="bg-muted/50">
                 <TableRow>
+                  <TableHead className="w-24">Invoice #</TableHead>
                   <TableHead>Client</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Total</TableHead>
                   <TableHead className="text-right">Balance Due</TableHead>
-                  <TableHead className="w-32"></TableHead>
+                  <TableHead className="w-56"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
-                  <TableRow><TableCell colSpan={6} className="text-center py-4">Loading...</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={7} className="text-center py-4">Loading...</TableCell></TableRow>
                 ) : !invoices?.length ? (
-                  <TableRow><TableCell colSpan={6} className="text-center py-4">No invoices found.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={7} className="text-center py-4">No invoices found.</TableCell></TableRow>
                 ) : (
                   invoices.map(inv => (
                     <InvoiceRow key={inv.id} invoice={inv} />
@@ -114,23 +115,57 @@ export default function Invoices() {
   );
 }
 
+type DraftLine = { description: string; serviceDate: string; quantity: string; unitPrice: string };
+
+const emptyLine = (): DraftLine => ({ description: '', serviceDate: '', quantity: '1', unitPrice: '' });
+
 function NewInvoiceDialog() {
   const [open, setOpen] = useState(false);
   const [clientId, setClientId] = useState('');
-  const [total, setTotal] = useState('');
+  const [poNumber, setPoNumber] = useState('');
   const [notes, setNotes] = useState('');
-  
+  const [lines, setLines] = useState<DraftLine[]>([emptyLine()]);
+
   const { data: clients } = useListClients();
   const createInvoice = useCreateInvoice();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
+  const selectedClient = clients?.find(c => String(c.id) === clientId);
+
+  const parsedLines = lines
+    .filter(line => line.description.trim())
+    .map(line => ({
+      description: line.description.trim(),
+      serviceDate: line.serviceDate || null,
+      quantity: parseFloat(line.quantity) || 0,
+      unitPrice: parseFloat(line.unitPrice) || 0,
+    }));
+
+  // Shown live so the office sees the same number the customer will, before
+  // committing. Rounded per line to match how the server stores them.
+  const total = parsedLines.reduce(
+    (sum, line) => sum + Math.round(line.quantity * line.unitPrice * 100) / 100,
+    0,
+  );
+
+  const updateLine = (index: number, patch: Partial<DraftLine>) =>
+    setLines(prev => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)));
+
+  const reset = () => {
+    setClientId('');
+    setPoNumber('');
+    setNotes('');
+    setLines([emptyLine()]);
+  };
+
   const handleSave = () => {
     createInvoice.mutate({
       data: {
         clientId: parseInt(clientId),
-        total: parseFloat(total) || 0,
-        ...(notes && { notes })
+        lines: parsedLines,
+        ...(poNumber.trim() && { poNumber: poNumber.trim() }),
+        ...(notes && { notes }),
       }
     }, {
       onSuccess: () => {
@@ -138,10 +173,15 @@ function NewInvoiceDialog() {
         queryClient.invalidateQueries({ queryKey: [`/api/clients`] });
         toast({ title: "Invoice created successfully" });
         setOpen(false);
-        setClientId('');
-        setTotal('');
-        setNotes('');
-      }
+        reset();
+      },
+      onError: (error: any) => {
+        toast({
+          title: 'Could not create the invoice',
+          description: error?.message ?? 'Please try again.',
+          variant: 'destructive',
+        });
+      },
     });
   };
 
@@ -152,32 +192,107 @@ function NewInvoiceDialog() {
           <Plus className="w-4 h-4 mr-2" /> New Invoice
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle>Create Manual Invoice</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 py-4">
-          <div>
-            <label className="text-sm font-medium mb-1 block">Client *</label>
-            <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={clientId} onChange={e => setClientId(e.target.value)}>
-              <option value="">Select client...</option>
-              {clients?.map(c => <option key={c.id} value={c.id}>{c.name} - {c.serviceAddress}, {c.city}</option>)}
-            </select>
+        <div className="space-y-4 py-4 max-h-[65vh] overflow-y-auto pr-1">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm font-medium mb-1 block">Client *</label>
+              <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={clientId} onChange={e => setClientId(e.target.value)}>
+                <option value="">Select client...</option>
+                {clients?.map(c => <option key={c.id} value={c.id}>{c.name} - {c.serviceAddress}, {c.city}</option>)}
+              </select>
+              {/* Terms are not editable here: they come from the account and are
+                  snapshotted at issue. Showing which ones will apply prevents an
+                  invoice going out on terms the office did not expect. */}
+              {selectedClient?.billingTerms && (
+                <p className="text-xs text-muted-foreground mt-1">Terms: {selectedClient.billingTerms}</p>
+              )}
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1 block">PO Number (Optional)</label>
+              <Input value={poNumber} onChange={e => setPoNumber(e.target.value)} placeholder="Customer's reference" />
+            </div>
           </div>
-          
+
           <div>
-            <label className="text-sm font-medium mb-1 block">Total Amount ($) *</label>
-            <Input type="number" step="0.01" value={total} onChange={e => setTotal(e.target.value)} placeholder="0.00" />
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-medium">Line Items *</label>
+              <Button size="sm" variant="outline" className="h-8" onClick={() => setLines(prev => [...prev, emptyLine()])}>
+                <Plus className="w-3.5 h-3.5 mr-1.5" /> Add line
+              </Button>
+            </div>
+            <div className="space-y-2">
+              <div className="hidden sm:grid grid-cols-12 gap-2 text-xs text-muted-foreground px-1">
+                <div className="col-span-5">Description</div>
+                <div className="col-span-3">Date of service</div>
+                <div className="col-span-1 text-right">Qty</div>
+                <div className="col-span-2 text-right">Price</div>
+                <div className="col-span-1" />
+              </div>
+              {lines.map((line, index) => (
+                <div key={index} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                  <Input
+                    className="sm:col-span-5"
+                    value={line.description}
+                    onChange={e => updateLine(index, { description: e.target.value })}
+                    placeholder="Mowing — 8/12, 8/19, 8/26"
+                  />
+                  <Input
+                    type="date"
+                    className="sm:col-span-3"
+                    value={line.serviceDate}
+                    onChange={e => updateLine(index, { serviceDate: e.target.value })}
+                  />
+                  <Input
+                    type="number"
+                    step="0.01"
+                    className="sm:col-span-1 text-right"
+                    value={line.quantity}
+                    onChange={e => updateLine(index, { quantity: e.target.value })}
+                  />
+                  <Input
+                    type="number"
+                    step="0.01"
+                    className="sm:col-span-2 text-right"
+                    value={line.unitPrice}
+                    onChange={e => updateLine(index, { unitPrice: e.target.value })}
+                    placeholder="0.00"
+                  />
+                  <div className="sm:col-span-1 flex justify-end">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 w-8 p-0 text-muted-foreground"
+                      // Never leave zero rows: an empty editor gives the office
+                      // nothing to click and no way back to a usable form.
+                      onClick={() => setLines(prev => (prev.length === 1 ? [emptyLine()] : prev.filter((_, i) => i !== index)))}
+                      aria-label="Remove line"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end mt-3 text-sm">
+              <span className="text-muted-foreground mr-3">Invoice total</span>
+              <span className="font-bold">${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+            </div>
           </div>
-          
+
           <div>
             <label className="text-sm font-medium mb-1 block">Notes (Optional)</label>
-            <textarea className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes..." />
+            <textarea className="flex min-h-[70px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes..." />
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button onClick={handleSave} disabled={createInvoice.isPending || !clientId || !total || parseFloat(total) <= 0}>Create Invoice</Button>
+          <Button onClick={handleSave} disabled={createInvoice.isPending || !clientId || parsedLines.length === 0 || total <= 0}>
+            Create Invoice
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -207,10 +322,21 @@ function InvoiceRow({ invoice }: { invoice: any }) {
   // satisfies useGetInvoice requirement
   const _ = useGetInvoice(1, { query: { enabled: false, queryKey: ['/api/invoices', 1] } });
 
-  const balanceDue = (invoice.total || 0) - (invoice.amountPaid || 0);
+  // Server-computed and floored at zero. Subtracting here instead showed an
+  // overpaid invoice as a negative "Balance Due", which reads as the company
+  // owing the customer — the overpayment is credit on the account, and that is
+  // what the credit line above says.
+  const balanceDue = invoice.balance ?? Math.max(0, (invoice.total || 0) - (invoice.amountPaid || 0));
 
   return (
     <TableRow className="hover:bg-muted/50">
+      <TableCell className="font-mono text-sm text-muted-foreground">
+        #{invoice.number ?? invoice.id}
+        {/* The office reconciles against a bank statement that shows only the
+            terms the customer agreed to, so terms belong on the row, not buried
+            in a detail view nobody opens during that job. */}
+        {invoice.terms && <div className="text-xs">{invoice.terms}</div>}
+      </TableCell>
       <TableCell className="font-medium text-foreground">
         <div>{invoice.clientName}</div>
         {/* Only where the credit is actionable. Repeating it on paid and void rows
@@ -234,6 +360,7 @@ function InvoiceRow({ invoice }: { invoice: any }) {
         ${balanceDue.toLocaleString(undefined, {minimumFractionDigits: 2})}
       </TableCell>
       <TableCell className="text-right space-x-2">
+        {invoice.status !== 'void' && <InvoiceSendControls invoice={invoice} />}
         {invoice.status !== 'paid' && invoice.status !== 'void' && (
           <>
             {unappliedCredit > 0 && <ApplyCreditDialog invoice={invoice} balanceDue={balanceDue} />}
@@ -245,6 +372,58 @@ function InvoiceRow({ invoice }: { invoice: any }) {
         )}
       </TableCell>
     </TableRow>
+  );
+}
+
+/**
+ * Preview and send one invoice.
+ *
+ * Preview sits next to Send deliberately: the PDF is what the customer receives,
+ * and the only way to be sure of that is to look at the same file before it goes.
+ */
+function InvoiceSendControls({ invoice }: { invoice: any }) {
+  const sendInvoice = useSendInvoice();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const handleSend = () => {
+    // An invoice cannot be unsent, and a second copy to a customer who already
+    // paid is the kind of mistake that costs a phone call.
+    const already = invoice.sentAt
+      ? `This invoice was already emailed on ${format(new Date(invoice.sentAt), 'MMM d, yyyy')}. Send it again?`
+      : `Email invoice #${invoice.number ?? invoice.id} to ${invoice.clientName}?`;
+    if (!window.confirm(already)) return;
+
+    sendInvoice.mutate({ id: invoice.id, data: {} }, {
+      onSuccess: (result: any) => {
+        queryClient.invalidateQueries({ queryKey: ['/api/invoices'] });
+        toast({ title: `Invoice emailed to ${result?.toEmail ?? 'the customer'}` });
+      },
+      onError: (error: any) => {
+        toast({
+          title: 'Could not send the invoice',
+          description: error?.message ?? 'Please try again.',
+          variant: 'destructive',
+        });
+      },
+    });
+  };
+
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-8 text-muted-foreground"
+        onClick={() => window.open(`/api/invoices/${invoice.id}/pdf`, '_blank', 'noopener,noreferrer')}
+      >
+        <FileText className="w-3.5 h-3.5 mr-1.5" /> PDF
+      </Button>
+      <Button size="sm" variant="ghost" className="h-8" onClick={handleSend} disabled={sendInvoice.isPending}>
+        <Send className="w-3.5 h-3.5 mr-1.5" />
+        {sendInvoice.isPending ? 'Sending…' : invoice.sentAt ? 'Resend' : 'Send'}
+      </Button>
+    </>
   );
 }
 

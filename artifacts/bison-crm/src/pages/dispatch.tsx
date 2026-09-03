@@ -6,6 +6,7 @@ import {
   useListClients, useListServices, useBulkAssignJobs
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -363,10 +364,21 @@ function DispatchRow({ job, contractors }: { job: Job, contractors: any[] }) {
   const completeJob = useCompleteJob();
   const deleteJob = useDeleteJob();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const handleUpdate = (data: any) => {
     updateJob.mutate({ id: job.id, data }, {
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/jobs'] })
+      onSuccess: (result: any) => {
+        queryClient.invalidateQueries({ queryKey: ['/api/jobs'] });
+        // Only the skip path returns a notice, so this stays quiet for every
+        // other status change.
+        if (result?.skipNotice) {
+          toast({
+            title: result.skipBillable ? 'Skip recorded — chargeable' : 'Skip recorded — free',
+            description: result.skipNotice,
+          });
+        }
+      },
     });
   };
 
@@ -422,6 +434,13 @@ function DispatchRow({ job, contractors }: { job: Job, contractors: any[] }) {
         {job.status === 'skipped' && job.skipReason && (
           <div className="mt-1 max-w-32 truncate text-[10px] font-medium text-orange-700" title={job.skipReason}>
             {job.skipReason}
+          </div>
+        )}
+        {/* The toast is gone by the time the office bills. This is the durable
+            record that the customer's free skip was already spent. */}
+        {job.status === 'skipped' && job.skipBillable && (
+          <div className="mt-1 text-[10px] font-bold uppercase tracking-wide text-destructive">
+            Chargeable
           </div>
         )}
       </TableCell>

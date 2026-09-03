@@ -27,6 +27,8 @@ import {
   haversineKm,
   getBillingSettings,
 } from "../lib/helpers";
+import { assessSkip } from "../lib/skipPolicy";
+import { createInvoiceForJob } from "../lib/invoiceFromJob";
 
 const router: IRouter = Router();
 
@@ -437,14 +439,24 @@ router.patch("/jobs/:id", async (req, res) => {
     }
   }
 
-  const update: typeof body & { skippedAt?: Date | null } = { ...body };
+  const update: typeof body & {
+    skippedAt?: Date | null;
+    skipBillable?: boolean | null;
+  } = { ...body };
+  let skipAssessment: Awaited<ReturnType<typeof assessSkip>> | null = null;
   if (body.status === "skipped") {
-    update.skippedAt = new Date();
+    const skippedAt = new Date();
+    update.skippedAt = skippedAt;
+    // Assessed once, at the moment of the skip, and stored. See skipPolicy.ts
+    // for why this is not recomputed on read.
+    skipAssessment = await assessSkip(existing.clientId, existing.id, skippedAt);
+    update.skipBillable = skipAssessment.billable;
   } else if (body.status && existing.status === "skipped") {
     // Moving off skipped (e.g. rescheduled) retires the old reason so it doesn't
     // linger and get mistaken for the reason behind whatever happens next.
     update.skipReason = null;
     update.skippedAt = null;
+    update.skipBillable = null;
   }
 
   const [job] = await db
@@ -458,12 +470,17 @@ router.patch("/jobs/:id", async (req, res) => {
       actorName: req.appUser?.name,
       action: "job_status",
       description:
-        body.status === "skipped" && body.skipReason
-          ? `Job #${job.id} status changed to skipped — ${body.skipReason}`
+        body.status === "skipped"
+          ? `Job #${job.id} status changed to skipped${body.skipReason ? ` — ${body.skipReason}` : ""}` +
+            (skipAssessment ? ` (${skipAssessment.billable ? "chargeable" : "free"} skip)` : "")
           : `Job #${job.id} status changed to ${body.status.replace(/_/g, " ")}`,
     });
   }
-  return res.json((await hydrateJobs([job]))[0]);
+  const hydrated = (await hydrateJobs([job]))[0];
+  // The skip verdict rides back on the response so the person who just clicked
+  // Skip is told, on the spot, whether it costs the customer anything. Finding
+  // out at invoicing time is how a disputed charge starts.
+  return res.json(skipAssessment ? { ...hydrated, skipNotice: skipAssessment.message } : hydrated);
 });
 
 router.delete("/jobs/:id", requireAdmin, async (req, res) => {
@@ -516,15 +533,15 @@ router.post("/jobs/:id/complete", async (req, res) => {
       serviceName = svc?.name ?? null;
     }
 
-    const [invoice] = await tx
-      .insert(invoicesTable)
-      .values({
-        clientId: locked.clientId,
-        jobId: id,
-        total,
-        notes: serviceName ? `Invoice for ${serviceName}` : null,
-      })
-      .returning();
+    const invoice = await createInvoiceForJob(tx, {
+      clientId: locked.clientId,
+      jobId: id,
+      serviceAmount: locked.amount,
+      serviceName,
+      serviceDate: locked.scheduledDate,
+      products: products.map((p) => ({ name: p.name, price: p.price, quantity: p.quantity })),
+      pendingFees,
+    });
 
     // Attach any on-site payments collected before completion to the new invoice
     await tx

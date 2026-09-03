@@ -5,11 +5,23 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+import type { InvoiceLineItemInput } from './invoiceLineItemInput';
 
 export interface InvoiceInput {
   clientId: number;
   /** @nullable */
   jobId?: number | null;
-  total: number;
+  /** Ignored when `lines` is supplied — the total is then the sum of the lines, so the printed detail and the amount owed cannot disagree. */
+  total?: number;
   notes?: string;
+  /** @nullable */
+  invoiceDate?: string | null;
+  /**
+     * Defaults to the client's billingTerms when omitted
+     * @nullable
+     */
+  terms?: string | null;
+  /** @nullable */
+  poNumber?: string | null;
+  lines?: InvoiceLineItemInput[];
 }

@@ -3,7 +3,6 @@ import {
   clientServicesTable,
   clientsTable,
   db,
-  invoicesTable,
   jobProductsTable,
   jobsTable,
   paymentsTable,
@@ -13,6 +12,7 @@ import { and, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import { CompleteVendorRunBody, ListVendorRunsQueryParams } from "@workspace/api-zod";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
 import { logAudit, recalcClientBalance, recalcInvoice } from "../lib/helpers";
+import { createInvoiceForJob } from "../lib/invoiceFromJob";
 
 const router: IRouter = Router();
 
@@ -206,15 +206,15 @@ router.post("/vendor-runs/complete", async (req, res) => {
         const pendingFees = pendingPayments.reduce((sum, payment) => sum + payment.cardFee, 0);
         const total = Math.round((job.amount + productTotal + pendingFees) * 100) / 100;
 
-        const [invoice] = await tx
-          .insert(invoicesTable)
-          .values({
-            clientId,
-            jobId: job.id,
-            total,
-            notes: `Invoice for ${service.name}`,
-          })
-          .returning();
+        const invoice = await createInvoiceForJob(tx, {
+          clientId,
+          jobId: job.id,
+          serviceAmount: job.amount,
+          serviceName: service.name,
+          serviceDate: body.serviceDate,
+          products: products.map((p) => ({ name: p.name, price: p.price, quantity: p.quantity })),
+          pendingFees,
+        });
         await tx
           .update(paymentsTable)
           .set({ invoiceId: invoice.id })

@@ -640,3 +640,79 @@ captured real payload plus synthetic depth-6 and empty-section variants.
 **Action before connecting:** the redirect URI must be registered on the Intuit
 dashboard exactly — `https://bisonlawncare.workoptional.tech/api/quickbooks/callback`
 for the deployed app, `http://localhost:5173/api/quickbooks/callback` for local.
+
+## 2026-09-02 — Adam's source material read in full (no code changed)
+
+Read both PDFs from his live CRM plus all 43 files in the shared Drive folder.
+Full write-up: `verify/2026-09-02/adam-crm-source-review/VERIFY.md`.
+
+**His current CRM is Service Autopilot** (`my.serviceautopilot.com`) — every
+screenshot is from it. "What he wants ours to do" is that feature set, which was
+never named in any prior transcript.
+
+Neither PDF was readable by default tooling and both failed *silently* rather than
+erroring: the quote uses a subset font shifted by -0x1D (digits land on
+non-printable bytes, so **every dollar amount extracted as blank** on the first
+pass), and the invoice uses Type0/CID hex strings (returned two empty pages).
+Wrote decoders for both. Treat "this PDF has no text" as a hypothesis, not a result.
+
+Largest gap found: the **Rate Matrix** — per-service banded pricing keyed off a
+client custom field, returning price *and budgeted hours and budgeted cost*. The
+equation-based `calculatePrice()` we shipped is a strictly weaker model, and
+budgeted hours is what the dispatch board's B.Hrs and revenue projections run on.
+Two real datasets are available to seed it (mowing bands from the screenshot,
+top-dressing from his xlsx — row 2000sqft = $826.67 matches the quote exactly,
+confirming the quote is generated from those tables).
+
+Also newly specified rather than inferred: the exact client record shape (service
+vs billing address, 4-part name, Map Code, Master Property), 16 named custom
+fields, tags-with-categories driving automations, automations as wait/email/to-do
+sequences (not one-shot offsets), and a per-capability role matrix across five
+tabs. "Email Clients" on a map-lassoed group *is* the property-manager batch
+notification he described — it is a dispatch-board action, not a separate feature.
+
+Two conflicting company addresses appear in the same quote (Po Box 117, Post Falls
+ID 83877 on the letterhead; PO Box 7156, Kalispell MT 59904 in the contract body).
+Do not pick one — the company profile work is blocked on Adam saying which.
+
+## 2026-09-03 — Invoice format parity, skip policy, and a deploy hazard
+
+Built the invoice half of the 2026-09-02 review: numbering, dates/terms/PO,
+line items, Bill-To separate from Property Address, payment coupon, PDF and
+email send. Full write-up: `verify/2026-09-03/invoice-format/VERIFY.md`.
+
+The important half was job-completion invoices. Both completion paths
+(`jobs.ts`, `vendor-runs.ts`) were inserting an invoice with a total and a
+one-sentence note — no number, no detail — and those are most of the invoices
+the business issues. Both now share one `createInvoiceForJob`.
+
+**Deploy hazard: never run `pnpm push-force`.** Adding `invoices.number` made
+`drizzle-kit push` offer to TRUNCATE the invoices table to add its unique
+constraint, and `--force` accepts that offer without printing a question. The
+offer is also unnecessary — Postgres allows unlimited NULLs in a unique
+constraint and every existing invoice has `number = NULL`. Verified locally on 6
+invoices: constraint added by hand, all 6 survived, next push clean. DEPLOY.md
+now carries the ALTER TABLE and the warning.
+
+**HANDOFF.md was wrong about the local tests.** It records them as failing for
+environmental reasons. They fail only when `.env` is not exported, and
+`DATABASE_URL` alone is not enough — `CLERK_SECRET_KEY` is also required and its
+absence surfaces as a 500, not as a config error. With the full env exported:
+105 pass, 0 fail across all nine suites.
+
+Two data corrections. The seeded company profile carried `PO Box 7156,
+Kalispell, MT` with a 406 number, taken from the *contract body* of Adam's quote
+— the letterhead and invoice of that same document both say `Po Box 117, Post
+Falls, ID 83877` / `208-981-0176`, and Koby confirmed the Idaho one. And
+`todayISO` defaulted to America/Denver when the Idaho panhandle is Pacific, so an
+invoice raised on a weekday evening would have been dated the next day.
+`weatherScheduler.ts` hardcodes a third timezone (America/Chicago); left alone
+rather than changing a background job's firing time as a side effect.
+
+Also fixed: the invoices table computed the balance in the browser, so an
+overpaid invoice displayed a negative "Balance Due" — reading as the company
+owing the customer. Server now returns a floored `balance`.
+
+**Not browser-verified.** The Chrome extension would not connect this session,
+so the five UI changes typecheck and are wired to endpoints proven at the API
+layer, but have not been seen in a browser. Not deployed.

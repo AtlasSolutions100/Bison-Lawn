@@ -72,6 +72,39 @@ database and will happily drop a column to make them match. Running it by hand
 on each deploy, after reading what it says it will do, is the safeguard until
 real migration files exist.
 
+**Never run `push-force`.** `--force` auto-accepts every destructive statement
+`push` would otherwise ask about, including a table truncate. This is not
+hypothetical: adding the `invoices.number` column made `push` offer to
+*truncate the invoices table* in order to add its unique constraint, and
+`--force` would have taken that offer without printing a question. The offer was
+also unnecessary — see below.
+
+### The `invoices.number` unique constraint
+
+`push` cannot add a unique constraint to a non-empty table without offering to
+truncate it. Postgres allows any number of NULLs in a unique constraint, so on a
+table of existing invoices — every one of which has `number = NULL` until it is
+next issued — the constraint is safe to add in place.
+
+Add it once, by hand, **before** the first `push` that carries the column:
+
+```bash
+docker compose --env-file .env.deploy exec db \
+  psql -U bison -d bisonlawn -c \
+  "ALTER TABLE invoices ADD CONSTRAINT invoices_number_unique UNIQUE (number);"
+```
+
+If the column does not exist yet, run `push` first (it adds the column and stops
+at the constraint prompt with nothing applied), then the `ALTER TABLE`, then
+`push` again — the second run sees the constraint already present and applies
+cleanly. Verified against a local database holding six invoices: all six
+survived, and the second push reported changes applied with no prompt.
+
+Existing invoices keep `number = NULL` on purpose. They display their row id
+instead, and numbering for new invoices starts at `INVOICE_NUMBER_START`
+(default 4900) so it continues past the ~4848 his previous system had reached
+rather than restarting at 1 alongside it.
+
 Optional demo data (safe to skip on a real account):
 
 ```bash

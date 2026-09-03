@@ -129,7 +129,13 @@ function brandAssetPath(fileName: string): string | null {
 }
 
 /** Draw brand artwork, reporting whether it landed so callers can fall back. */
-function drawBrandImage(doc: PDFKit.PDFDocument, fileName: string, x: number, y: number, width: number) {
+export function drawBrandImage(
+  doc: PDFKit.PDFDocument,
+  fileName: string,
+  x: number,
+  y: number,
+  width: number,
+) {
   const path = brandAssetPath(fileName);
   if (!path) return false;
   try {

@@ -5,6 +5,7 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+import type { InvoiceLineItem } from './invoiceLineItem';
 import type { InvoiceStatus } from './invoiceStatus';
 
 export interface Invoice {
@@ -19,7 +20,22 @@ export interface Invoice {
   status: InvoiceStatus;
   total: number;
   amountPaid: number;
+  /** total minus amountPaid, never negative */
+  balance: number;
   /** @nullable */
   notes?: string | null;
+  /** The number the customer sees; falls back to id on legacy rows */
+  number: number;
+  /** @nullable */
+  invoiceDate?: string | null;
+  /** @nullable */
+  dueDate?: string | null;
+  /** @nullable */
+  terms?: string | null;
+  /** @nullable */
+  poNumber?: string | null;
+  /** @nullable */
+  sentAt?: string | null;
+  lines: InvoiceLineItem[];
   createdAt: string;
 }

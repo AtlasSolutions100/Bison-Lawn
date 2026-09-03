@@ -742,6 +742,29 @@ export const ClientStatus = {
   former_client: 'former_client',
 } as const;
 
+/**
+ * @nullable
+ */
+export type ClientInvoiceDelivery = typeof ClientInvoiceDelivery[keyof typeof ClientInvoiceDelivery] | null;
+
+
+export const ClientInvoiceDelivery = {
+  email: 'email',
+  print: 'print',
+  both: 'both',
+} as const;
+
+/**
+ * @nullable
+ */
+export type ClientAccountType = typeof ClientAccountType[keyof typeof ClientAccountType] | null;
+
+
+export const ClientAccountType = {
+  commercial: 'commercial',
+  residential: 'residential',
+} as const;
+
 export type ClientPropertyData = {[key: string]: string};
 
 export interface Client {
@@ -781,6 +804,33 @@ export interface Client {
      * @nullable
      */
   waterDistrict?: string | null;
+  /** @nullable */
+  nameOnInvoice?: string | null;
+  /** @nullable */
+  billingAddressLine1?: string | null;
+  /** @nullable */
+  billingAddressLine2?: string | null;
+  /** @nullable */
+  billingCity?: string | null;
+  /** @nullable */
+  billingState?: string | null;
+  /** @nullable */
+  billingPostalCode?: string | null;
+  /** @nullable */
+  billingEmail?: string | null;
+  /** @nullable */
+  accountNumber?: string | null;
+  /**
+     * Payment window, e.g. Net 15
+     * @nullable
+     */
+  billingTerms?: string | null;
+  /** @nullable */
+  invoiceFrequency?: string | null;
+  /** @nullable */
+  invoiceDelivery?: ClientInvoiceDelivery;
+  /** @nullable */
+  accountType?: ClientAccountType;
   propertyData?: ClientPropertyData;
   /** @nullable */
   lastServiceDate?: string | null;
@@ -796,6 +846,23 @@ export const ClientInputStatus = {
   lead: 'lead',
   client: 'client',
   former_client: 'former_client',
+} as const;
+
+export type ClientInputInvoiceDelivery = typeof ClientInputInvoiceDelivery[keyof typeof ClientInputInvoiceDelivery];
+
+
+export const ClientInputInvoiceDelivery = {
+  email: 'email',
+  print: 'print',
+  both: 'both',
+} as const;
+
+export type ClientInputAccountType = typeof ClientInputAccountType[keyof typeof ClientInputAccountType];
+
+
+export const ClientInputAccountType = {
+  commercial: 'commercial',
+  residential: 'residential',
 } as const;
 
 export type ClientInputPropertyData = {[key: string]: string};
@@ -820,6 +887,19 @@ export interface ClientInput {
   mapCode?: string;
   waterDistrict?: string;
   mapNote?: string;
+  nameOnInvoice?: string;
+  billingAddressLine1?: string;
+  billingAddressLine2?: string;
+  billingCity?: string;
+  billingState?: string;
+  billingPostalCode?: string;
+  billingEmail?: string;
+  accountNumber?: string;
+  /** Payment window, e.g. Net 15 */
+  billingTerms?: string;
+  invoiceFrequency?: string;
+  invoiceDelivery?: ClientInputInvoiceDelivery;
+  accountType?: ClientInputAccountType;
   propertyData?: ClientInputPropertyData;
 }
 
@@ -830,6 +910,29 @@ export const ClientUpdateStatus = {
   lead: 'lead',
   client: 'client',
   former_client: 'former_client',
+} as const;
+
+/**
+ * @nullable
+ */
+export type ClientUpdateInvoiceDelivery = typeof ClientUpdateInvoiceDelivery[keyof typeof ClientUpdateInvoiceDelivery] | null;
+
+
+export const ClientUpdateInvoiceDelivery = {
+  email: 'email',
+  print: 'print',
+  both: 'both',
+} as const;
+
+/**
+ * @nullable
+ */
+export type ClientUpdateAccountType = typeof ClientUpdateAccountType[keyof typeof ClientUpdateAccountType] | null;
+
+
+export const ClientUpdateAccountType = {
+  commercial: 'commercial',
+  residential: 'residential',
 } as const;
 
 export type ClientUpdatePropertyData = {[key: string]: string};
@@ -870,6 +973,33 @@ export interface ClientUpdate {
      * @nullable
      */
   waterDistrict?: string | null;
+  /** @nullable */
+  nameOnInvoice?: string | null;
+  /** @nullable */
+  billingAddressLine1?: string | null;
+  /** @nullable */
+  billingAddressLine2?: string | null;
+  /** @nullable */
+  billingCity?: string | null;
+  /** @nullable */
+  billingState?: string | null;
+  /** @nullable */
+  billingPostalCode?: string | null;
+  /** @nullable */
+  billingEmail?: string | null;
+  /** @nullable */
+  accountNumber?: string | null;
+  /**
+     * Payment window, e.g. Net 15
+     * @nullable
+     */
+  billingTerms?: string | null;
+  /** @nullable */
+  invoiceFrequency?: string | null;
+  /** @nullable */
+  invoiceDelivery?: ClientUpdateInvoiceDelivery;
+  /** @nullable */
+  accountType?: ClientUpdateAccountType;
   propertyData?: ClientUpdatePropertyData;
 }
 
@@ -1559,6 +1689,16 @@ export interface Job {
   skipReason?: string | null;
   /** @nullable */
   skippedAt?: string | null;
+  /**
+     * Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.
+     * @nullable
+     */
+  skipBillable?: boolean | null;
+  /**
+     * Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.
+     * @nullable
+     */
+  skipNotice?: string | null;
 }
 
 export interface JobInput {
@@ -1672,6 +1812,21 @@ export const InvoiceStatus = {
   void: 'void',
 } as const;
 
+export interface InvoiceLineItem {
+  id: number;
+  invoiceId: number;
+  description: string;
+  /**
+     * Date-only (YYYY-MM-DD) of the visit this line bills
+     * @nullable
+     */
+  serviceDate?: string | null;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+  sortOrder: number;
+}
+
 export interface Invoice {
   id: number;
   clientId: number;
@@ -1684,17 +1839,52 @@ export interface Invoice {
   status: InvoiceStatus;
   total: number;
   amountPaid: number;
+  /** total minus amountPaid, never negative */
+  balance: number;
   /** @nullable */
   notes?: string | null;
+  /** The number the customer sees; falls back to id on legacy rows */
+  number: number;
+  /** @nullable */
+  invoiceDate?: string | null;
+  /** @nullable */
+  dueDate?: string | null;
+  /** @nullable */
+  terms?: string | null;
+  /** @nullable */
+  poNumber?: string | null;
+  /** @nullable */
+  sentAt?: string | null;
+  lines: InvoiceLineItem[];
   createdAt: string;
+}
+
+export interface InvoiceLineItemInput {
+  /** @minLength 1 */
+  description: string;
+  /** @nullable */
+  serviceDate?: string | null;
+  quantity?: number;
+  unitPrice?: number;
 }
 
 export interface InvoiceInput {
   clientId: number;
   /** @nullable */
   jobId?: number | null;
-  total: number;
+  /** Ignored when `lines` is supplied — the total is then the sum of the lines, so the printed detail and the amount owed cannot disagree. */
+  total?: number;
   notes?: string;
+  /** @nullable */
+  invoiceDate?: string | null;
+  /**
+     * Defaults to the client's billingTerms when omitted
+     * @nullable
+     */
+  terms?: string | null;
+  /** @nullable */
+  poNumber?: string | null;
+  lines?: InvoiceLineItemInput[];
 }
 
 export type InvoiceUpdateStatus = typeof InvoiceUpdateStatus[keyof typeof InvoiceUpdateStatus];
@@ -1712,6 +1902,31 @@ export interface InvoiceUpdate {
   total?: number;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  invoiceDate?: string | null;
+  /** @nullable */
+  dueDate?: string | null;
+  /** @nullable */
+  terms?: string | null;
+  /** @nullable */
+  poNumber?: string | null;
+  /** When present, replaces every line and recomputes the total */
+  lines?: InvoiceLineItemInput[];
+}
+
+export interface SendInvoiceInput {
+  /**
+     * Overrides the client's billing email for this send only
+     * @nullable
+     */
+  toEmail?: string | null;
+}
+
+export interface SendInvoiceResult {
+  sent: boolean;
+  toEmail: string;
+  /** @nullable */
+  messageId?: string | null;
 }
 
 export type PaymentMethod = typeof PaymentMethod[keyof typeof PaymentMethod];

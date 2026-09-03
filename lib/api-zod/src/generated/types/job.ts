@@ -68,4 +68,14 @@ export interface Job {
   skipReason?: string | null;
   /** @nullable */
   skippedAt?: string | null;
+  /**
+     * Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.
+     * @nullable
+     */
+  skipBillable?: boolean | null;
+  /**
+     * Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.
+     * @nullable
+     */
+  skipNotice?: string | null;
 }

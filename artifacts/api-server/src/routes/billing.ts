@@ -1,15 +1,36 @@
 import { Router, type IRouter } from "express";
-import { db, invoicesTable, paymentsTable, clientsTable, jobsTable, servicesTable, billingSettingsTable } from "@workspace/db";
-import { and, desc, eq, isNull, ne, sum } from "drizzle-orm";
+import {
+  db,
+  invoicesTable,
+  invoiceLineItemsTable,
+  paymentsTable,
+  clientsTable,
+  jobsTable,
+  servicesTable,
+  billingSettingsTable,
+} from "@workspace/db";
+import { and, asc, desc, eq, isNull, ne, sum } from "drizzle-orm";
 import {
   ApplyPaymentBody,
   CreateInvoiceBody,
   UpdateInvoiceBody,
   CreatePaymentBody,
+  SendInvoiceBody,
 } from "@workspace/api-zod";
 import { UpdateBillingSettingsBody } from "@workspace/api-zod";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
 import { logAudit, recalcClientBalance, recalcInvoice, getBillingSettings, roundMoney } from "../lib/helpers";
+import { getCompanyProfile } from "../lib/companyProfile";
+import { dueDateFrom, nextInvoiceNumber, todayISO } from "../lib/invoiceNumbers";
+import {
+  balanceOf,
+  createInvoiceEmailHtml,
+  createInvoicePdf,
+  invoiceEmailSubject,
+  invoiceNumberOf,
+} from "../lib/invoiceDocument";
+import { sendInvoiceViaGmail } from "../lib/invoiceDelivery";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -38,6 +59,33 @@ router.patch("/billing-settings", requireAuth, requireAdmin, async (req, res) =>
   return res.json({ cardFeeEnabled: updated.cardFeeEnabled, cardFeePercent: updated.cardFeePercent });
 });
 
+type LineInput = { description: string; serviceDate?: string | null; quantity?: number; unitPrice?: number };
+
+/**
+ * Turn submitted lines into rows, with the per-line total computed once here.
+ *
+ * Rounded at the line rather than at the sum: the customer can add up the
+ * printed column themselves, and a total that disagrees with its own lines by a
+ * cent is the kind of thing that gets an invoice queried instead of paid.
+ */
+function toLineRows(invoiceId: number, lines: LineInput[]) {
+  return lines.map((line, index) => {
+    const quantity = line.quantity ?? 1;
+    const unitPrice = line.unitPrice ?? 0;
+    return {
+      invoiceId,
+      description: line.description,
+      serviceDate: line.serviceDate ?? null,
+      quantity,
+      unitPrice,
+      total: roundMoney(quantity * unitPrice),
+      sortOrder: index,
+    };
+  });
+}
+
+const sumLines = (rows: { total: number }[]) => roundMoney(rows.reduce((acc, row) => acc + row.total, 0));
+
 async function hydrateInvoice(inv: typeof invoicesTable.$inferSelect) {
   const [client] = await db.select().from(clientsTable).where(eq(clientsTable.id, inv.clientId));
   let serviceName: string | null = null;
@@ -48,7 +96,22 @@ async function hydrateInvoice(inv: typeof invoicesTable.$inferSelect) {
       serviceName = svc?.name ?? null;
     }
   }
-  return { ...inv, clientName: client?.name ?? null, serviceName };
+  const lines = await db
+    .select()
+    .from(invoiceLineItemsTable)
+    .where(eq(invoiceLineItemsTable.invoiceId, inv.id))
+    .orderBy(asc(invoiceLineItemsTable.sortOrder), asc(invoiceLineItemsTable.id));
+  return {
+    ...inv,
+    clientName: client?.name ?? null,
+    serviceName,
+    // Surfaced so every consumer agrees on the number: the list, the detail
+    // page, the PDF and the coupon were otherwise each free to subtract
+    // differently, and one of them would eventually round the other way.
+    number: invoiceNumberOf(inv),
+    balance: balanceOf(inv),
+    lines,
+  };
 }
 
 router.get("/invoices", async (req, res) => {
@@ -73,15 +136,47 @@ router.post("/invoices", async (req, res) => {
   // Insert and rebalance together: the new total and the balance must never be
   // visible out of step, and the recalc needs the client lock to hold across both.
   const inv = await db.transaction(async (tx) => {
-    const [row] = await tx.insert(invoicesTable).values({ ...body, jobId: null }).returning();
+    const { lines, ...invoiceFields } = body;
+    const [client] = await tx.select().from(clientsTable).where(eq(clientsTable.id, body.clientId));
+    if (!client) throw Object.assign(new Error("Client not found"), { status: 404 });
+
+    const invoiceDate = invoiceFields.invoiceDate?.trim() || todayISO();
+    // Terms come from the customer's account unless this invoice overrides them,
+    // and are snapshotted here so changing the account later cannot restate an
+    // invoice that has already gone out.
+    const terms = invoiceFields.terms?.trim() || client.billingTerms?.trim() || null;
+
+    const [row] = await tx
+      .insert(invoicesTable)
+      .values({
+        ...invoiceFields,
+        jobId: null,
+        number: await nextInvoiceNumber(tx),
+        invoiceDate,
+        terms,
+        dueDate: dueDateFrom(invoiceDate, terms),
+        total: invoiceFields.total ?? 0,
+      })
+      .returning();
+
+    if (lines?.length) {
+      const rows = toLineRows(row.id, lines);
+      await tx.insert(invoiceLineItemsTable).values(rows);
+      // The lines are the invoice. A submitted `total` that disagrees with them
+      // would print one number and owe another.
+      await tx.update(invoicesTable).set({ total: sumLines(rows) }).where(eq(invoicesTable.id, row.id));
+    }
+
+    await recalcInvoice(row.id, tx);
     await recalcClientBalance(row.clientId, tx);
-    return row;
+    const [fresh] = await tx.select().from(invoicesTable).where(eq(invoicesTable.id, row.id));
+    return fresh;
   });
   await logAudit({
     clientId: inv.clientId,
     actorName: req.appUser?.name,
     action: "invoice_created",
-    description: `Created invoice #${inv.id} for $${inv.total}`,
+    description: `Created invoice #${invoiceNumberOf(inv)} for $${inv.total}`,
   });
   return res.status(201).json(await hydrateInvoice(inv));
 });
@@ -102,7 +197,25 @@ router.patch("/invoices/:id", async (req, res) => {
       .where(eq(invoicesTable.id, invoiceId))
       .for("update");
     if (!existing) return null;
-    await tx.update(invoicesTable).set(body).where(eq(invoicesTable.id, invoiceId));
+    const { lines, ...invoiceFields } = body;
+    const patch: Partial<typeof invoicesTable.$inferInsert> = { ...invoiceFields };
+
+    // Re-derive the due date whenever either half of the calculation moves, so
+    // a corrected invoice date cannot leave a due date behind from the old one.
+    if (invoiceFields.terms !== undefined || invoiceFields.invoiceDate !== undefined) {
+      const invoiceDate = invoiceFields.invoiceDate ?? existing.invoiceDate ?? todayISO();
+      const terms = invoiceFields.terms ?? existing.terms;
+      if (invoiceFields.dueDate === undefined) patch.dueDate = dueDateFrom(invoiceDate, terms);
+    }
+
+    if (lines) {
+      await tx.delete(invoiceLineItemsTable).where(eq(invoiceLineItemsTable.invoiceId, invoiceId));
+      const rows = toLineRows(invoiceId, lines);
+      if (rows.length) await tx.insert(invoiceLineItemsTable).values(rows);
+      patch.total = sumLines(rows);
+    }
+
+    await tx.update(invoicesTable).set(patch).where(eq(invoicesTable.id, invoiceId));
 
     // Note on the reverse transition: un-voiding gives back an open invoice with
     // nothing paid, and the detached money stays as credit for the office to apply
@@ -127,6 +240,81 @@ router.patch("/invoices/:id", async (req, res) => {
   });
   if (!fresh) return res.status(404).json({ error: "Invoice not found" });
   return res.json(await hydrateInvoice(fresh));
+});
+
+/** Invoice, its client and its lines — everything either document builder needs. */
+async function loadInvoiceForDocument(invoiceId: number) {
+  const [invoice] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, invoiceId));
+  if (!invoice) return null;
+  const [client] = await db.select().from(clientsTable).where(eq(clientsTable.id, invoice.clientId));
+  if (!client) return null;
+  const lines = await db
+    .select()
+    .from(invoiceLineItemsTable)
+    .where(eq(invoiceLineItemsTable.invoiceId, invoiceId))
+    .orderBy(asc(invoiceLineItemsTable.sortOrder), asc(invoiceLineItemsTable.id));
+  return { invoice, client, lines, company: await getCompanyProfile() };
+}
+
+router.get("/invoices/:id/pdf", async (req, res) => {
+  const data = await loadInvoiceForDocument(Number(req.params.id));
+  if (!data) return res.status(404).json({ error: "Invoice not found" });
+  const pdf = await createInvoicePdf(data);
+  const number = invoiceNumberOf(data.invoice);
+  res.setHeader("Content-Type", "application/pdf");
+  // inline, not attachment: the office opens this to check it before sending,
+  // and a forced download for every preview fills their Downloads folder.
+  res.setHeader("Content-Disposition", `inline; filename="Invoice-${number}.pdf"`);
+  return res.end(pdf);
+});
+
+router.post("/invoices/:id/send", async (req, res) => {
+  const body = SendInvoiceBody.parse(req.body ?? {});
+  const invoiceId = Number(req.params.id);
+  const data = await loadInvoiceForDocument(invoiceId);
+  if (!data) return res.status(404).json({ error: "Invoice not found" });
+  if (data.invoice.status === "void") {
+    return res.status(400).json({ error: "This invoice is void. Un-void it before sending." });
+  }
+
+  // Billing email first: that is the address the customer chose for bills, and
+  // it is routinely a bookkeeper rather than the person whose lawn it is.
+  const toEmail = (body.toEmail ?? data.client.billingEmail ?? data.client.email ?? "").trim();
+  if (!toEmail) {
+    return res
+      .status(400)
+      .json({ error: "No email address on file for this customer. Add one, or send the PDF yourself." });
+  }
+
+  const pdf = await createInvoicePdf(data);
+  const html = createInvoiceEmailHtml(data);
+  let messageId: string | null = null;
+  try {
+    const sent = await sendInvoiceViaGmail({
+      toEmail,
+      subject: invoiceEmailSubject(data.invoice, data.company),
+      html,
+      pdf,
+      invoiceNumber: invoiceNumberOf(data.invoice),
+      company: data.company,
+    });
+    messageId = (sent as { id?: string } | null)?.id ?? null;
+  } catch (err) {
+    logger.error({ err, invoiceId }, "failed to send invoice email");
+    return res.status(502).json({ error: err instanceof Error ? err.message : "Could not send the invoice." });
+  }
+
+  // Stamped only after Gmail accepted it. Marking it sent before the send would
+  // hide a failed invoice from the office in the one view built to catch them.
+  await db.update(invoicesTable).set({ sentAt: new Date() }).where(eq(invoicesTable.id, invoiceId));
+  await logAudit({
+    clientId: data.invoice.clientId,
+    actorName: req.appUser?.name,
+    action: "invoice_sent",
+    description: `Emailed invoice #${invoiceNumberOf(data.invoice)} to ${toEmail}`,
+  });
+
+  return res.json({ sent: true, toEmail, messageId });
 });
 
 // ---- payments ----

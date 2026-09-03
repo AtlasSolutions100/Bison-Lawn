@@ -604,6 +604,18 @@ export const ListClientsResponseItem = zod.object({
   "mapNote": zod.string().nullish(),
   "mapCode": zod.string().nullish().describe('Route zone shorthand, e.g. PF'),
   "waterDistrict": zod.string().nullish().describe('Water purveyor serving the property'),
+  "nameOnInvoice": zod.string().nullish(),
+  "billingAddressLine1": zod.string().nullish(),
+  "billingAddressLine2": zod.string().nullish(),
+  "billingCity": zod.string().nullish(),
+  "billingState": zod.string().nullish(),
+  "billingPostalCode": zod.string().nullish(),
+  "billingEmail": zod.string().nullish(),
+  "accountNumber": zod.string().nullish(),
+  "billingTerms": zod.string().nullish().describe('Payment window, e.g. Net 15'),
+  "invoiceFrequency": zod.string().nullish(),
+  "invoiceDelivery": zod.union([zod.literal('email'),zod.literal('print'),zod.literal('both'),zod.literal(null)]).nullish(),
+  "accountType": zod.union([zod.literal('commercial'),zod.literal('residential'),zod.literal(null)]).nullish(),
   "propertyData": zod.record(zod.string(), zod.string()).optional(),
   "lastServiceDate": zod.string().nullish(),
   "unappliedCredit": zod.number().optional().describe('Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice.'),
@@ -631,6 +643,18 @@ export const CreateClientBody = zod.object({
   "mapCode": zod.string().optional(),
   "waterDistrict": zod.string().optional(),
   "mapNote": zod.string().optional(),
+  "nameOnInvoice": zod.string().optional(),
+  "billingAddressLine1": zod.string().optional(),
+  "billingAddressLine2": zod.string().optional(),
+  "billingCity": zod.string().optional(),
+  "billingState": zod.string().optional(),
+  "billingPostalCode": zod.string().optional(),
+  "billingEmail": zod.string().optional(),
+  "accountNumber": zod.string().optional(),
+  "billingTerms": zod.string().optional().describe('Payment window, e.g. Net 15'),
+  "invoiceFrequency": zod.string().optional(),
+  "invoiceDelivery": zod.enum(['email', 'print', 'both']).optional(),
+  "accountType": zod.enum(['commercial', 'residential']).optional(),
   "propertyData": zod.record(zod.string(), zod.string()).optional()
 })
 
@@ -652,6 +676,18 @@ export const CreateClientResponse = zod.object({
   "mapNote": zod.string().nullish(),
   "mapCode": zod.string().nullish().describe('Route zone shorthand, e.g. PF'),
   "waterDistrict": zod.string().nullish().describe('Water purveyor serving the property'),
+  "nameOnInvoice": zod.string().nullish(),
+  "billingAddressLine1": zod.string().nullish(),
+  "billingAddressLine2": zod.string().nullish(),
+  "billingCity": zod.string().nullish(),
+  "billingState": zod.string().nullish(),
+  "billingPostalCode": zod.string().nullish(),
+  "billingEmail": zod.string().nullish(),
+  "accountNumber": zod.string().nullish(),
+  "billingTerms": zod.string().nullish().describe('Payment window, e.g. Net 15'),
+  "invoiceFrequency": zod.string().nullish(),
+  "invoiceDelivery": zod.union([zod.literal('email'),zod.literal('print'),zod.literal('both'),zod.literal(null)]).nullish(),
+  "accountType": zod.union([zod.literal('commercial'),zod.literal('residential'),zod.literal(null)]).nullish(),
   "propertyData": zod.record(zod.string(), zod.string()).optional(),
   "lastServiceDate": zod.string().nullish(),
   "unappliedCredit": zod.number().optional().describe('Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice.'),
@@ -681,6 +717,18 @@ export const GetClientResponse = zod.object({
   "mapNote": zod.string().nullish(),
   "mapCode": zod.string().nullish().describe('Route zone shorthand, e.g. PF'),
   "waterDistrict": zod.string().nullish().describe('Water purveyor serving the property'),
+  "nameOnInvoice": zod.string().nullish(),
+  "billingAddressLine1": zod.string().nullish(),
+  "billingAddressLine2": zod.string().nullish(),
+  "billingCity": zod.string().nullish(),
+  "billingState": zod.string().nullish(),
+  "billingPostalCode": zod.string().nullish(),
+  "billingEmail": zod.string().nullish(),
+  "accountNumber": zod.string().nullish(),
+  "billingTerms": zod.string().nullish().describe('Payment window, e.g. Net 15'),
+  "invoiceFrequency": zod.string().nullish(),
+  "invoiceDelivery": zod.union([zod.literal('email'),zod.literal('print'),zod.literal('both'),zod.literal(null)]).nullish(),
+  "accountType": zod.union([zod.literal('commercial'),zod.literal('residential'),zod.literal(null)]).nullish(),
   "propertyData": zod.record(zod.string(), zod.string()).optional(),
   "lastServiceDate": zod.string().nullish(),
   "unappliedCredit": zod.number().optional().describe('Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice.'),
@@ -711,6 +759,18 @@ export const UpdateClientBody = zod.object({
   "mapNote": zod.string().nullish(),
   "mapCode": zod.string().nullish().describe('Route zone shorthand, e.g. PF'),
   "waterDistrict": zod.string().nullish().describe('Water purveyor serving the property'),
+  "nameOnInvoice": zod.string().nullish(),
+  "billingAddressLine1": zod.string().nullish(),
+  "billingAddressLine2": zod.string().nullish(),
+  "billingCity": zod.string().nullish(),
+  "billingState": zod.string().nullish(),
+  "billingPostalCode": zod.string().nullish(),
+  "billingEmail": zod.string().nullish(),
+  "accountNumber": zod.string().nullish(),
+  "billingTerms": zod.string().nullish().describe('Payment window, e.g. Net 15'),
+  "invoiceFrequency": zod.string().nullish(),
+  "invoiceDelivery": zod.union([zod.literal('email'),zod.literal('print'),zod.literal('both'),zod.literal(null)]).nullish(),
+  "accountType": zod.union([zod.literal('commercial'),zod.literal('residential'),zod.literal(null)]).nullish(),
   "propertyData": zod.record(zod.string(), zod.string()).optional()
 })
 
@@ -732,6 +792,18 @@ export const UpdateClientResponse = zod.object({
   "mapNote": zod.string().nullish(),
   "mapCode": zod.string().nullish().describe('Route zone shorthand, e.g. PF'),
   "waterDistrict": zod.string().nullish().describe('Water purveyor serving the property'),
+  "nameOnInvoice": zod.string().nullish(),
+  "billingAddressLine1": zod.string().nullish(),
+  "billingAddressLine2": zod.string().nullish(),
+  "billingCity": zod.string().nullish(),
+  "billingState": zod.string().nullish(),
+  "billingPostalCode": zod.string().nullish(),
+  "billingEmail": zod.string().nullish(),
+  "accountNumber": zod.string().nullish(),
+  "billingTerms": zod.string().nullish().describe('Payment window, e.g. Net 15'),
+  "invoiceFrequency": zod.string().nullish(),
+  "invoiceDelivery": zod.union([zod.literal('email'),zod.literal('print'),zod.literal('both'),zod.literal(null)]).nullish(),
+  "accountType": zod.union([zod.literal('commercial'),zod.literal('residential'),zod.literal(null)]).nullish(),
   "propertyData": zod.record(zod.string(), zod.string()).optional(),
   "lastServiceDate": zod.string().nullish(),
   "unappliedCredit": zod.number().optional().describe('Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice.'),
@@ -1743,7 +1815,9 @@ export const ListWaitingListResponseItem = zod.object({
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish(),
   "skipReason": zod.string().nullish(),
-  "skippedAt": zod.string().nullish()
+  "skippedAt": zod.string().nullish(),
+  "skipBillable": zod.boolean().nullish().describe('Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.'),
+  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.')
 })
 export const ListWaitingListResponse = zod.array(ListWaitingListResponseItem)
 
@@ -1801,7 +1875,9 @@ export const ListJobsResponseItem = zod.object({
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish(),
   "skipReason": zod.string().nullish(),
-  "skippedAt": zod.string().nullish()
+  "skippedAt": zod.string().nullish(),
+  "skipBillable": zod.boolean().nullish().describe('Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.'),
+  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.')
 })
 export const ListJobsResponse = zod.array(ListJobsResponseItem)
 
@@ -1863,7 +1939,9 @@ export const CreateJobResponse = zod.object({
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish(),
   "skipReason": zod.string().nullish(),
-  "skippedAt": zod.string().nullish()
+  "skippedAt": zod.string().nullish(),
+  "skipBillable": zod.boolean().nullish().describe('Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.'),
+  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.')
 })
 
 
@@ -1910,7 +1988,9 @@ export const GetJobResponse = zod.object({
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish(),
   "skipReason": zod.string().nullish(),
-  "skippedAt": zod.string().nullish()
+  "skippedAt": zod.string().nullish(),
+  "skipBillable": zod.boolean().nullish().describe('Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.'),
+  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.')
 })
 
 
@@ -1974,7 +2054,9 @@ export const UpdateJobResponse = zod.object({
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish(),
   "skipReason": zod.string().nullish(),
-  "skippedAt": zod.string().nullish()
+  "skippedAt": zod.string().nullish(),
+  "skipBillable": zod.boolean().nullish().describe('Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.'),
+  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.')
 })
 
 
@@ -2033,7 +2115,9 @@ export const DispatchJobsResponseItem = zod.object({
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish(),
   "skipReason": zod.string().nullish(),
-  "skippedAt": zod.string().nullish()
+  "skippedAt": zod.string().nullish(),
+  "skipBillable": zod.boolean().nullish().describe('Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.'),
+  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.')
 })
 export const DispatchJobsResponse = zod.array(DispatchJobsResponseItem)
 
@@ -2084,7 +2168,9 @@ export const CompleteJobResponse = zod.object({
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish(),
   "skipReason": zod.string().nullish(),
-  "skippedAt": zod.string().nullish()
+  "skippedAt": zod.string().nullish(),
+  "skipBillable": zod.boolean().nullish().describe('Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.'),
+  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.')
 })
 
 
@@ -2169,7 +2255,9 @@ export const ListMyJobsResponseItem = zod.object({
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish(),
   "skipReason": zod.string().nullish(),
-  "skippedAt": zod.string().nullish()
+  "skippedAt": zod.string().nullish(),
+  "skipBillable": zod.boolean().nullish().describe('Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.'),
+  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.')
 })
 export const ListMyJobsResponse = zod.array(ListMyJobsResponseItem)
 
@@ -2314,17 +2402,47 @@ export const ListInvoicesResponseItem = zod.object({
   "status": zod.enum(['open', 'paid', 'partial', 'void']),
   "total": zod.number(),
   "amountPaid": zod.number(),
+  "balance": zod.number().describe('total minus amountPaid, never negative'),
   "notes": zod.string().nullish(),
+  "number": zod.int().describe('The number the customer sees; falls back to id on legacy rows'),
+  "invoiceDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "terms": zod.string().nullish(),
+  "poNumber": zod.string().nullish(),
+  "sentAt": zod.string().nullish(),
+  "lines": zod.array(zod.object({
+  "id": zod.int(),
+  "invoiceId": zod.int(),
+  "description": zod.string(),
+  "serviceDate": zod.string().nullish().describe('Date-only (YYYY-MM-DD) of the visit this line bills'),
+  "quantity": zod.number(),
+  "unitPrice": zod.number(),
+  "total": zod.number(),
+  "sortOrder": zod.int()
+})),
   "createdAt": zod.string()
 })
 export const ListInvoicesResponse = zod.array(ListInvoicesResponseItem)
 
 
+
+export const createInvoiceBodyLinesItemQuantityDefault = 1;
+export const createInvoiceBodyLinesItemUnitPriceDefault = 0;
+
 export const CreateInvoiceBody = zod.object({
   "clientId": zod.int(),
   "jobId": zod.int().nullish(),
-  "total": zod.number(),
-  "notes": zod.string().optional()
+  "total": zod.number().optional().describe('Ignored when `lines` is supplied — the total is then the sum of the lines, so the printed detail and the amount owed cannot disagree.'),
+  "notes": zod.string().optional(),
+  "invoiceDate": zod.string().nullish(),
+  "terms": zod.string().nullish().describe('Defaults to the client\'s billingTerms when omitted'),
+  "poNumber": zod.string().nullish(),
+  "lines": zod.array(zod.object({
+  "description": zod.string().min(1),
+  "serviceDate": zod.string().nullish(),
+  "quantity": zod.number().default(createInvoiceBodyLinesItemQuantityDefault),
+  "unitPrice": zod.number().default(createInvoiceBodyLinesItemUnitPriceDefault)
+})).optional()
 })
 
 export const CreateInvoiceResponse = zod.object({
@@ -2336,7 +2454,24 @@ export const CreateInvoiceResponse = zod.object({
   "status": zod.enum(['open', 'paid', 'partial', 'void']),
   "total": zod.number(),
   "amountPaid": zod.number(),
+  "balance": zod.number().describe('total minus amountPaid, never negative'),
   "notes": zod.string().nullish(),
+  "number": zod.int().describe('The number the customer sees; falls back to id on legacy rows'),
+  "invoiceDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "terms": zod.string().nullish(),
+  "poNumber": zod.string().nullish(),
+  "sentAt": zod.string().nullish(),
+  "lines": zod.array(zod.object({
+  "id": zod.int(),
+  "invoiceId": zod.int(),
+  "description": zod.string(),
+  "serviceDate": zod.string().nullish().describe('Date-only (YYYY-MM-DD) of the visit this line bills'),
+  "quantity": zod.number(),
+  "unitPrice": zod.number(),
+  "total": zod.number(),
+  "sortOrder": zod.int()
+})),
   "createdAt": zod.string()
 })
 
@@ -2354,7 +2489,24 @@ export const GetInvoiceResponse = zod.object({
   "status": zod.enum(['open', 'paid', 'partial', 'void']),
   "total": zod.number(),
   "amountPaid": zod.number(),
+  "balance": zod.number().describe('total minus amountPaid, never negative'),
   "notes": zod.string().nullish(),
+  "number": zod.int().describe('The number the customer sees; falls back to id on legacy rows'),
+  "invoiceDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "terms": zod.string().nullish(),
+  "poNumber": zod.string().nullish(),
+  "sentAt": zod.string().nullish(),
+  "lines": zod.array(zod.object({
+  "id": zod.int(),
+  "invoiceId": zod.int(),
+  "description": zod.string(),
+  "serviceDate": zod.string().nullish().describe('Date-only (YYYY-MM-DD) of the visit this line bills'),
+  "quantity": zod.number(),
+  "unitPrice": zod.number(),
+  "total": zod.number(),
+  "sortOrder": zod.int()
+})),
   "createdAt": zod.string()
 })
 
@@ -2363,10 +2515,24 @@ export const UpdateInvoiceParams = zod.object({
   "id": zod.coerce.number().int()
 })
 
+
+export const updateInvoiceBodyLinesItemQuantityDefault = 1;
+export const updateInvoiceBodyLinesItemUnitPriceDefault = 0;
+
 export const UpdateInvoiceBody = zod.object({
   "status": zod.enum(['open', 'paid', 'partial', 'void']).optional(),
   "total": zod.number().optional(),
-  "notes": zod.string().nullish()
+  "notes": zod.string().nullish(),
+  "invoiceDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "terms": zod.string().nullish(),
+  "poNumber": zod.string().nullish(),
+  "lines": zod.array(zod.object({
+  "description": zod.string().min(1),
+  "serviceDate": zod.string().nullish(),
+  "quantity": zod.number().default(updateInvoiceBodyLinesItemQuantityDefault),
+  "unitPrice": zod.number().default(updateInvoiceBodyLinesItemUnitPriceDefault)
+})).optional().describe('When present, replaces every line and recomputes the total')
 })
 
 export const UpdateInvoiceResponse = zod.object({
@@ -2378,8 +2544,53 @@ export const UpdateInvoiceResponse = zod.object({
   "status": zod.enum(['open', 'paid', 'partial', 'void']),
   "total": zod.number(),
   "amountPaid": zod.number(),
+  "balance": zod.number().describe('total minus amountPaid, never negative'),
   "notes": zod.string().nullish(),
+  "number": zod.int().describe('The number the customer sees; falls back to id on legacy rows'),
+  "invoiceDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "terms": zod.string().nullish(),
+  "poNumber": zod.string().nullish(),
+  "sentAt": zod.string().nullish(),
+  "lines": zod.array(zod.object({
+  "id": zod.int(),
+  "invoiceId": zod.int(),
+  "description": zod.string(),
+  "serviceDate": zod.string().nullish().describe('Date-only (YYYY-MM-DD) of the visit this line bills'),
+  "quantity": zod.number(),
+  "unitPrice": zod.number(),
+  "total": zod.number(),
+  "sortOrder": zod.int()
+})),
   "createdAt": zod.string()
+})
+
+
+/**
+ * @summary The invoice as a PDF, in the format the office already sends
+ */
+export const GetInvoicePdfParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const GetInvoicePdfResponse = zod.unknown()
+
+
+/**
+ * @summary Email the invoice to the customer with the PDF attached
+ */
+export const SendInvoiceParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const SendInvoiceBody = zod.object({
+  "toEmail": zod.string().nullish().describe('Overrides the client\'s billing email for this send only')
+})
+
+export const SendInvoiceResponse = zod.object({
+  "sent": zod.boolean(),
+  "toEmail": zod.string(),
+  "messageId": zod.string().nullish()
 })
 
 

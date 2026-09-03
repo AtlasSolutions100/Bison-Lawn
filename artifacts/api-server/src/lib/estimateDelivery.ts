@@ -41,7 +41,7 @@ const BASE64_LINE_LENGTH = 76;
  * SMTP's 998-octet line limit; relays are then free to fold it wherever they
  * like, and a photo that arrives corrupted looks like our bug, not the relay's.
  */
-function encodeBase64Lines(bytes: Buffer | string): string {
+export function encodeBase64Lines(bytes: Buffer | string): string {
   const encoded = Buffer.from(bytes).toString("base64");
   const lines: string[] = [];
   for (let at = 0; at < encoded.length; at += BASE64_LINE_LENGTH) {
@@ -72,7 +72,7 @@ export function describeBytes(byteLength: number): string {
  * breaks, nothing outside ASCII. A name that carried a CRLF would let a caption
  * inject its own MIME headers, and captions are typed by hand.
  */
-function safeFileName(name: string, fallback: string): string {
+export function safeFileName(name: string, fallback: string): string {
   const cleaned = name
     .replace(/[^\x20-\x7e]/g, "")
     .replace(/["\\/:*?<>|]/g, "")

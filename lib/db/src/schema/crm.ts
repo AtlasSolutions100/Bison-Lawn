@@ -75,6 +75,32 @@ export const clientsTable = pgTable("clients", {
   waterDistrict: text("water_district"),
   propertyData: jsonb("property_data").$type<Record<string, string>>().notNull().default({}),
   lastServiceDate: text("last_service_date"),
+  // ---- billing ----
+  // His invoices carry a Bill To block that is routinely NOT the service
+  // address: property managers, second homes and commercial accounts are billed
+  // somewhere else entirely. Collapsing the two, which is what one address per
+  // client amounted to, sends the bill to the lawn.
+  //
+  // Every column below is a column in his Service Autopilot customer export, so
+  // the names are his, not ours, and a re-import maps straight across.
+  nameOnInvoice: text("name_on_invoice"),
+  billingAddressLine1: text("billing_address_line1"),
+  billingAddressLine2: text("billing_address_line2"),
+  billingCity: text("billing_city"),
+  billingState: text("billing_state"),
+  billingPostalCode: text("billing_postal_code"),
+  /** Where invoices go when it differs from the contact address. */
+  billingEmail: text("billing_email"),
+  /** Account number the customer quotes when paying, e.g. DUPL1001. */
+  accountNumber: text("account_number"),
+  /** Payment window, e.g. "Net 15" — snapshotted onto each invoice at issue. */
+  billingTerms: text("billing_terms"),
+  /** How often this customer is invoiced, e.g. "Monthly" | "Per Service". */
+  invoiceFrequency: text("invoice_frequency"),
+  /** "email" | "print" | "both" — how the invoice reaches them. */
+  invoiceDelivery: text("invoice_delivery"),
+  /** "commercial" | "residential". Drives the mowing edging policy, among others. */
+  accountType: text("account_type"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 export const insertClientSchema = createInsertSchema(clientsTable).omit({ id: true, createdAt: true });
@@ -302,6 +328,21 @@ export const jobsTable = pgTable("jobs", {
   // the office needs to see it on the dispatch board without opening anything.
   skipReason: text("skip_reason"),
   skippedAt: timestamp("skipped_at"),
+  /**
+   * Whether this skip is still chargeable under his one-free-skip-a-year rule.
+   *
+   * His mowing terms: "Client will have the option to skip one scheduled mow per
+   * year without charge... Any additional skips outside of the one allowed per
+   * year will be considered unpaid and will still be billed as a completed
+   * service." Stored rather than derived, because the answer depends on how many
+   * skips already existed at the moment this one was taken — recomputing later,
+   * after another skip is added or removed, would silently restate a decision
+   * the customer was already told about.
+   *
+   * Null on a job that was never skipped, and a flag only: it marks the skip for
+   * the office to bill deliberately, and never raises a charge on its own.
+   */
+  skipBillable: boolean("skip_billable"),
   dispatched: boolean("dispatched").notNull().default(false),
   scheduledDate: text("scheduled_date"),
   windowStart: text("window_start"),
@@ -341,9 +382,65 @@ export const invoicesTable = pgTable("invoices", {
   total: doublePrecision("total").notNull().default(0),
   amountPaid: doublePrecision("amount_paid").notNull().default(0),
   notes: text("notes"),
+  // The number the customer sees and quotes back on the phone. Deliberately not
+  // the primary key: his existing invoices are already numbered in the four
+  // thousands (#4848 on the sample he sent), so the sequence has to start from
+  // wherever his last one ended rather than from 1. Null on rows created before
+  // numbering existed, and backfilled from `id` on first read.
+  // The UNIQUE constraint is added by hand at deploy, not by `drizzle-kit push`.
+  // push refuses to add a unique constraint to a non-empty table without
+  // offering to TRUNCATE it first, and `push --force` accepts that offer
+  // silently. Multiple NULLs are legal in a Postgres unique constraint, so the
+  // ALTER TABLE in DEPLOY.md is safe on existing rows and the prompt is wrong.
+  number: integer("number").unique(),
+  // Date-only strings, not timestamps. An invoice is dated by the office's
+  // calendar day; storing an instant would make the same invoice read as a
+  // different date depending on who opens it and from where.
+  invoiceDate: text("invoice_date"),
+  dueDate: text("due_date"),
+  // Free text, e.g. "Net 15" — copied from the client's billingTerms at the
+  // moment of issue. Snapshotted rather than joined because changing a
+  // customer's terms must not silently restate an invoice already sent.
+  terms: text("terms"),
+  // The customer's own purchase-order reference. Commercial and property-manager
+  // accounts will not pay an invoice that omits it.
+  poNumber: text("po_number"),
+  sentAt: timestamp("sent_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 export type Invoice = typeof invoicesTable.$inferSelect;
+
+/**
+ * The billed lines of one invoice.
+ *
+ * His invoices itemise Description / Date-Time / Quantity / Price / Total; ours
+ * carried a single `total` and no detail at all, so a customer asking "what is
+ * this $340 for?" could not be answered from the invoice. `serviceDate` is per
+ * line because a monthly invoice covers several visits on different days — that
+ * column is the whole reason the format is worth matching.
+ *
+ * Kept as its own table rather than jsonb because payments, disputes and the
+ * job-costing reports all need to reach individual lines.
+ */
+export const invoiceLineItemsTable = pgTable("invoice_line_items", {
+  id: serial("id").primaryKey(),
+  invoiceId: integer("invoice_id")
+    .notNull()
+    .references(() => invoicesTable.id, { onDelete: "cascade" }),
+  description: text("description").notNull(),
+  /** Date-only string for the visit this line bills, or null for a fee/adjustment. */
+  serviceDate: text("service_date"),
+  quantity: doublePrecision("quantity").notNull().default(1),
+  unitPrice: doublePrecision("unit_price").notNull().default(0),
+  /**
+   * quantity x unitPrice, stored rather than derived. A line whose price was
+   * negotiated to a round number must stay at that number; recomputing on read
+   * would reintroduce the floating-point cents the office had already settled.
+   */
+  total: doublePrecision("total").notNull().default(0),
+  sortOrder: integer("sort_order").notNull().default(0),
+});
+export type InvoiceLineItem = typeof invoiceLineItemsTable.$inferSelect;
 
 // ---------- payments ----------
 export const paymentsTable = pgTable("payments", {

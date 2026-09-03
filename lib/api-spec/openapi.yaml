@@ -1408,6 +1408,41 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Invoice"
+  /invoices/{id}/pdf:
+    get:
+      operationId: getInvoicePdf
+      tags: [invoices]
+      summary: The invoice as a PDF, in the format the office already sends
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: PDF
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+  /invoices/{id}/send:
+    post:
+      operationId: sendInvoice
+      tags: [invoices]
+      summary: Email the invoice to the customer with the PDF attached
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendInvoiceInput"
+      responses:
+        "200":
+          description: Sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendInvoiceResult"
+        "400":
+          description: No email address on file, or the invoice is void
   /payments:
     get:
       operationId: listPayments
@@ -2708,6 +2743,18 @@ components:
         mapNote: { type: ["string", "null"] }
         mapCode: { type: ["string", "null"], description: "Route zone shorthand, e.g. PF" }
         waterDistrict: { type: ["string", "null"], description: "Water purveyor serving the property" }
+        nameOnInvoice: { type: ["string", "null"] }
+        billingAddressLine1: { type: ["string", "null"] }
+        billingAddressLine2: { type: ["string", "null"] }
+        billingCity: { type: ["string", "null"] }
+        billingState: { type: ["string", "null"] }
+        billingPostalCode: { type: ["string", "null"] }
+        billingEmail: { type: ["string", "null"] }
+        accountNumber: { type: ["string", "null"] }
+        billingTerms: { type: ["string", "null"], description: "Payment window, e.g. Net 15" }
+        invoiceFrequency: { type: ["string", "null"] }
+        invoiceDelivery: { type: ["string", "null"], enum: [email, print, both, null] }
+        accountType: { type: ["string", "null"], enum: [commercial, residential, null] }
         propertyData:
           type: object
           additionalProperties: { type: string }
@@ -2737,6 +2784,18 @@ components:
         mapCode: { type: string }
         waterDistrict: { type: string }
         mapNote: { type: string }
+        nameOnInvoice: { type: string }
+        billingAddressLine1: { type: string }
+        billingAddressLine2: { type: string }
+        billingCity: { type: string }
+        billingState: { type: string }
+        billingPostalCode: { type: string }
+        billingEmail: { type: string }
+        accountNumber: { type: string }
+        billingTerms: { type: string, description: "Payment window, e.g. Net 15" }
+        invoiceFrequency: { type: string }
+        invoiceDelivery: { type: string, enum: [email, print, both] }
+        accountType: { type: string, enum: [commercial, residential] }
         propertyData:
           type: object
           additionalProperties: { type: string }
@@ -2758,6 +2817,18 @@ components:
         mapNote: { type: ["string", "null"] }
         mapCode: { type: ["string", "null"], description: "Route zone shorthand, e.g. PF" }
         waterDistrict: { type: ["string", "null"], description: "Water purveyor serving the property" }
+        nameOnInvoice: { type: ["string", "null"] }
+        billingAddressLine1: { type: ["string", "null"] }
+        billingAddressLine2: { type: ["string", "null"] }
+        billingCity: { type: ["string", "null"] }
+        billingState: { type: ["string", "null"] }
+        billingPostalCode: { type: ["string", "null"] }
+        billingEmail: { type: ["string", "null"] }
+        accountNumber: { type: ["string", "null"] }
+        billingTerms: { type: ["string", "null"], description: "Payment window, e.g. Net 15" }
+        invoiceFrequency: { type: ["string", "null"] }
+        invoiceDelivery: { type: ["string", "null"], enum: [email, print, both, null] }
+        accountType: { type: ["string", "null"], enum: [commercial, residential, null] }
         propertyData:
           type: object
           additionalProperties: { type: string }
@@ -3222,6 +3293,17 @@ components:
         completedAt: { type: ["string", "null"] }
         skipReason: { type: ["string", "null"] }
         skippedAt: { type: ["string", "null"] }
+        skipBillable:
+          type: ["boolean", "null"]
+          description: >-
+            Whether this skip is chargeable under the one-free-skip-per-year
+            term. Null when the job was never skipped. A flag for the office to
+            bill deliberately; it never raises a charge on its own.
+        skipNotice:
+          type: ["string", "null"]
+          description: >-
+            Present only on the response to the request that performed the skip.
+            Plain-language verdict to show the person who clicked Skip.
     JobInput:
       type: object
       required: [clientId, amount]
@@ -3290,7 +3372,7 @@ components:
         optimized: { type: boolean }
     Invoice:
       type: object
-      required: [id, clientId, status, total, amountPaid, createdAt]
+      required: [id, clientId, status, total, amountPaid, createdAt, number, balance, lines]
       properties:
         id: { type: integer }
         clientId: { type: integer }
@@ -3300,22 +3382,94 @@ components:
         status: { type: string, enum: [open, paid, partial, void] }
         total: { type: number }
         amountPaid: { type: number }
+        balance:
+          type: number
+          description: total minus amountPaid, never negative
         notes: { type: ["string", "null"] }
+        number:
+          type: integer
+          description: The number the customer sees; falls back to id on legacy rows
+        invoiceDate: { type: ["string", "null"] }
+        dueDate: { type: ["string", "null"] }
+        terms: { type: ["string", "null"] }
+        poNumber: { type: ["string", "null"] }
+        sentAt: { type: ["string", "null"] }
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/InvoiceLineItem"
         createdAt: { type: string }
+    InvoiceLineItem:
+      type: object
+      required: [id, invoiceId, description, quantity, unitPrice, total, sortOrder]
+      properties:
+        id: { type: integer }
+        invoiceId: { type: integer }
+        description: { type: string }
+        serviceDate:
+          type: ["string", "null"]
+          description: Date-only (YYYY-MM-DD) of the visit this line bills
+        quantity: { type: number }
+        unitPrice: { type: number }
+        total: { type: number }
+        sortOrder: { type: integer }
+    InvoiceLineItemInput:
+      type: object
+      required: [description]
+      properties:
+        description: { type: string, minLength: 1 }
+        serviceDate: { type: ["string", "null"] }
+        quantity: { type: number, default: 1 }
+        unitPrice: { type: number, default: 0 }
     InvoiceInput:
       type: object
-      required: [clientId, total]
+      required: [clientId]
       properties:
         clientId: { type: integer }
         jobId: { type: ["integer", "null"] }
-        total: { type: number }
+        total:
+          type: number
+          description: >-
+            Ignored when `lines` is supplied — the total is then the sum of the
+            lines, so the printed detail and the amount owed cannot disagree.
         notes: { type: string }
+        invoiceDate: { type: ["string", "null"] }
+        terms:
+          type: ["string", "null"]
+          description: Defaults to the client's billingTerms when omitted
+        poNumber: { type: ["string", "null"] }
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/InvoiceLineItemInput"
     InvoiceUpdate:
       type: object
       properties:
         status: { type: string, enum: [open, paid, partial, void] }
         total: { type: number }
         notes: { type: ["string", "null"] }
+        invoiceDate: { type: ["string", "null"] }
+        dueDate: { type: ["string", "null"] }
+        terms: { type: ["string", "null"] }
+        poNumber: { type: ["string", "null"] }
+        lines:
+          type: array
+          description: When present, replaces every line and recomputes the total
+          items:
+            $ref: "#/components/schemas/InvoiceLineItemInput"
+    SendInvoiceInput:
+      type: object
+      properties:
+        toEmail:
+          type: ["string", "null"]
+          description: Overrides the client's billing email for this send only
+    SendInvoiceResult:
+      type: object
+      required: [sent, toEmail]
+      properties:
+        sent: { type: boolean }
+        toEmail: { type: string }
+        messageId: { type: ["string", "null"] }
     Payment:
       type: object
       required: [id, clientId, amount, method, createdAt]

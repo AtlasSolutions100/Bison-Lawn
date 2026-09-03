@@ -5,6 +5,7 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+import type { InvoiceLineItemInput } from './invoiceLineItemInput';
 import type { InvoiceUpdateStatus } from './invoiceUpdateStatus';
 
 export interface InvoiceUpdate {
@@ -12,4 +13,14 @@ export interface InvoiceUpdate {
   total?: number;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  invoiceDate?: string | null;
+  /** @nullable */
+  dueDate?: string | null;
+  /** @nullable */
+  terms?: string | null;
+  /** @nullable */
+  poNumber?: string | null;
+  /** When present, replaces every line and recomputes the total */
+  lines?: InvoiceLineItemInput[];
 }

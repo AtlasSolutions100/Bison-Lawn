@@ -13,6 +13,7 @@
     "test:integration": "tsx --test test/integration.test.ts",
     "test:extra-work": "tsx --test test/extraWork.test.ts",
     "test:estimate-delivery": "tsx --test test/estimateDelivery.test.ts",
+    "test:invoice-document": "tsx --test test/invoiceDocument.test.ts",
     "test:customer-message-delivery": "tsx --test test/customerMessageDelivery.test.ts",
     "test:automation": "tsx --test test/automation.test.ts",
     "test:user-accounts": "tsx --test test/userAccounts.test.ts",

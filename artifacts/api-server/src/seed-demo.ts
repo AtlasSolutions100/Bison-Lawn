@@ -520,17 +520,26 @@ async function main() {
   await ensureDefaultSchedulingRules();
 
   // ---------- company profile + the owner's own documents ----------
-  // Address and phone are from the contract text in his own estimate template.
+  // From the letterhead and page footer of the quote he sends, and from the
+  // "Bison Lawn Care LLC" block on his invoices — both of which carry the Post
+  // Falls address and the 208 number.
+  //
+  // NOT from the contract body in the same quote, which names "PO Box 7156,
+  // Kalispell, MT 59904". Both addresses appear in one document; the owner
+  // confirmed on 2026-09-02 that the Idaho one is the company address and the
+  // Montana one is stale boilerplate. The service-contract template reads the
+  // address through [companyaddress]/[companycity]/[companystate]/[companyzip],
+  // so correcting it here is the only place it has to be corrected.
   const company = await getCompanyProfile();
   await db
     .update(companyProfileTable)
     .set({
       name: "Bison Lawn Care LLC",
-      addressLine1: "PO Box 7156",
-      city: "Kalispell",
-      state: "MT",
-      postalCode: "59904",
-      phone: "406-885-5296",
+      addressLine1: "Po Box 117",
+      city: "Post Falls",
+      state: "ID",
+      postalCode: "83877",
+      phone: "208-981-0176",
       email: "bisonlawncarellc@gmail.com",
       website: "bisonlawncare.net",
       signatureLine: "Your Friendly Bison,",

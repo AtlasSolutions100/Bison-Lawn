@@ -5,6 +5,8 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+import type { ClientInputAccountType } from './clientInputAccountType';
+import type { ClientInputInvoiceDelivery } from './clientInputInvoiceDelivery';
 import type { ClientInputPropertyData } from './clientInputPropertyData';
 import type { ClientInputStatus } from './clientInputStatus';
 
@@ -28,5 +30,18 @@ export interface ClientInput {
   mapCode?: string;
   waterDistrict?: string;
   mapNote?: string;
+  nameOnInvoice?: string;
+  billingAddressLine1?: string;
+  billingAddressLine2?: string;
+  billingCity?: string;
+  billingState?: string;
+  billingPostalCode?: string;
+  billingEmail?: string;
+  accountNumber?: string;
+  /** Payment window, e.g. Net 15 */
+  billingTerms?: string;
+  invoiceFrequency?: string;
+  invoiceDelivery?: ClientInputInvoiceDelivery;
+  accountType?: ClientInputAccountType;
   propertyData?: ClientInputPropertyData;
 }

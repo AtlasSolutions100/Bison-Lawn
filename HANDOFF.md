@@ -53,9 +53,11 @@ is submitting feedback from inside the app.
 
 ## Known, not yet acted on
 
-- **Contractors receive `clientBalance`** through the shared `hydrateJobs`. It is
-  not rendered on the job card, but it is in the API response a sub can read.
-  Worth deciding whether a sub should see a customer's account balance.
+- ~~**Contractors receive `clientBalance`**~~ — **corrected 2026-09-03.** It *is*
+  rendered to subs, deliberately: it appears in the record-on-site-payment dialog
+  in `my-jobs.tsx`, where a sub collecting money needs to know what is owed. Not
+  a leak and not an oversight. Still worth Adam confirming he wants subs to see
+  it, but removing it would break the on-site payment flow.
 - **QuickBooks production is unproven end to end.** Everything up to Intuit's
   consent screen is verified; the token exchange, CompanyInfo and reports against
   a real company file can only be proven when Adam connects — and it should be
@@ -63,9 +65,12 @@ is submitting feedback from inside the app.
 - **23 `subrepl-*` branches** carry unmerged commits and are not on GitHub.
 - **`artifacts/mockup-sandbox`** is Replit-agent scaffolding nothing imports.
   Proposed for deletion; still present.
-- Local test suite needs `DATABASE_URL` exported; several suites fail without a
-  migrated local database. Those failures are environmental and pre-existing —
-  verified by running the same suites against a clean checkout.
+- ~~Local test suite needs `DATABASE_URL` exported~~ — **corrected 2026-09-03.**
+  `DATABASE_URL` alone is not enough: `CLERK_SECRET_KEY` is also required, and
+  without it the suites fail with an HTTP 500 rather than a missing-config
+  message, which is what made this look like a database problem. Export the whole
+  `.env` and every suite passes — 105 pass / 0 fail across all nine. The command
+  is in `verify/2026-09-03/invoice-format/VERIFY.md`.
 
 ## Demo data
 
