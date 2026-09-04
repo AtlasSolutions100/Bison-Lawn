@@ -851,3 +851,39 @@ Themes in the 47, for planning rather than as a spec:
 
 One is filed as a **Problem**, not an idea: "Sprinkler Package says price 5
 services but only should be 3 services."
+
+## 2026-09-03 — deployed 398553e, and the invoice-history question is settled
+
+The SSH key for this box is **`C:\Users\kobys\bison_ssh`** on the Windows
+machine (public half `bison_ssh.pub`), not in `~/.ssh/`, which is why an earlier
+listing missed it and two sessions were spent handing deploy commands over
+instead of running them. `ssh -i /c/Users/kobys/bison_ssh root@31.220.50.13`.
+
+Deployed `398553e` — the void confirm. Container healthy, health endpoint 200
+through Caddy, both takeoff containers untouched. Verified the built bundle
+actually carries the change rather than trusting the log:
+`grep "cannot be undone here"` hits
+`/app/artifacts/bison-crm/dist/public/assets/index-CFRMrflV.js`.
+
+**The missing invoices are accounted for.** From `pg_stat_user_tables`:
+
+```
+ ever_inserted | ever_deleted | rows_now
+            19 |           18 |        1
+```
+
+Nineteen invoice rows have ever been inserted on this database, eighteen
+deleted, one remaining — the test invoice raised today. So the eighteen went
+before today: this deploy applied no deletes, and the test accounts for the
+nineteenth insert exactly. They also carried no invoice number (numbering fell
+back to `INVOICE_NUMBER_START` rather than `max(number) + 1`), so they predate
+the numbering column entirely — demo seed rows from earlier seed/reset cycles,
+not customer invoices. The importer has never written to `invoices` at all.
+
+Alongside: **709 clients** and **67 feedback rows**, the latter matching the
+count read off the UI. The real book is intact.
+
+Scope of what is proven for the void confirm: the message text and both the
+cancel and accept paths were exercised in a browser **locally**; on production
+only that the built bundle contains the change. Production has no open invoice
+to click, and raising another one to prove it was not worth a second test row.
