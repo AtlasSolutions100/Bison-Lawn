@@ -50,12 +50,25 @@ export function calculatePrice(
   value: number,
 ): { price: number; equationIndex: number | null } {
   if (!equations || equations.length === 0) return { price: 0, equationIndex: null };
-  let idx = equations.findIndex((e) => e.upToSqft != null && value <= e.upToSqft);
-  if (idx === -1) {
-    idx = equations.findIndex((e) => e.upToSqft == null);
-    if (idx === -1) idx = equations.length - 1;
-  }
-  const eq_ = equations[idx];
+
+  // A band carrying no money at all is a placeholder — an empty row left by an
+  // "Add tier" click or by an import that had nothing to put in it. It used to
+  // match like any other band and price the job at zero: on the live system a
+  // 30,000 sqft mow quoted $0.00, and so would the invoice raised when that job
+  // completed. Only bands that actually carry a price may price a job.
+  const priced = equations.filter((e) => e.basePrice > 0 || e.incrementPrice > 0);
+  if (priced.length === 0) return { price: 0, equationIndex: null };
+
+  let match = priced.find((e) => e.upToSqft != null && value <= e.upToSqft);
+  // No ceiling reached: an open-ended band if there is one, otherwise the
+  // largest band that has a price. That still under-prices a property bigger
+  // than anything in the matrix, but it under-prices it visibly — a number the
+  // office recognises as the top-band rate — rather than silently as nothing.
+  if (!match) match = priced.find((e) => e.upToSqft == null) ?? priced[priced.length - 1];
+  const eq_ = match;
+  // Index into the caller's array, not the filtered one: callers read
+  // budgetedHours back out of service.pricingEquations[equationIndex].
+  const idx = equations.indexOf(eq_);
   let price = eq_.basePrice;
   if (value > eq_.baseSqft && eq_.incrementSqft > 0) {
     const extra = value - eq_.baseSqft;
