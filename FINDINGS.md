@@ -799,3 +799,55 @@ intact regardless.
 **Void has no confirmation.** One click on a ghost button beside "Pay" voids an
 invoice immediately — no `window.confirm`, unlike Send and delete-payment. A
 misclick silently cancels a bill. Not fixed here; raised for a decision.
+
+## 2026-09-03 — Adam's feedback is not missing: 47 new items are waiting
+
+Reported as "not seeing anything on the feedback tab". The production feedback
+screen is full. Counted from the filters on
+`https://bisonlawncare.workoptional.tech/feedback`:
+
+| Filter | Count |
+|---|---|
+| All | 67 |
+| **New** | **47** |
+| Read | 1 |
+| Done | 19 |
+
+The 19 Done plus 1 Read are the original twenty-item backlog HANDOFF.md
+describes. The **47 New are all since Aug 27**, and nine of them arrived on the
+morning of Sep 3. Nothing was lost.
+
+The likely explanation for "not seeing it" is looking at `localhost:5173`, which
+runs the local demo database, rather than at production. Worth remembering:
+**the feedback screen is the one place where local and production differ in a
+way that matters**, because production's rows are the real backlog and local's
+are seed data.
+
+Themes in the 47, for planning rather than as a spec:
+
+- **Dispatch board** is the biggest cluster — customisable columns and filters
+  (branch, resource, service, city, map code, status, proximity, priority,
+  tags), select-all, seeing price / outstanding balance / last invoice balance
+  on the row, and filtering to jobs that carry a contractor's note.
+- **Undo** — reversing an accidental completion, pulling a service back off an
+  invoice and returning it to the dispatch board or waiting list.
+- **Invoice review flow** — completed jobs landing in a "pending verification"
+  state, then an invoice board to verify, then send / print / past-due queues.
+  This is adjacent to the invoice work just shipped and should be read before
+  building more of it.
+- **Services and matrix** — services priced off other services (1x mow = 1.5x),
+  copying a matrix between services, hiding matrix numbers, adding a tier at the
+  bottom, importing a matrix from Excel, matrix billable hours auto-derived from
+  the average of past jobs, and Enter moving to the next cell instead of closing
+  the editor.
+- **Estimates** — a custom cover document with a link the customer uses to pick
+  services, adding packages, populating from the matrix, and Enter for newlines
+  in descriptions.
+- **Roles** — separate contractor/employee logins with owner-set access, and
+  multiple roles per person (crew lead, second lead). Also a vocabulary note:
+  contractor, employee and crew lead should read as the same thing.
+- **Automation** — estimate follow-up at 2 and 7 days; invoice Net 15/Net 30 per
+  account with a late notice at 2 days and a final notice 15 days after that.
+
+One is filed as a **Problem**, not an idea: "Sprinkler Package says price 5
+services but only should be 3 services."

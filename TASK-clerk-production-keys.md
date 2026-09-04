@@ -1,7 +1,16 @@
 # Task: move Clerk from the development instance to a production instance
 
-Status: **not started.** Written 2026-09-03, after the invoice deploy put the
-dev-key warning on a live public URL.
+Status: **deferred, deliberately.** Written 2026-09-03 after the invoice deploy
+put the dev-key warning on a live public URL; on the same day the owner decided
+to stay on development keys until Adam confirms the app works the way he wants.
+That is a reasonable call — he is still sending feedback daily, the swap wants a
+DNS change on a domain hosted elsewhere, and every account migration risk below
+is easier to take once at the end than twice.
+
+**What makes it urgent again:** the moment real crew accounts start being
+created. A Clerk development instance caps users, so the wall arrives without
+warning. Revisit when Adam signs off, or sooner if more than a handful of
+contractors are invited.
 
 ## Why this is a real deadline, not tidying
 
