@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   useListServices, useCreateService, useUpdateService, useDeleteService, useCalculateServicePrice,
   useListPackages, useCreatePackage, useUpdatePackage, useDeletePackage, useGetService,
@@ -8,6 +8,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
@@ -181,6 +182,64 @@ function FieldPaymentSettings() {
   );
 }
 
+/**
+ * The pricing column, as one line instead of forty.
+ *
+ * Asked for directly: "can we hide the matrix numbers in the service so its
+ * cleaner?". Every band used to render as its own line inside the cell, so
+ * Mowing — forty bands — filled the screen on its own and the service list
+ * could not be scanned at all. The band count and the range answer the question
+ * the list is actually being read for; the bands themselves are one click away
+ * and unchanged.
+ */
+function PricingSummary({ service, unit }: { service: Service; unit: string }) {
+  const [open, setOpen] = useState(false);
+  const equations: any[] = (service as any).pricingEquations ?? [];
+
+  if (equations.length === 0) {
+    return <span className="text-sm text-muted-foreground">Flat ${service.rate}</span>;
+  }
+
+  // Empty bands carry no price and are not part of the range a reader cares
+  // about — they are also what used to price a large property at zero.
+  const priced = equations.filter((e) => e.basePrice > 0 || e.incrementPrice > 0);
+  const prices = priced.map((e) => e.basePrice);
+  const range = prices.length
+    ? prices.length === 1 || Math.min(...prices) === Math.max(...prices)
+      ? `$${Math.min(...prices)}`
+      : `$${Math.min(...prices)}–$${Math.max(...prices)}`
+    : 'no prices set';
+  const blanks = equations.length - priced.length;
+
+  return (
+    <div className="text-sm">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="text-left text-muted-foreground hover:text-foreground"
+        data-testid={`toggle-pricing-${service.id}`}
+      >
+        <span className="font-semibold text-foreground">{range}</span>
+        {' · '}
+        {equations.length} {equations.length === 1 ? 'band' : 'bands'}
+        {blanks > 0 && <span className="text-destructive"> · {blanks} with no price</span>}
+        <span className="ml-1 text-xs">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="mt-1 space-y-0.5">
+          {equations.map((eq: any, i: number) => (
+            <div key={i} className="text-muted-foreground">
+              Base <span className="font-semibold text-foreground">${eq.basePrice}</span> (up to {eq.baseSqft} {unit})
+              {eq.incrementPrice ? ` + $${eq.incrementPrice} / ${eq.incrementSqft} ${unit}` : ''}
+              {eq.upToSqft ? ` (Max ${eq.upToSqft})` : ''}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ServicesList() {
   const { data: services, isLoading } = useListServices();
   const { data: estimateFields } = useListEstimateFields();
@@ -211,18 +270,7 @@ function ServicesList() {
               <TableCell className="font-semibold text-foreground">{s.name}</TableCell>
               <TableCell className="text-muted-foreground text-sm max-w-[200px] truncate">{s.description}</TableCell>
               <TableCell>
-                <div className="text-sm">
-                  {s.pricingEquations?.map((eq: any, i: number) => {
-                    const unit = pricingUnitLabel(s.pricingFieldId, estimateFields);
-                    return (
-                      <div key={i} className="mb-1 text-muted-foreground">
-                        Base <span className="font-semibold text-foreground">${eq.basePrice}</span> (up to {eq.baseSqft} {unit})
-                        {eq.incrementPrice ? ` + $${eq.incrementPrice} / ${eq.incrementSqft} ${unit}` : ''}
-                        {eq.upToSqft ? ` (Max ${eq.upToSqft})` : ''}
-                      </div>
-                    );
-                  })}
-                </div>
+                <PricingSummary service={s} unit={pricingUnitLabel(s.pricingFieldId, estimateFields)} />
               </TableCell>
               <TableCell className="text-sm">
                 {s.vendorName ? (
@@ -353,6 +401,29 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
 
   const { fields, append, remove } = useFieldArray({ control: form.control, name: "pricingEquations" });
 
+  /*
+    "Entering in data in matrix using enter closes out the matrix, can that just
+    move to the next column."
+
+    Enter in a single-line input submits the enclosing form, and this form's
+    submit saves and closes the dialog — so tabbing through forty bands, one
+    reflexive Enter threw away everything typed since the last save. Enter now
+    walks to the next cell across the row and wraps to the start of the next,
+    which is what it does in the spreadsheet he is copying these numbers out of.
+  */
+  const matrixRef = useRef<HTMLTableElement>(null);
+  const handleMatrixKeyDown = (e: React.KeyboardEvent<HTMLTableElement>) => {
+    if (e.key !== 'Enter') return;
+    const target = e.target as HTMLElement;
+    if (target.tagName !== 'INPUT') return;
+    e.preventDefault();
+    const inputs = Array.from(matrixRef.current?.querySelectorAll('input') ?? []);
+    const next = inputs[inputs.indexOf(target as HTMLInputElement) + 1];
+    if (!next) return;
+    next.focus();
+    next.select();
+  };
+
   const onSubmit = (raw: z.infer<typeof serviceSchema>) => {
     const data = {
       ...raw,
@@ -430,8 +501,28 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
                 <FormField control={form.control} name="name" render={({ field }) => (
                   <FormItem><FormLabel>Service Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage/></FormItem>
                 )} />
+                {/*
+                  A textarea, not a single-line input: "Estimate Descriptions I
+                  need to be able to press enter to move to the next line so I
+                  can give a cleaner view of discription", and the example he
+                  gave is a title with an indented bullet under it. Enter used
+                  to submit the form and close the dialog. The estimate PDF
+                  already renders these line breaks, so nothing downstream needed
+                  changing — only the box he types into.
+                */}
                 <FormField control={form.control} name="description" render={({ field }) => (
-                  <FormItem><FormLabel>Description</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage/></FormItem>
+                  <FormItem>
+                    <FormLabel>Description</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        rows={4}
+                        className="resize-y"
+                        placeholder={'Top Dressing of Lawn\n*Layer of organic material for building soil health and helping to retain water'}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage/>
+                  </FormItem>
                 )} />
 
                 <FormField control={form.control} name="vendorName" render={({ field }) => (
@@ -526,9 +617,6 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
                 <div className="pt-4 border-t">
                   <div className="flex items-center justify-between mb-4">
                     <h4 className="font-semibold">Pricing Equations <span className="font-normal text-muted-foreground">— priced by {unitLabel}</span></h4>
-                    <Button type="button" variant="outline" size="sm" onClick={() => append({ baseSqft: 0, basePrice: 0, upToSqft: 0, incrementSqft: 0, incrementPrice: 0, budgetedHours: '', budgetedCost: '' })}>
-                      <Plus className="w-3 h-3 mr-1" /> Add Tier
-                    </Button>
                   </div>
                   
                   {/*
@@ -546,7 +634,7 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
                     a lawn at zero.
                   */}
                   <div className="overflow-x-auto rounded-lg border">
-                    <table className="w-full text-sm">
+                    <table ref={matrixRef} onKeyDown={handleMatrixKeyDown} className="w-full text-sm">
                       <thead className="bg-muted/60">
                         <tr className="[&>th]:px-2 [&>th]:py-2 [&>th]:text-left [&>th]:font-medium [&>th]:whitespace-nowrap">
                           <th className="w-24">From</th>
@@ -629,6 +717,20 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
                       </tbody>
                     </table>
                   </div>
+                  {/*
+                    "when adding tiers to matrix, can that button be moved to the
+                    bottom" / "in service, Add tier at the bottom of the service".
+                    A new band always belongs after the last one, and on a forty
+                    band matrix the last one is where you already are — the
+                    button used to be at the top, a full screen of scrolling away
+                    from the row you had just filled in.
+                  */}
+                  <div className="pt-2">
+                    <Button type="button" variant="outline" size="sm" onClick={() => append({ baseSqft: 0, basePrice: 0, upToSqft: 0, incrementSqft: 0, incrementPrice: 0, budgetedHours: '', budgetedCost: '' })}>
+                      <Plus className="w-3 h-3 mr-1" /> Add Tier
+                    </Button>
+                  </div>
+
                   <div className="flex items-center justify-between pt-1">
                     <p className="text-xs text-muted-foreground">
                       Leave the last <strong>To</strong> empty for “and up”. Budgeted hours and cost are optional —
@@ -757,7 +859,7 @@ function PackageDialog({ packageToEdit }: { packageToEdit?: ServicePackage }) {
               <FormItem><FormLabel>Package Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage/></FormItem>
             )} />
             <FormField control={form.control} name="description" render={({ field }) => (
-              <FormItem><FormLabel>Description</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage/></FormItem>
+              <FormItem><FormLabel>Description</FormLabel><FormControl><Textarea rows={3} className="resize-y" {...field} /></FormControl><FormMessage/></FormItem>
             )} />
 
             <div className="space-y-3 rounded-lg border p-4">
