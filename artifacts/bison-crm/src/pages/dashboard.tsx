@@ -55,14 +55,14 @@ export default function Dashboard() {
 
       {/* Top Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Jobs Today" value={s.jobsToday} icon={Briefcase} subtitle={`${s.jobsCompletedToday} completed`} />
-        <StatCard title="Open Invoices" value={`$${s.openInvoiceTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}`} icon={Receipt} subtitle="Awaiting payment" />
-        <StatCard title="Waiting List" value={s.waitingListCount} icon={CalendarClock} subtitle="Ready to dispatch" />
-        <StatCard title="Open Tickets" value={s.openTickets} icon={Ticket} subtitle="Tasks needing attention" />
+        <StatCard href="/dispatch" title="Jobs Today" value={s.jobsToday} icon={Briefcase} subtitle={`${s.jobsCompletedToday} completed`} />
+        <StatCard href="/invoices" title="Open Invoices" value={`$${s.openInvoiceTotal.toLocaleString(undefined, {minimumFractionDigits: 2})}`} icon={Receipt} subtitle="Awaiting payment" />
+        <StatCard href="/waiting-list" title="Waiting List" value={s.waitingListCount} icon={CalendarClock} subtitle="Ready to dispatch" />
+        <StatCard href="/tickets" title="Open Tickets" value={s.openTickets} icon={Ticket} subtitle="Tasks needing attention" />
       </div>
       
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        <StatCard title="Total Clients" value={s.clientCount} icon={Users} subtitle={`${s.leadCount} active leads`} />
+        <StatCard href="/clients" title="Total Clients" value={s.clientCount} icon={Users} subtitle={`${s.leadCount} active leads`} />
         <StatCard title="Revenue (MTD)" value={`$${s.revenueThisMonth.toLocaleString(undefined, {minimumFractionDigits: 2})}`} icon={Leaf} subtitle="Month to date" className="lg:col-span-3 bg-primary/5 border-primary/20" />
       </div>
 
@@ -133,9 +133,17 @@ export default function Dashboard() {
   );
 }
 
-function StatCard({ title, value, icon: Icon, subtitle, className = "" }: any) {
-  return (
-    <Card className={`shadow-sm ${className}`}>
+// Every tile answers a question you then want to act on — "twelve jobs today"
+// is followed by wanting to see them. `href` makes the whole tile the link
+// rather than a small "view" affordance, because the number is what the eye
+// lands on and therefore what the hand goes for.
+// `className` carries grid positioning (Revenue spans three columns), so it has
+// to sit on whichever element is the grid child — the link when there is one,
+// the card otherwise. Applying it to both would put a column span on an element
+// that is no longer in the grid.
+function StatCard({ title, value, icon: Icon, subtitle, className = "", href }: any) {
+  const card = (
+    <Card className={`shadow-sm ${href ? 'h-full transition-colors hover:border-primary/40 hover:bg-primary/5' : className}`}>
       <CardContent className="p-6">
         <div className="flex items-center justify-between">
           <div>
@@ -153,5 +161,16 @@ function StatCard({ title, value, icon: Icon, subtitle, className = "" }: any) {
         )}
       </CardContent>
     </Card>
+  );
+
+  if (!href) return card;
+  return (
+    <Link
+      href={href}
+      className={`block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${className}`}
+      data-testid={`link-stat-${String(title).toLowerCase().replace(/[^a-z]+/g, '-').replace(/^-|-$/g, '')}`}
+    >
+      {card}
+    </Link>
   );
 }
