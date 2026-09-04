@@ -887,3 +887,38 @@ Scope of what is proven for the void confirm: the message text and both the
 cancel and accept paths were exercised in a browser **locally**; on production
 only that the built bundle contains the change. Production has no open invoice
 to click, and raising another one to prove it was not worth a second test row.
+
+## 2026-09-03 — first pass through the backlog: 4 closed, one real bug among them
+
+47 New -> 43. Done 19 -> 23. Triage written to `BACKLOG.md`.
+
+**53 was a genuine bug, not bad data.** "Sprinkler Package says price 5 services
+but only should be 3." `packages.service_ids` is a jsonb array with no foreign
+key, so deleting a service left its id in every package that listed it; the
+package kept counting a service that no longer existed. The same bug had
+silently emptied **Full Season Care** — two ids, neither resolving — and nothing
+surfaced it. Deleting a service now strips it from every package in the same
+transaction, and the read path returns only ids that resolve. Both tests were
+confirmed failing against the unfixed code before being kept.
+
+**The mass deletion is now fully accounted for.** Adam's "I created some tickets
+but they disappeared" is the same event as the missing invoices and the deleted
+services. From `pg_stat_user_tables`:
+
+```
+ clients   1138 inserted   429 deleted   709 now
+ jobs       496 inserted   466 deleted    30 now
+ services   304 inserted   158 deleted   146 now
+ invoices    19 inserted    18 deleted     1 now
+ tickets      6 inserted     4 deleted     2 now
+ packages    10 inserted     4 deleted     6 now
+```
+
+A reset during setup, not the app losing data — which is exactly what the
+standing rule about `seed-demo --reset` exists to prevent. Told him plainly,
+and offered to re-enter the tickets if he remembers them.
+
+**Local port 5173 was serving a different project** ("Idaho Healthcare
+Staffing") — two listeners were bound, and the newer one answered. Verifying
+against it would have proved nothing about this app. Bison dev now runs on 5199.
+Check `document.title` before trusting a localhost screenshot.
