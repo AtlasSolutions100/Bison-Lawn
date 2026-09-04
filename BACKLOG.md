@@ -7,7 +7,7 @@ note, because that note is the only thing Adam ever sees.
 
 Counts when this was written: 67 total, 47 New, 1 Read, 19 Done.
 After the first pass: **43 New, 23 Done.**
-After the 2026-09-04 pass: **41 New, 24 Done, 2 Read** (27 done, 39 asked back).
+After the 2026-09-04 pass: **35 New, 29 Done, 3 Read**.
 
 ## Done in the 2026-09-03 pass
 
@@ -26,12 +26,13 @@ resolve.
 
 ## Next up — cheap, self-contained, and each one visible to him
 
+Done 2026-09-04: **41** (Enter moves to the next cell), **44** and **40**
+(descriptions are multi-line), **54** and half of **36** (Add Tier moved to the
+bottom), **37** (the pricing column is one line, and flags bands with no price).
+**36** stays open for its second half — a rule that steps prices up by size.
+
 | id | Item |
 |---|---|
-| 41 | Enter in the matrix should move to the next cell, not close the editor |
-| 44 | Enter in estimate descriptions should make a new line |
-| 54, 36 | "Add tier" button belongs at the bottom of the matrix |
-| 37 | Let the matrix numbers be hidden for a cleaner service screen |
 | 43 | Leads sorted alphabetically, and findable by the date they came in |
 | 62 | Contractor / employee / crew lead should all read as one word |
 | 34 | Tickets only appear on the dispatch board once assigned |

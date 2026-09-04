@@ -968,3 +968,25 @@ it is, what it does, that the map is empty unless the selected date has jobs, an
 asking which of two different things he actually wants. Re-answering "already
 done" to someone who has just told you otherwise is how a backlog item gets
 closed twice and fixed never.
+
+## 2026-09-04 — the matrix editor quick wins
+
+Six items answered, five built (41, 44, 40, 54, 37) and one split (36).
+**35 New, 29 Done, 3 Read.**
+
+The one worth remembering is 41. Enter in a single-line input submits the
+enclosing form, and this form's submit saves *and closes* the dialog — so a
+reflexive Enter part way through a forty band matrix discarded everything since
+the last save. Enter is now intercepted inside the matrix table only, and the
+scoping was checked rather than assumed: `defaultPrevented` is true for a matrix
+cell and false for every other input in the dialog, so ordinary save still works.
+
+37 also surfaces the pricing bug where he will see it. The Pricing Model column
+now reads "$49–$203.75 · 40 bands · **18 with no price**", the last part in red.
+Those eighteen are the empty bands that were pricing large properties at $0.00.
+The count sits on the screen he opens most, rather than in a note he has to
+remember.
+
+36 was deliberately split rather than closed: the button move is done, but the
+half asking for a rule that steps prices up by size is a real feature, and
+closing the item on the easy half would have buried it.
