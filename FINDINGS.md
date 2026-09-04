@@ -922,3 +922,49 @@ and offered to re-enter the tickets if he remembers them.
 Staffing") — two listeners were bound, and the newer one answered. Verifying
 against it would have proved nothing about this app. Bison dev now runs on 5199.
 Check `document.title` before trusting a localhost screenshot.
+
+## 2026-09-04 — checking an "already built" item found a $0 pricing hole
+
+Item 27 asked for a horizontal rate matrix. It was already built. Opening it to
+confirm that is what found the following, on live data:
+
+```
+  4,000 sqft mow  -> $55.00
+ 25,000 sqft mow  -> $181.25
+ 30,000 sqft mow  -> $0.00      <-
+ 50,000 sqft mow  -> $0.00      <-
+```
+
+Mowing carries 40 bands and **18 are empty rows** — a range with no price, no
+hours, no cost. `calculatePrice` matched the first band whose ceiling covered
+the value, and an empty row matched as readily as a real one. Core Aeration has
+12 empty bands of 15; Bison App 1 has nine of twelve.
+
+This was not confined to quoting. A job completing on such a property builds its
+invoice from the same number, so the customer would have been **billed nothing**
+and nothing on screen would have looked wrong.
+
+Fixed: only bands that carry money may price a job. Above every priced band it
+now falls back to the largest priced band — still wrong for a property larger
+than the matrix, but wrong by a number the office recognises rather than
+silently by nothing. Verified on production after deploy: 30,000 and 50,000 sqft
+now both return $203.75.
+
+`test/pricing.test.ts` is new and in the aggregate script; two of its seven
+cases were confirmed failing against the unfixed code before being kept.
+
+**Open question for Adam, asked on the item:** whether those empty bands are
+rows nobody filled in or real bands the import dropped. He has to say what a
+property over 30,000 sqft should cost. $203.75 is us refusing to quote zero, not
+a price.
+
+### Item 39 was already live when he re-raised it
+
+"Route from a map on the dispatch board per contractor." The map shipped
+2026-08-27 in `9186057`, which is an ancestor of what the server was running, so
+it was live on Aug 28 when he asked again. Either it does not do what he means or
+he could not find it. Marked **read**, not done, with a note saying exactly where
+it is, what it does, that the map is empty unless the selected date has jobs, and
+asking which of two different things he actually wants. Re-answering "already
+done" to someone who has just told you otherwise is how a backlog item gets
+closed twice and fixed never.

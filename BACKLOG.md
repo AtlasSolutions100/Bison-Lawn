@@ -7,6 +7,7 @@ note, because that note is the only thing Adam ever sees.
 
 Counts when this was written: 67 total, 47 New, 1 Read, 19 Done.
 After the first pass: **43 New, 23 Done.**
+After the 2026-09-04 pass: **41 New, 24 Done, 2 Read** (27 done, 39 asked back).
 
 ## Done in the 2026-09-03 pass
 
