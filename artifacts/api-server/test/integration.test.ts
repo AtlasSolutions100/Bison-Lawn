@@ -11,6 +11,7 @@ import {
   paymentsTable,
   servicesTable,
   estimatesTable,
+  packagesTable,
 } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
 import { createHash } from "node:crypto";
@@ -1290,5 +1291,66 @@ test("saving an estimate can write field values back to the client's property de
     await db
       .delete(estimateFieldsTable)
       .where(inArray(estimateFieldsTable.id, [turf.id, gate.id, notes.id]));
+  }
+});
+
+// Adam reported "Sprinkler Package says price 5 services but only should be 3".
+// `packages.service_ids` is a jsonb array with no foreign key, so deleting a
+// service left its id sitting in every package that listed it and the package
+// went on claiming a service that no longer existed. Two of his packages were
+// in that state; one ("Full Season Care") listed two services with neither
+// still there, and nothing surfaced it.
+test("deleting a service removes it from the packages that list it", async () => {
+  const stamp = Date.now();
+  const [keep] = await db.insert(servicesTable).values({ name: `Keep ${stamp}` }).returning();
+  const [doomed] = await db.insert(servicesTable).values({ name: `Doomed ${stamp}` }).returning();
+  ids.services.push(keep.id, doomed.id);
+
+  const created = await api("/packages", admin.id, {
+    method: "POST",
+    body: JSON.stringify({ name: `Sprinkler ${stamp}`, serviceIds: [keep.id, doomed.id] }),
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.serviceIds.length, 2);
+
+  try {
+    const deleted = await api(`/services/${doomed.id}`, admin.id, { method: "DELETE" });
+    assert.equal(deleted.status, 204);
+
+    const [row] = await db.select().from(packagesTable).where(eq(packagesTable.id, created.body.id));
+    assert.deepEqual(row.serviceIds, [keep.id], "the deleted service should be gone from the stored array");
+
+    const listed = await api("/packages", admin.id);
+    const pkg = listed.body.find((p: any) => p.id === created.body.id);
+    assert.equal(pkg.serviceIds.length, 1, "the package must not claim a service that is gone");
+    assert.equal(pkg.services.length, 1);
+    assert.equal(pkg.services[0].id, keep.id);
+  } finally {
+    await db.delete(packagesTable).where(eq(packagesTable.id, created.body.id));
+  }
+});
+
+// The fix above stops new dangling ids appearing. Rows that already carry one
+// still have to report honestly, so the count the office reads matches what the
+// package will actually schedule.
+test("a package already holding a dangling id reports only the services that exist", async () => {
+  const stamp = Date.now();
+  const [real] = await db.insert(servicesTable).values({ name: `Real ${stamp}` }).returning();
+  ids.services.push(real.id);
+
+  // 2_000_000_000 is not a service id in any database this runs against.
+  const [pkg] = await db
+    .insert(packagesTable)
+    .values({ name: `Legacy ${stamp}`, serviceIds: [real.id, 2_000_000_000] })
+    .returning();
+
+  try {
+    const listed = await api("/packages", admin.id);
+    const found = listed.body.find((p: any) => p.id === pkg.id);
+    assert.equal(found.serviceIds.length, 1, "claims two, only one exists");
+    assert.deepEqual(found.serviceIds, [real.id]);
+    assert.equal(found.services.length, 1);
+  } finally {
+    await db.delete(packagesTable).where(eq(packagesTable.id, pkg.id));
   }
 });

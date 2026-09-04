@@ -93,7 +93,24 @@ router.patch("/services/:id", async (req, res) => {
 });
 
 router.delete("/services/:id", async (req, res) => {
-  await db.delete(servicesTable).where(eq(servicesTable.id, Number(req.params.id)));
+  const serviceId = Number(req.params.id);
+  // Deleting the service and cleaning the packages that list it must be one
+  // transaction: nothing else removes the id, because `packages.service_ids` is
+  // jsonb with no foreign key to cascade. Left behind, the package keeps
+  // claiming a service that is gone — two of Adam's packages were already in
+  // that state, one of them ("Full Season Care") listing two services with
+  // neither still existing.
+  await db.transaction(async (tx) => {
+    await tx.delete(servicesTable).where(eq(servicesTable.id, serviceId));
+    const pkgs = await tx.select().from(packagesTable);
+    for (const pkg of pkgs) {
+      if (!pkg.serviceIds.includes(serviceId)) continue;
+      await tx
+        .update(packagesTable)
+        .set({ serviceIds: pkg.serviceIds.filter((id) => id !== serviceId) })
+        .where(eq(packagesTable.id, pkg.id));
+    }
+  });
   return res.status(204).end();
 });
 
@@ -194,10 +211,21 @@ router.post("/services/bulk-price-adjust", async (req, res) => {
 // ---- packages ----
 
 async function withServices(pkg: typeof packagesTable.$inferSelect) {
-  const services = pkg.serviceIds.length
+  const found = pkg.serviceIds.length
     ? await db.select().from(servicesTable).where(inArray(servicesTable.id, pkg.serviceIds))
     : [];
-  return { ...pkg, services };
+  const byId = new Map(found.map((s) => [s.id, s]));
+  // `service_ids` is a plain jsonb array with no foreign key, so deleting a
+  // service used to leave its id sitting in every package that referenced it.
+  // The package then went on claiming a service that no longer existed —
+  // reported as "Sprinkler Package says price 5 services but only should be 3".
+  // Deleting now cleans up after itself, but rows that already carry a dangling
+  // id have to report honestly too, so resolve the ids and return what is
+  // actually there. Order is the author's, which `inArray` does not preserve.
+  const services = pkg.serviceIds
+    .map((id) => byId.get(id))
+    .filter((s): s is NonNullable<typeof s> => s != null);
+  return { ...pkg, serviceIds: services.map((s) => s.id), services };
 }
 
 router.get("/packages", async (_req, res) => {
