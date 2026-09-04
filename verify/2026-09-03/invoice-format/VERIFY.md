@@ -243,3 +243,60 @@ up from 11). Workspace typecheck clean.
 
 1. Deploy: `ALTER TABLE` first, then `push`, then the app — per DEPLOY.md.
 2. Decide the `weatherScheduler.ts` `America/Chicago` question (flagged, not changed).
+
+## Deployed 2026-09-03 — `dafbd0a`
+
+Ran on the server by Koby; I have no SSH to that box.
+
+The corrected sequence worked exactly as the scratch-database test predicted:
+
+```
+ALTER TABLE   (add column number)
+ALTER TABLE   (add invoices_number_unique)
+deploy.sh     e7a3b1d -> dafbd0a, built, container healthy,
+              https://bisonlawncare.workoptional.tech/api/healthz -> 200
+push          [✓] Changes applied          <- no truncate prompt
+```
+
+Had we followed the runbook as it stood, `push` would have run first, stopped on
+the truncate prompt having applied nothing, and the documented recovery
+(`ALTER TABLE ... ADD CONSTRAINT`) would have failed on `column "number" does
+not exist` — on production, mid-deploy. The correction was worth making first.
+
+The neighbouring stack was untouched, as `deploy.sh` prints:
+
+```
+bisonlawn-app  Up 7 seconds (healthy)
+takeoff-app-1  Up 3 days (healthy)
+bisonlawn-db-1  Up 7 days (healthy)
+takeoff-caddy-1  Up 7 days
+```
+
+### Production has no invoices, and that is correct
+
+The invoices page reads "No invoices found." That is the expected state, not
+data loss:
+
+- `scripts/import/service-autopilot-to-sql.js` writes **only** `clients`,
+  `estimate_fields` and `services`. It has never had an `INSERT INTO invoices`.
+- The only code that inserts invoices outside the app itself is `seed-demo.ts`,
+  which must not be run on a real account.
+- His actual invoice history lives in Service Autopilot. Not importing it is why
+  numbering starts at `INVOICE_NUMBER_START` (4900) — to continue past the ~4848
+  his old system reached rather than restart at 1 alongside it.
+
+Clients confirm the real book is intact and untouched: real names, phone
+numbers, and Coeur d'Alene / Hayden / Post Falls / Spirit Lake addresses with
+map codes.
+
+Outstanding as a formality — `select n_tup_ins, n_tup_del, n_live_tup from
+pg_stat_user_tables where relname='invoices'` would turn "never had any" from an
+inference off the import code into a recorded fact.
+
+### Not verified on production
+
+The Invoice # column header renders and New Invoice is present, but with no
+invoices there is no row to exercise, so **PDF, Send/Resend and the void balance
+are unverified against production**. All three are verified locally and at the
+API layer. Proving them on production means raising a real invoice on Adam's
+live account, which is his call, not mine to assume.

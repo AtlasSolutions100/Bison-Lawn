@@ -740,3 +740,32 @@ MSYS root, serving the app at `/Program%20Files/Git/`; launch vite through
 `node .../vite/dist/node/cli.js` instead.
 
 Still not deployed, and the `ALTER TABLE` has not been run anywhere.
+
+## 2026-09-03 — deployed dafbd0a, and the runbook error caught on the way
+
+Live. `deploy.sh` took the server e7a3b1d -> dafbd0a, the container reports
+healthy, `https://bisonlawncare.workoptional.tech/api/healthz` -> 200, and both
+takeoff containers were still up afterwards.
+
+**DEPLOY.md was wrong in a way that would have stranded this deploy.** It said
+that if `invoices.number` did not exist you could run `push` first because it
+"adds the column and stops at the constraint prompt with nothing applied". It
+applies *nothing* — `push` computes the whole diff before applying any of it —
+so the documented next step, `ALTER TABLE ... ADD CONSTRAINT`, would have failed
+with `column "number" does not exist` on production, half-way through. Proved
+both paths against scratch databases before touching the server; corrected the
+runbook to add column and constraint together first. `push` then reported
+`Changes applied` with no prompt, exactly as predicted.
+
+**Production has no invoices, and that is correct.** The Service Autopilot
+importer writes only clients, estimate_fields and services — it has never had an
+`INSERT INTO invoices`. His invoice history stays in Service Autopilot, which is
+the whole reason numbering starts at 4900. The real client book is intact.
+
+**Clerk is still on development keys on a public URL.** Deliberate while
+testing, but now a deadline rather than a note — dev instances cap users and
+show a "Development mode" banner on the sign-in card. Written up as
+`TASK-clerk-production-keys.md`, including the trap that it is a rebuild rather
+than a restart (Vite inlines the publishable key at build time) and what happens
+to existing accounts (they survive on verified email; an unverified one, or a
+different address, silently demotes the person to contractor).
