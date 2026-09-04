@@ -372,3 +372,31 @@ Genuinely worth raising though: **Void has no confirmation of any kind.** One
 click on a ghost button immediately voids an invoice, and it sits directly
 beside "Pay". `handleUpdate` fires the mutation with no `window.confirm`, unlike
 Send and Delete-payment which both confirm. A misclick silently cancels a bill.
+
+## Void now confirms (follow-up)
+
+Void was the one destructive control on the row that fired on a single click,
+sitting beside "Pay", with no way back — every action is gated on
+`status !== 'void'`, so a voided invoice renders with no buttons at all.
+
+Verified in the browser by stubbing `window.confirm` (a native modal freezes the
+extension) and reading back the exact message it was called with:
+
+```
+Void invoice #4901 for Verify Property Group ($147.00)?
+
+The customer will no longer owe it, and this cannot be undone here.
+```
+
+Paid invoices get the extra clause, because voiding one turns the money into
+account credit rather than making it disappear:
+
+```
+Void invoice #321 for Sarah Thompson ($190.00)?
+
+The customer will no longer owe it, and this cannot be undone here.
+The $190.00 already paid stays on the account as credit.
+```
+
+Both paths exercised: returning **false** left #4901 `OPEN $147.00`; returning
+**true** left it `VOID $147.00 $0.00`. Typecheck clean.

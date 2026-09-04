@@ -314,6 +314,20 @@ function InvoiceRow({ invoice }: { invoice: any }) {
   const unappliedCredit = client?.unappliedCredit ?? 0;
 
   const handleUpdate = () => {
+    // Void sits one button away from Pay, cancels a real bill, and cannot be
+    // undone from this screen — a voided invoice renders with no actions at
+    // all, so there is no way back short of the database. Send and
+    // delete-payment both confirm; this was the one destructive control that
+    // fired on a single click.
+    const amount = `$${(invoice.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+    const paid = (invoice.amountPaid || 0) > 0
+      ? ` The $${(invoice.amountPaid).toLocaleString(undefined, { minimumFractionDigits: 2 })} already paid stays on the account as credit.`
+      : '';
+    const message =
+      `Void invoice #${invoice.number ?? invoice.id} for ${invoice.clientName} (${amount})?\n\n` +
+      `The customer will no longer owe it, and this cannot be undone here.${paid}`;
+    if (!window.confirm(message)) return;
+
     updateInvoice.mutate({ id: invoice.id, data: { status: 'void' } }, {
       onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/invoices'] })
     });
