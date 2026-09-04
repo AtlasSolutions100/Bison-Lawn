@@ -300,3 +300,75 @@ invoices there is no row to exercise, so **PDF, Send/Resend and the void balance
 are unverified against production**. All three are verified locally and at the
 API layer. Proving them on production means raising a real invoice on Adam's
 live account, which is his call, not mine to assume.
+
+## Production pass, 2026-09-03 — test invoice #4900, raised and voided
+
+Authorised by Koby. Billed to **Adam Johnson's own client record**, not a
+customer's, so the row sits on his account rather than in someone's history.
+
+| Check | Result |
+|---|---|
+| Numbering | **#4900** — the configured start, continuing past his ~4848 |
+| PDF | One page, letterhead through coupon, no second sheet |
+| Void | `#4900 VOID  Total $1.00  Balance Due $0.00`, in plain text not red |
+
+The void row is the fix from `34cd176` confirmed against production data.
+
+### The pass paid for itself: production had the wrong company address
+
+The first PDF came out on **`PO Box 7156, Kalispell, MT 59904 / 406-885-5296`** —
+the Montana address corrected on 2026-09-02, when the owner confirmed the Idaho
+one. The correction had been made in `seed-demo.ts` and in the *local* database
+only. Seed code never runs on production, so the live `company_profile` row was
+never touched and nobody had looked at a production document since.
+
+Every invoice, estimate and letter Adam sent from production carried it,
+including the payment coupon's `Remit to:` line — customers posting cheques to
+the wrong state.
+
+Fixed through the app's own Settings > Company details form (not raw SQL), which
+is also the source of the `[companyaddress]`, `[companycity]`, `[companystate]`,
+`[companyzip]` and `[companyphonenumber]` merge tokens, so letters and estimate
+emails follow. Re-rendered the same invoice and confirmed both the letterhead
+and the remit line now read `Po Box 117, Post Falls, ID 83877 / 208-981-0176`.
+
+Before and after: `prod-wrong-address-before.jpg`,
+`prod-corrected-address-after.jpg`. Void row: `prod-void-zero-balance.jpg`.
+
+**This is a class of bug, not a one-off.** Seed and local fixtures are not
+production data. Anything corrected in `seed-demo.ts` needs a matching change to
+the live row, or it silently only ever holds locally.
+
+### Correction to the section above
+
+That section said production "never had any" invoices and predicted
+`n_tup_ins = 0`. **The prediction is wrong.** The test invoice was created with
+row id **19**, so the sequence had already issued eighteen ids — invoices did
+exist on this database at some point and are gone now.
+
+What that does *not* mean is that this deploy lost them:
+
+- `push` reported `Changes applied` with no truncate prompt, and the scratch-DB
+  test showed that path applies its diff without deleting rows.
+- Numbering fell back to `INVOICE_NUMBER_START` rather than `max(number) + 1`,
+  which means no *numbered* invoice existed — consistent with rows that predate
+  the numbering column entirely.
+
+The likely explanation is earlier demo seeding and resets on this box, which is
+the same reason the standing instruction exists never to run
+`seed-demo --reset` here. Worth confirming from `pg_stat_user_tables` rather
+than leaving as inference — but the reasoning above stands on its own, and the
+real client book is intact either way.
+
+### Unexplained, not claimed as a bug
+
+The first Void click (driven by element reference) did not register; later
+clicks did. No network request was captured for the failed attempt, but network
+capture had not started at that point, so there is no evidence either way.
+Most likely a stale element handle after a React re-render rather than an app
+fault. Not reproduced deliberately, so not filed as a defect.
+
+Genuinely worth raising though: **Void has no confirmation of any kind.** One
+click on a ghost button immediately voids an invoice, and it sits directly
+beside "Pay". `handleUpdate` fires the mutation with no `window.confirm`, unlike
+Send and Delete-payment which both confirm. A misclick silently cancels a bill.

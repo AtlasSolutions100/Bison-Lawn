@@ -769,3 +769,33 @@ show a "Development mode" banner on the sign-in card. Written up as
 than a restart (Vite inlines the publishable key at build time) and what happens
 to existing accounts (they survive on verified email; an unverified one, or a
 different address, silently demotes the person to contractor).
+
+## 2026-09-03 — production pass found the wrong company address on live documents
+
+Raised test invoice #4900 against Adam's own client record and voided it.
+Numbering started at 4900 as designed, the PDF is one page, and the voided row
+reads `Total $1.00 / Balance Due $0.00` — the void fix confirmed on production.
+
+**The live company profile still held the Kalispell, MT address.** It was
+corrected on 2026-09-02 in `seed-demo.ts` and the local database; production's
+`company_profile` row was never touched, because seed code does not run there.
+So every invoice, estimate and letter sent from production carried
+`PO Box 7156, Kalispell, MT 59904 / 406-885-5296`, including the coupon's
+`Remit to:` line — customers posting cheques to the wrong state. Fixed through
+Settings > Company details, which also feeds the `[companyaddress]` merge
+tokens, and confirmed by re-rendering the same invoice.
+
+The general lesson: **a fix to seed data is not a fix to production.** Anything
+corrected in `seed-demo.ts` needs a matching change to the live row.
+
+**Correction to the previous entry.** It said production had never had invoices.
+The test invoice came back with row id 19, so eighteen ids had already been
+issued — rows existed at some point and are gone. That is not this deploy:
+`push` applied its diff with no truncate prompt, and numbering fell back to
+INVOICE_NUMBER_START rather than max+1, so no *numbered* invoice ever existed.
+Most likely earlier demo seeding and resets on this box. The client book is
+intact regardless.
+
+**Void has no confirmation.** One click on a ghost button beside "Pay" voids an
+invoice immediately — no `window.confirm`, unlike Send and delete-payment. A
+misclick silently cancels a bill. Not fixed here; raised for a decision.
