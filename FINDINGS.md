@@ -1110,3 +1110,33 @@ broken feature. It was not:
 I twice wrote a code comment asserting a cause I had not established — first
 that the clipboard was blocked, then that it was fine — and had to correct both.
 The comment now states what was measured.
+
+## 2026-09-08 — a $13 job that should be $130
+
+104, 105 and 106 done (services search, cost filled from rate, matrix bands
+reorderable). **55 New, 41 Done, 5 Read.**
+
+Checking 105's premise against the data — rather than assuming a percentage —
+found a live pricing error. Of the 71 costed bands, 60 are exactly 75% of rate
+and most of the rest 85%. One was **850%**, which is what surfaced it:
+
+```
+ Sprinkler Turn on, priced by zones
+ 6 -> $60   7 -> $70   8 -> $80    9 -> $90   10 -> $100
+ 11 -> $110  12 -> $120  13 -> $13  14 -> $140
+```
+
+The $13 is $130 with a digit dropped, and the band's own budgeted cost proves
+it: $110.50, which is 85% of $130 — the same percentage as every other band in
+that service. As it stands a 13-zone turn-on quotes and bills $13 against
+$110.50 of budgeted cost.
+
+**Not fixed.** Writing to production pricing was blocked, and it is his number
+to set regardless. Left on the item with the arithmetic so he can check the
+reading and change one field.
+
+Worth noting the shape of this: the request was a small convenience ("can cost
+be filled from rate?"), and taking its premise seriously enough to measure the
+ratio is what exposed the error. That is now three times a cheap item has been
+hiding an expensive bug — the package counting deleted services, the $0 bands,
+and this.
