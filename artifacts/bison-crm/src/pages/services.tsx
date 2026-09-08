@@ -245,14 +245,38 @@ function ServicesList() {
   const { data: estimateFields } = useListEstimateFields();
   const deleteService = useDeleteService();
   const queryClient = useQueryClient();
+  // "Seach bar for services" — his catalogue is 146 services long, so finding
+  // "Backflow Test Winter" meant scrolling past everything alphabetically
+  // between it and Aeration. Matches the name and the description, because he
+  // names services by code as often as by what they are.
+  const [search, setSearch] = useState('');
 
   // Satisfy useGetService requirement even if unused in list
   const _ = useGetService(1, { query: { enabled: false, queryKey: ['/api/services', 1] } });
 
   if (isLoading) return <div className="text-muted-foreground animate-pulse p-4">Loading services...</div>;
 
+  const term = search.trim().toLowerCase();
+  const shown = term
+    ? (services ?? []).filter(s =>
+        s.name.toLowerCase().includes(term) || (s.description ?? '').toLowerCase().includes(term))
+    : (services ?? []);
+
   return (
-    <div className="bg-card border rounded-lg shadow-sm overflow-hidden">
+    <div className="bg-card border rounded-lg shadow-sm overflow-hidden flex flex-col">
+      <div className="flex items-center gap-3 border-b p-3">
+        <Input
+          className="h-9 max-w-xs"
+          placeholder="Search services..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          aria-label="Search services"
+          data-testid="service-search"
+        />
+        <span className="text-sm text-muted-foreground">
+          {term ? `${shown.length} of ${services?.length ?? 0}` : `${services?.length ?? 0} services`}
+        </span>
+      </div>
       <Table>
         <TableHeader className="bg-muted/50">
           <TableRow>
@@ -265,7 +289,7 @@ function ServicesList() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {services?.map(s => (
+          {shown.map(s => (
             <TableRow key={s.id} className="hover:bg-muted/50">
               <TableCell className="font-semibold text-foreground">{s.name}</TableCell>
               <TableCell className="text-muted-foreground text-sm max-w-[200px] truncate">{s.description}</TableCell>
@@ -399,7 +423,7 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
     }
   });
 
-  const { fields, append, remove } = useFieldArray({ control: form.control, name: "pricingEquations" });
+  const { fields, append, remove, move } = useFieldArray({ control: form.control, name: "pricingEquations" });
 
   /*
     "Entering in data in matrix using enter closes out the matrix, can that just
@@ -411,6 +435,32 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
     walks to the next cell across the row and wraps to the start of the next,
     which is what it does in the spreadsheet he is copying these numbers out of.
   */
+  /*
+    "In matrix - cost is % of Rate. can that automatically be filled based on
+    rate?" — it is, and consistently: 60 of the 71 priced bands in his catalogue
+    have a budgeted cost of exactly 75% of the rate, and most of the rest are
+    85%. So the percentage is the thing worth typing once, and the column
+    follows from it.
+
+    Filling is deliberately a button rather than something that happens as he
+    types. Bands he has already costed by hand are real numbers, and silently
+    overwriting them the moment a rate changed would lose work he cannot get
+    back.
+  */
+  const [costPercent, setCostPercent] = useState('75');
+  const fillCostsFromRate = () => {
+    const pct = Number(costPercent);
+    if (!Number.isFinite(pct) || pct <= 0) return;
+    const rows = form.getValues('pricingEquations') ?? [];
+    rows.forEach((row: any, index: number) => {
+      const rate = Number(row?.basePrice);
+      if (!Number.isFinite(rate) || rate <= 0) return;
+      form.setValue(`pricingEquations.${index}.budgetedCost`, Math.round(rate * pct) / 100, {
+        shouldDirty: true,
+      });
+    });
+  };
+
   const matrixRef = useRef<HTMLTableElement>(null);
   const handleMatrixKeyDown = (e: React.KeyboardEvent<HTMLTableElement>) => {
     if (e.key !== 'Enter') return;
@@ -704,7 +754,31 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
                                   <FormItem className="space-y-0"><FormControl><Input type="number" step="0.01" className="h-8" placeholder="—" {...field} value={field.value ?? ''} /></FormControl></FormItem>
                                 )} />
                               </td>
-                              <td>
+                              <td className="whitespace-nowrap">
+                                {/* "add a matrix field and be able to move it up to a
+                                    different line as I made a typing error" — a band
+                                    typed into the wrong row used to mean retyping every
+                                    row below it. */}
+                                <Button
+                                  type="button" variant="ghost" size="icon"
+                                  className="h-8 w-6 text-muted-foreground disabled:opacity-25"
+                                  disabled={index === 0}
+                                  title="Move this band up"
+                                  data-testid={`band-up-${index}`}
+                                  onClick={() => move(index, index - 1)}
+                                >
+                                  ↑
+                                </Button>
+                                <Button
+                                  type="button" variant="ghost" size="icon"
+                                  className="h-8 w-6 text-muted-foreground disabled:opacity-25"
+                                  disabled={index === fields.length - 1}
+                                  title="Move this band down"
+                                  data-testid={`band-down-${index}`}
+                                  onClick={() => move(index, index + 1)}
+                                >
+                                  ↓
+                                </Button>
                                 {fields.length > 1 && (
                                   <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => remove(index)}>
                                     <Trash2 className="w-4 h-4" />
@@ -725,10 +799,25 @@ function ServiceDialog({ serviceToEdit }: { serviceToEdit?: Service }) {
                     button used to be at the top, a full screen of scrolling away
                     from the row you had just filled in.
                   */}
-                  <div className="pt-2">
+                  <div className="flex flex-wrap items-center gap-2 pt-2">
                     <Button type="button" variant="outline" size="sm" onClick={() => append({ baseSqft: 0, basePrice: 0, upToSqft: 0, incrementSqft: 0, incrementPrice: 0, budgetedHours: '', budgetedCost: '' })}>
                       <Plus className="w-3 h-3 mr-1" /> Add Tier
                     </Button>
+                    <span className="ml-2 flex items-center gap-1.5 text-sm text-muted-foreground">
+                      Cost is
+                      <Input
+                        type="number"
+                        className="h-8 w-16"
+                        value={costPercent}
+                        onChange={e => setCostPercent(e.target.value)}
+                        aria-label="Cost as a percentage of rate"
+                        data-testid="cost-percent"
+                      />
+                      % of rate
+                      <Button type="button" variant="outline" size="sm" onClick={fillCostsFromRate} data-testid="fill-costs">
+                        Fill costs
+                      </Button>
+                    </span>
                   </div>
 
                   <div className="flex items-center justify-between pt-1">
