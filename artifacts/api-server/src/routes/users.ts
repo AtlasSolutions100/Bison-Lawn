@@ -9,6 +9,8 @@ import {
   normalizeEmailKey,
 } from "../lib/userAccounts";
 import { findUserByEmailKey, listInvitations, upsertInvitation } from "../lib/invitations";
+import { sendInvitationEmail } from "../lib/invitationEmail";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -127,7 +129,49 @@ router.post("/invitations", requireAuth, requireAdmin, async (req, res) => {
     invitedById: req.appUser!.id,
     invitedByName: req.appUser!.name,
   });
-  return res.status(201).json(invitation);
+
+  // Actually tell them. Creating the row used to be the whole of "Invite",
+  // which is why a contractor was reported waiting for an email that had never
+  // been sent. The row is still worth keeping if the mail fails — the role
+  // applies the moment they sign in either way — so the outcome is recorded on
+  // the invitation rather than failing the request.
+  const sent = await sendInvitationEmail({
+    email: emailKey,
+    role: invitation.role,
+    invitedByName: req.appUser!.name,
+    note: invitation.note,
+  });
+  const [stamped] = await db
+    .update(invitationsTable)
+    .set({ emailedAt: sent.emailed ? new Date() : null, emailError: sent.error })
+    .where(eq(invitationsTable.id, invitation.id))
+    .returning();
+  if (!sent.emailed) {
+    logger.error({ err: sent.error, email: emailKey }, "invitation email failed");
+  }
+  return res.status(201).json(stamped ?? invitation);
+});
+
+router.post("/invitations/:id/resend", requireAuth, requireAdmin, async (req, res) => {
+  const { id } = RevokeInvitationParams.parse(req.params);
+  const [invitation] = await db.select().from(invitationsTable).where(eq(invitationsTable.id, id));
+  if (!invitation) return res.status(404).json({ error: "Invitation not found" });
+  if (invitation.acceptedAt) {
+    return res.status(400).json({ error: "This invitation was already accepted." });
+  }
+
+  const sent = await sendInvitationEmail({
+    email: invitation.email,
+    role: invitation.role,
+    invitedByName: invitation.invitedByName,
+    note: invitation.note,
+  });
+  const [stamped] = await db
+    .update(invitationsTable)
+    .set({ emailedAt: sent.emailed ? new Date() : null, emailError: sent.error })
+    .where(eq(invitationsTable.id, id))
+    .returning();
+  return res.json(stamped);
 });
 
 router.delete("/invitations/:id", requireAuth, requireAdmin, async (req, res) => {

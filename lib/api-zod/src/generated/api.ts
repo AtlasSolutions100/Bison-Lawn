@@ -90,6 +90,8 @@ export const ListInvitationsResponseItem = zod.object({
   "note": zod.string().nullish(),
   "acceptedAt": zod.string().nullish(),
   "acceptedByUserId": zod.int().nullish(),
+  "emailedAt": zod.string().nullish(),
+  "emailError": zod.string().nullish(),
   "createdAt": zod.string()
 })
 export const ListInvitationsResponse = zod.array(ListInvitationsResponseItem)
@@ -117,6 +119,30 @@ export const CreateInvitationResponse = zod.object({
   "note": zod.string().nullish(),
   "acceptedAt": zod.string().nullish(),
   "acceptedByUserId": zod.int().nullish(),
+  "emailedAt": zod.string().nullish(),
+  "emailError": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Send the invitation email again
+ */
+export const ResendInvitationParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ResendInvitationResponse = zod.object({
+  "id": zod.int(),
+  "email": zod.string(),
+  "role": zod.enum(['admin', 'contractor']),
+  "invitedById": zod.int().nullish(),
+  "invitedByName": zod.string().nullish(),
+  "note": zod.string().nullish(),
+  "acceptedAt": zod.string().nullish(),
+  "acceptedByUserId": zod.int().nullish(),
+  "emailedAt": zod.string().nullish(),
+  "emailError": zod.string().nullish(),
   "createdAt": zod.string()
 })
 

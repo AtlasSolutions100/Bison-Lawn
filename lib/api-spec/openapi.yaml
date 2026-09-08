@@ -112,6 +112,20 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Invitation"
+  /invitations/{id}/resend:
+    post:
+      operationId: resendInvitation
+      tags: [team]
+      summary: Send the invitation email again
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: The invitation, with the outcome of this send
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invitation"
   /invitations/{id}:
     delete:
       operationId: revokeInvitation
@@ -2498,6 +2512,8 @@ components:
         note: { type: ["string", "null"] }
         acceptedAt: { type: ["string", "null"] }
         acceptedByUserId: { type: ["integer", "null"] }
+        emailedAt: { type: ["string", "null"] }
+        emailError: { type: ["string", "null"] }
         createdAt: { type: string }
     InvitationInput:
       type: object

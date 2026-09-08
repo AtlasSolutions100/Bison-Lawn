@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   useListUsers, useUpdateUser,
-  useListInvitations, useCreateInvitation, useRevokeInvitation,
+  useListInvitations, useCreateInvitation, useRevokeInvitation, useResendInvitation,
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -57,6 +57,7 @@ function Invitations() {
   const queryClient = useQueryClient();
   const createInvitation = useCreateInvitation();
   const revokeInvitation = useRevokeInvitation();
+  const resendInvitation = useResendInvitation();
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['/api/invitations'] });
 
@@ -73,6 +74,19 @@ function Invitations() {
         // e.g. that address already belongs to a signed-up account
         setError(e?.data?.error || e?.message || 'Could not send invite');
       },
+    });
+  };
+
+  const handleResend = (id: number) => {
+    setError(null);
+    resendInvitation.mutate({ id }, {
+      onSuccess: (inv: any) => {
+        invalidate();
+        // The send is reported rather than assumed: the whole point of this
+        // control is that pressing Invite used to claim something it had not done.
+        if (inv && !inv.emailedAt) setError(inv.emailError || 'The invitation email did not send.');
+      },
+      onError: (e: any) => setError(e?.data?.error || e?.message || 'Could not resend the invitation'),
     });
   };
 
@@ -147,10 +161,40 @@ function Invitations() {
                     {inv.acceptedAt ? (
                       <span className="text-xs text-muted-foreground">Accepted {new Date(inv.acceptedAt).toLocaleDateString()}</span>
                     ) : (
-                      <span className="text-xs text-amber-600 dark:text-amber-500">Pending — not yet signed up</span>
+                      <div className="space-y-0.5">
+                        <div className="text-xs text-amber-600 dark:text-amber-500">Pending — not yet signed up</div>
+                        {/*
+                          Whether they were actually told. "I sent an invite to a
+                          contractor, but they didn't receive it" — and they had
+                          not, because inviting only ever wrote a row. Saying
+                          "Pending" alone cannot distinguish someone ignoring an
+                          email from someone who never got one.
+                        */}
+                        {inv.emailedAt ? (
+                          <div className="text-xs text-muted-foreground">
+                            Emailed {new Date(inv.emailedAt).toLocaleDateString()}
+                          </div>
+                        ) : inv.emailError ? (
+                          <div className="text-xs text-destructive">Email failed — {inv.emailError}</div>
+                        ) : (
+                          <div className="text-xs text-destructive">Never emailed</div>
+                        )}
+                      </div>
                     )}
                   </TableCell>
                   <TableCell className="text-right">
+                    {!inv.acceptedAt && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 text-xs"
+                        onClick={() => handleResend(inv.id)}
+                        disabled={resendInvitation.isPending}
+                        data-testid={`resend-invitation-${inv.id}`}
+                      >
+                        {inv.emailedAt ? 'Resend' : 'Send'}
+                      </Button>
+                    )}
                     {!inv.acceptedAt && (
                       <Button
                         size="icon"

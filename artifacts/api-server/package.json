@@ -15,11 +15,12 @@
     "test:estimate-delivery": "tsx --test test/estimateDelivery.test.ts",
     "test:invoice-document": "tsx --test test/invoiceDocument.test.ts",
     "test:pricing": "tsx --test test/pricing.test.ts",
+    "test:invitation-email": "tsx --test test/invitationEmail.test.ts",
     "test:customer-message-delivery": "tsx --test test/customerMessageDelivery.test.ts",
     "test:automation": "tsx --test test/automation.test.ts",
     "test:user-accounts": "tsx --test test/userAccounts.test.ts",
     "test:credit-and-schedule": "tsx --test test/creditAndSchedule.test.ts",
-    "test": "pnpm run test:owner-access && pnpm run test:estimate-delivery && pnpm run test:customer-message-delivery && pnpm run test:invoice-document && pnpm run test:pricing && pnpm run test:integration && pnpm run test:automation && pnpm run test:extra-work && pnpm run test:user-accounts && pnpm run test:credit-and-schedule"
+    "test": "pnpm run test:owner-access && pnpm run test:estimate-delivery && pnpm run test:customer-message-delivery && pnpm run test:invoice-document && pnpm run test:pricing && pnpm run test:invitation-email && pnpm run test:integration && pnpm run test:automation && pnpm run test:extra-work && pnpm run test:user-accounts && pnpm run test:credit-and-schedule"
   },
   "dependencies": {
     "@clerk/express": "^2.1.57",

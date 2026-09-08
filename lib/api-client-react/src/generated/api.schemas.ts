@@ -338,6 +338,10 @@ export interface Invitation {
   acceptedAt?: string | null;
   /** @nullable */
   acceptedByUserId?: number | null;
+  /** @nullable */
+  emailedAt?: string | null;
+  /** @nullable */
+  emailError?: string | null;
   createdAt: string;
 }
 

@@ -639,6 +639,13 @@ export const invitationsTable = pgTable("invitations", {
   acceptedByUserId: integer("accepted_by_user_id").references(() => usersTable.id, {
     onDelete: "set null",
   }),
+  // Whether the person was actually told. Creating an invitation used to write
+  // this row and send nothing at all, so the office pressed "Invite" and a
+  // contractor waited for an email that was never going to arrive. Recorded
+  // rather than returned once, so the Team page can say which invitations
+  // actually went out — including ones sent before anyone asked.
+  emailedAt: timestamp("emailed_at"),
+  emailError: text("email_error"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 export type Invitation = typeof invitationsTable.$inferSelect;
