@@ -990,3 +990,53 @@ remember.
 36 was deliberately split rather than closed: the button move is done, but the
 half asking for a rule that steps prices up by size is a real feature, and
 closing the item on the easy half would have buried it.
+
+## 2026-09-08 — "I sent an invite but they didn't receive it" was literally true
+
+34 new items arrived over the weekend (ids 73–106). One was a bug and it was the
+right thing to do first.
+
+`POST /invitations` wrote a row and **sent no email at all**. There was no mail
+code anywhere in the invite path. Meanwhile the Team page says "Invite Someone",
+puts a mail icon on the button, and lists the result as "Pending — not yet
+signed up" — so every signal told the office the contractor had been contacted.
+Adam's real invitation to `adameichproductions@gmail.com` had been sitting there
+since before the weekend having never gone anywhere.
+
+Now sends, and records the outcome on the row (`emailed_at`, `email_error`)
+rather than returning it once, so the Team page distinguishes "Emailed 9/8/2026"
+from "Email failed — <reason>" from "Never emailed", with a Send/Resend on each
+pending row. A failed send does not fail the request — the role still applies
+when they sign in — but it is shown rather than swallowed.
+
+The email says in bold that they must sign up with the invited address. That is
+not decoration: `redeemPendingInvitation` is scoped to the invited email key, so
+signing up with a different address leaves the invitation unredeemed and lands
+them as a plain contractor with none of the access they were given, invisibly.
+
+Verified end to end on production by inviting a Work Optional address:
+`emailed_at` stamped, `email_error` null, the row showing "Emailed 9/8/2026"
+with Resend while Adam's older one still shows "Never emailed" with Send. The
+test invitation was then revoked. **Adam's invite to his contractor was left
+alone** — that is an email to a real third party and his to send, and the button
+is now sitting there for him.
+
+### Two local environment traps, neither of them code
+
+The whole suite appeared to fail. Both causes were port collisions with the
+user's other projects:
+
+- **Postgres.** `superior-patio-db`'s embedded Postgres was bound to 5433 and
+  winning against the Bison container, so queries hit a server with no `agency`
+  role and surfaced as `password authentication failed`. `drizzle-kit push` died
+  silently at "Pulling schema" for the same reason. Bison's container is now on
+  **5434** with the same volume (data intact, verified); the other project's
+  database was not touched. `.env` updated — it is gitignored, so local only.
+- **Docker Desktop was not running**, and is a per-user install at
+  `%LOCALAPPDATA%\Programs\DockerDesktop`, not under Program Files.
+
+With those fixed: **124 pass / 0 fail**.
+
+Third time a port collision has produced a misleading result on this machine
+(5173 served another app, 5433 served another database). Check *what* answered
+before trusting a local failure.
