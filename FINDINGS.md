@@ -1040,3 +1040,39 @@ With those fixed: **124 pass / 0 fail**.
 Third time a port collision has produced a misleading result on this machine
 (5173 served another app, 5433 served another database). Check *what* answered
 before trusting a local failure.
+
+## 2026-09-08 (later) — the dispatch board, and two items that were the same item
+
+Closed 71, 67, 43 and half of 60.
+
+**71 and 67 were one problem.** He asked to see job price, outstanding balance
+and last invoice balance on the board (71). Two of the three were already there
+— as columns at the far right of a table pinned to `min-w-[2000px]`, reachable
+only by scrolling sideways. Which is 67: "instead of sliding the bar to the left
+or right ... can I customize that of the options I need so I can see it all on
+one page".
+
+Adding a third money column would have made 67 worse. Instead the three share
+one cell, `last invoice balance` is new (DISTINCT ON per client, voids excluded
+— a cancelled invoice is not what was last billed), a Columns picker chooses
+from the eleven optional columns, and the 2000px floor is gone. Measured after:
+**1462px table in a 1462px container, no horizontal scroll.**
+
+Hidden columns use the `hidden` attribute rather than a conditional render, so a
+column cannot go missing from a row while remaining in the header.
+
+**Two things were already built and I nearly rebuilt both.** `clients.createdAt`
+already existed (my grep window was 45 lines and the column is 60 lines down),
+and the openapi `Client` schema already declared `createdAt` — the duplicate
+only surfaced as a YAML "duplicated mapping key" from codegen. Both reverted;
+the real work was displaying the field, not adding it. Check the whole record
+before adding to it.
+
+**Its data is honest but not what he'll assume.** All 709 imported customers
+carry an August import date, not the date he took them on — his Service
+Autopilot export has no such field. Said so plainly on the item rather than
+letting the column imply otherwise.
+
+**60 was split.** Columns done; the filter list (branch, resource, proximity,
+tags, and choosing which filters appear) and select-all are not, and are named
+as still open.
