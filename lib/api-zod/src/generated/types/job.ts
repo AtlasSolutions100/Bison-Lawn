@@ -19,6 +19,12 @@ export interface Job {
   /** @nullable */
   clientBalance?: number | null;
   /** @nullable */
+  lastInvoiceNumber?: number | null;
+  /** @nullable */
+  lastInvoiceBalance?: number | null;
+  /** @nullable */
+  lastInvoiceDate?: string | null;
+  /** @nullable */
   clientLat?: number | null;
   /** @nullable */
   clientLng?: number | null;

@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
-import { AlertTriangle, CheckCircle2, FileText, MapPin, MoreVertical, Plus, Trash2, PackageOpen } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Columns3, FileText, MapPin, MoreVertical, Plus, Trash2, PackageOpen } from 'lucide-react';
 
 export default function Dispatch() {
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -38,6 +38,7 @@ export default function Dispatch() {
   // a day gets worked, and 400 pins on load is not what someone checking one
   // job's status came for.
   const [showMap, setShowMap] = useState(false);
+  const { visible, toggle } = useDispatchColumns();
   const bulkAssign = useBulkAssignJobs();
   const applyToSelection = (input: Parameters<typeof bulkAssign.mutate>[0]['data']) => {
     bulkAssign.mutate({ data: input }, {
@@ -77,6 +78,30 @@ export default function Dispatch() {
             <Input type="text" placeholder="Filter city..." value={city} onChange={e => setCity(e.target.value)} className="w-40" />
           </div>
           
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" data-testid="columns-picker">
+                <Columns3 className="mr-1 h-4 w-4" /> Columns
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-56 p-2">
+              <p className="px-2 pb-1 text-xs text-muted-foreground">
+                Client and the row buttons always show.
+              </p>
+              {DISPATCH_COLUMNS.map(col => (
+                <label key={col.key} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-primary"
+                    checked={visible.includes(col.key)}
+                    onChange={() => toggle(col.key)}
+                    data-testid={`column-${col.key}`}
+                  />
+                  {col.label}
+                </label>
+              ))}
+            </PopoverContent>
+          </Popover>
           <Button variant={showMap ? 'default' : 'outline'} onClick={() => setShowMap(v => !v)}>
             <MapPin className="mr-1 h-4 w-4" /> {showMap ? 'Hide Map' : 'Show Map'}
           </Button>
@@ -104,22 +129,27 @@ export default function Dispatch() {
 
       <div className="bg-card border rounded-lg shadow-sm flex-1 overflow-hidden flex flex-col">
         <div className="overflow-auto flex-1">
-          <Table className="min-w-[2000px]">
+          {/*
+            Narrower by the width of the column that merging the money figures
+            removed. This does not yet stop the sideways scrolling he asked
+            about separately — choosing which columns to show is its own item —
+            but keeping 2000px here would have thrown the gain away.
+          */}
+          <Table className="min-w-full">
             <TableHeader className="bg-muted/50 sticky top-0 z-10 backdrop-blur-sm">
               <TableRow>
                 <TableHead className="sticky left-0 z-20 w-64 min-w-64 bg-muted">Client</TableHead>
-                <TableHead className="w-16 text-center">Order</TableHead>
-                <TableHead className="w-36">Status</TableHead>
-                <TableHead className="w-28">Date</TableHead>
-                <TableHead className="w-36">Map</TableHead>
-                <TableHead className="w-32">City</TableHead>
-                <TableHead className="w-32">Last Service</TableHead>
-                <TableHead className="w-32">Budgeted Hours</TableHead>
-                <TableHead className="w-44">Notes</TableHead>
-                <TableHead>Service</TableHead>
-                <TableHead className="w-40">Assigned</TableHead>
-                <TableHead className="text-right">Balance</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
+                <TableHead hidden={!visible.includes('order')} className="w-16 text-center">Order</TableHead>
+                <TableHead hidden={!visible.includes('status')} className="w-36">Status</TableHead>
+                <TableHead hidden={!visible.includes('date')} className="w-28">Date</TableHead>
+                <TableHead hidden={!visible.includes('map')} className="w-36">Map</TableHead>
+                <TableHead hidden={!visible.includes('city')} className="w-32">City</TableHead>
+                <TableHead hidden={!visible.includes('lastService')} className="w-32">Last Service</TableHead>
+                <TableHead hidden={!visible.includes('budgetedHours')} className="w-32">Budgeted Hours</TableHead>
+                <TableHead hidden={!visible.includes('notes')} className="w-44">Notes</TableHead>
+                <TableHead hidden={!visible.includes('service')}>Service</TableHead>
+                <TableHead hidden={!visible.includes('assigned')} className="w-40">Assigned</TableHead>
+                <TableHead hidden={!visible.includes('money')} className="text-right w-32">Money</TableHead>
                 <TableHead className="w-24"></TableHead>
               </TableRow>
             </TableHeader>
@@ -129,7 +159,7 @@ export default function Dispatch() {
               ) : !jobs?.length ? (
                 <TableRow><TableCell colSpan={14} className="text-center py-10">No jobs match the current filters.</TableCell></TableRow>
               ) : (
-                jobs.map(job => <DispatchRow key={job.id} job={job} contractors={contractors} />)
+                jobs.map(job => <DispatchRow key={job.id} job={job} contractors={contractors} visible={visible} />)
               )}
             </TableBody>
           </Table>
@@ -137,6 +167,66 @@ export default function Dispatch() {
       </div>
     </div>
   );
+}
+
+/*
+  Which columns the board shows.
+
+  "instead of sliding the bar to the left or right to view the other options can
+  I customize that of the options I need so I can see it all on one page" — and
+  separately, the money figures he asked to see were already there but sat off
+  the right-hand edge, which is the same complaint wearing a different hat.
+
+  Client and the row actions are not listed: one is what you are looking at and
+  the other is how you act on it, so neither is ever worth hiding. The default
+  set is what fits a laptop without scrolling; everything else is one click away
+  and the choice is remembered per browser.
+*/
+export const DISPATCH_COLUMNS: { key: string; label: string }[] = [
+  { key: 'order', label: 'Order' },
+  { key: 'status', label: 'Status' },
+  { key: 'date', label: 'Date' },
+  { key: 'map', label: 'Map' },
+  { key: 'city', label: 'City' },
+  { key: 'lastService', label: 'Last Service' },
+  { key: 'budgetedHours', label: 'Budgeted Hours' },
+  { key: 'notes', label: 'Notes' },
+  { key: 'service', label: 'Service' },
+  { key: 'assigned', label: 'Assigned' },
+  { key: 'money', label: 'Money' },
+];
+
+const DEFAULT_DISPATCH_COLUMNS = ['order', 'status', 'map', 'notes', 'service', 'assigned', 'money'];
+const DISPATCH_COLUMNS_KEY = 'bison.dispatch.columns';
+
+function useDispatchColumns() {
+  const [visible, setVisible] = useState<string[]>(() => {
+    // Reading localStorage can throw outright in a locked-down browser, and a
+    // board that will not render because of a column preference is a worse
+    // failure than a board with the default columns.
+    try {
+      const raw = localStorage.getItem(DISPATCH_COLUMNS_KEY);
+      if (!raw) return DEFAULT_DISPATCH_COLUMNS;
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter((k) => typeof k === 'string') : DEFAULT_DISPATCH_COLUMNS;
+    } catch {
+      return DEFAULT_DISPATCH_COLUMNS;
+    }
+  });
+
+  const toggle = (key: string) => {
+    setVisible((current) => {
+      const next = current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
+      try {
+        localStorage.setItem(DISPATCH_COLUMNS_KEY, JSON.stringify(next));
+      } catch {
+        /* preference is not worth failing the interaction over */
+      }
+      return next;
+    });
+  };
+
+  return { visible, toggle };
 }
 
 /** Google's directions URL takes a destination plus up to 9 waypoints. */
@@ -359,7 +449,8 @@ function RouteInMapsLink({ jobs }: { jobs: Job[] }) {
   );
 }
 
-function DispatchRow({ job, contractors }: { job: Job, contractors: any[] }) {
+function DispatchRow({ job, contractors, visible }: { job: Job, contractors: any[], visible: string[] }) {
+  const show = (key: string) => visible.includes(key);
   const updateJob = useUpdateJob();
   const completeJob = useCompleteJob();
   const deleteJob = useDeleteJob();
@@ -410,7 +501,7 @@ function DispatchRow({ job, contractors }: { job: Job, contractors: any[] }) {
           {job.clientAddress || 'No address'}
         </div>
       </TableCell>
-      <TableCell className="p-1 text-center">
+      <TableCell hidden={!show('order')} className="p-1 text-center">
         <Input 
           type="number" 
           defaultValue={job.routeOrder || ''} 
@@ -418,7 +509,7 @@ function DispatchRow({ job, contractors }: { job: Job, contractors: any[] }) {
           className="w-14 h-8 mx-auto text-center p-1"
         />
       </TableCell>
-      <TableCell className="p-2">
+      <TableCell hidden={!show('status')} className="p-2">
         <select 
           className={`w-full h-8 text-xs font-bold px-2 rounded-md outline-none cursor-pointer border ${statusColors[job.status as keyof typeof statusColors]}`}
           value={job.status}
@@ -444,12 +535,12 @@ function DispatchRow({ job, contractors }: { job: Job, contractors: any[] }) {
           </div>
         )}
       </TableCell>
-      <TableCell className="p-2 whitespace-nowrap text-sm">
+      <TableCell hidden={!show('date')} className="p-2 whitespace-nowrap text-sm">
         {job.scheduledDate
           ? formatDispatchDate(job.scheduledDate)
           : <span className="text-muted-foreground">Not scheduled</span>}
       </TableCell>
-      <TableCell className="p-2">
+      <TableCell hidden={!show('map')} className="p-2">
         {hasLocation ? (
           <Button variant="outline" size="sm" className="h-8 px-2" asChild>
             <a href={mapUrl} target="_blank" rel="noreferrer" title={hasCoordinates ? 'Open coordinates in Google Maps' : 'Open address in Google Maps'}>
@@ -467,26 +558,26 @@ function DispatchRow({ job, contractors }: { job: Job, contractors: any[] }) {
           </div>
         )}
       </TableCell>
-      <TableCell className="p-2 text-sm">
+      <TableCell hidden={!show('city')} className="p-2 text-sm">
         {job.city || <span className="text-muted-foreground">—</span>}
       </TableCell>
-      <TableCell className="p-2 whitespace-nowrap text-sm">
+      <TableCell hidden={!show('lastService')} className="p-2 whitespace-nowrap text-sm">
         {job.lastServiceDate
           ? formatDispatchDate(job.lastServiceDate)
           : <span className="text-muted-foreground">Never serviced</span>}
       </TableCell>
-      <TableCell className="p-2 whitespace-nowrap text-sm">
+      <TableCell hidden={!show('budgetedHours')} className="p-2 whitespace-nowrap text-sm">
         {job.budgetedHours != null
           ? `${job.budgetedHours} ${job.budgetedHours === 1 ? 'hour' : 'hours'}`
           : <span className="text-muted-foreground">Not set</span>}
       </TableCell>
-      <TableCell className="p-2">
+      <TableCell hidden={!show('notes')} className="p-2">
         <JobNotes job={job} />
       </TableCell>
-      <TableCell className="p-2 text-sm font-medium">
+      <TableCell hidden={!show('service')} className="p-2 text-sm font-medium">
         {job.serviceName}
       </TableCell>
-      <TableCell className="p-2">
+      <TableCell hidden={!show('assigned')} className="p-2">
         <select 
           className="w-full h-8 text-xs px-2 rounded-md border outline-none bg-background"
           value={job.assignedToId || ''}
@@ -499,11 +590,29 @@ function DispatchRow({ job, contractors }: { job: Job, contractors: any[] }) {
           )}
         </select>
       </TableCell>
-      <TableCell className={`p-2 text-right font-semibold text-sm ${job.clientBalance && job.clientBalance > 0 ? 'text-destructive' : 'text-muted-foreground'}`}>
-        ${(job.clientBalance||0).toLocaleString(undefined, {minimumFractionDigits: 2})}
-      </TableCell>
-      <TableCell className="p-2 text-right font-bold text-sm text-foreground">
-        ${job.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}
+      {/*
+        All three money figures in one cell rather than three columns.
+
+        Asked for: "on the dispatch board, seeing prices of job, and outstanding
+        balance and last invoice balance". Two of the three were already here as
+        separate columns — but at the far right of a board he has to scroll
+        sideways to reach, which is why he could not see them and why he also
+        asked to stop scrolling sideways. Adding a third column would have made
+        that worse, so the three sit together and the board is one column
+        narrower than before.
+      */}
+      <TableCell hidden={!show('money')} className="p-2 text-right text-sm whitespace-nowrap">
+        <div className="font-bold text-foreground">
+          ${job.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+        </div>
+        <div className={job.clientBalance && job.clientBalance > 0 ? 'text-destructive text-xs' : 'text-muted-foreground text-xs'}>
+          Owes ${(job.clientBalance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+        </div>
+        {job.lastInvoiceBalance != null && (
+          <div className="text-muted-foreground text-xs">
+            #{job.lastInvoiceNumber}: ${job.lastInvoiceBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+          </div>
+        )}
       </TableCell>
       <TableCell className="p-2 text-right space-x-1 whitespace-nowrap">
         <ProductsPopover job={job} />

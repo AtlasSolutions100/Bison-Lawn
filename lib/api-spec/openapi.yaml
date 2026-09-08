@@ -3272,6 +3272,9 @@ components:
         clientName: { type: ["string", "null"] }
         clientAddress: { type: ["string", "null"] }
         clientBalance: { type: ["number", "null"] }
+        lastInvoiceNumber: { type: ["integer", "null"] }
+        lastInvoiceBalance: { type: ["number", "null"] }
+        lastInvoiceDate: { type: ["string", "null"] }
         clientLat: { type: ["number", "null"] }
         clientLng: { type: ["number", "null"] }
         city: { type: ["string", "null"] }

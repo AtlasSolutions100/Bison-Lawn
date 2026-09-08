@@ -9,7 +9,7 @@ import {
   invoicesTable,
   paymentsTable,
 } from "@workspace/db";
-import { and, asc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lte, ne } from "drizzle-orm";
 import {
   CreateJobBody,
   UpdateJobBody,
@@ -19,6 +19,7 @@ import {
   RecordOnSitePaymentBody,
 } from "@workspace/api-zod";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
+import { balanceOf } from "../lib/invoiceDocument";
 import {
   logAudit,
   recalcClientBalance,
@@ -43,24 +44,49 @@ async function hydrateJobs(rows: JobRow[]) {
   const userIds = [...new Set(rows.map((r) => r.assignedToId).filter((x): x is number => x != null))];
   const jobIds = rows.map((r) => r.id);
 
-  const [clients, services, users, products] = await Promise.all([
+  const [clients, services, users, products, latestInvoices] = await Promise.all([
     db.select().from(clientsTable).where(inArray(clientsTable.id, clientIds)),
     serviceIds.length ? db.select().from(servicesTable).where(inArray(servicesTable.id, serviceIds)) : Promise.resolve([]),
     userIds.length ? db.select().from(usersTable).where(inArray(usersTable.id, userIds)) : Promise.resolve([]),
     db.select().from(jobProductsTable).where(inArray(jobProductsTable.jobId, jobIds)),
+    // The most recent bill per customer, for the dispatch board: "seeing prices
+    // of job, and outstanding balance and last invoice balance". Account balance
+    // answers "do they owe us anything"; the last invoice answers "what did we
+    // last bill them", which is the one the crew get asked at the door. Void
+    // invoices are excluded — they were cancelled, so they are not what was
+    // last billed.
+    clientIds.length
+      ? db
+          .selectDistinctOn([invoicesTable.clientId], {
+            clientId: invoicesTable.clientId,
+            number: invoicesTable.number,
+            id: invoicesTable.id,
+            total: invoicesTable.total,
+            amountPaid: invoicesTable.amountPaid,
+            invoiceDate: invoicesTable.invoiceDate,
+          })
+          .from(invoicesTable)
+          .where(and(inArray(invoicesTable.clientId, clientIds), ne(invoicesTable.status, "void")))
+          .orderBy(invoicesTable.clientId, desc(invoicesTable.id))
+      : Promise.resolve([]),
   ]);
 
   const cMap = new Map(clients.map((c) => [c.id, c]));
+  const invMap = new Map(latestInvoices.map((i) => [i.clientId, i]));
   const sMap = new Map(services.map((s) => [s.id, s]));
   const uMap = new Map(users.map((u) => [u.id, u]));
 
   return rows.map((r) => {
     const c = cMap.get(r.clientId);
+    const lastInvoice = invMap.get(r.clientId);
     return {
       ...r,
       clientName: c?.name ?? null,
       clientAddress: c?.serviceAddress ?? null,
       clientBalance: c?.accountBalance ?? null,
+      lastInvoiceNumber: lastInvoice ? (lastInvoice.number ?? lastInvoice.id) : null,
+      lastInvoiceBalance: lastInvoice ? balanceOf(lastInvoice) : null,
+      lastInvoiceDate: lastInvoice?.invoiceDate ?? null,
       clientLat: c?.lat ?? null,
       clientLng: c?.lng ?? null,
       city: c?.city ?? null,

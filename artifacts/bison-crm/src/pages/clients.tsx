@@ -39,7 +39,13 @@ export default function Clients() {
   const [statusFilter, setStatusFilter] = useState<'lead'|'client'|'former_client'|'all'>('all');
   const [search, setSearch] = useState('');
   const [mapCodeFilter, setMapCodeFilter] = useState<string>('all');
-  const [sortByMapCode, setSortByMapCode] = useState(false);
+  /*
+    Sorting is a mode rather than a flag now. "Can leads be organized
+    alphabetically but also looked up based on input date" — alphabetical is the
+    default and always was; what was missing is being able to ask "who came in
+    most recently", which for a lead list is the question you actually have.
+  */
+  const [sort, setSort] = useState<'name' | 'mapCode' | 'added'>('name');
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
 
   const queryParams = {
@@ -68,7 +74,22 @@ export default function Clients() {
       if (mapCodeFilter === 'none') return code === '';
       return code === mapCodeFilter;
     });
-    if (!sortByMapCode) return rows;
+    if (sort === 'name') return rows;
+
+    if (sort === 'added') {
+      return [...rows].sort((a, b) => {
+        // Newest first: a lead list is read to find the enquiry that just came
+        // in, not the oldest one. Customers with no recorded date sort last
+        // rather than pretending to be the oldest.
+        const aAt = a.createdAt ? new Date(a.createdAt).getTime() : null;
+        const bAt = b.createdAt ? new Date(b.createdAt).getTime() : null;
+        if (aAt == null && bAt == null) return a.name.localeCompare(b.name);
+        if (aAt == null) return 1;
+        if (bAt == null) return -1;
+        return bAt - aAt || a.name.localeCompare(b.name);
+      });
+    }
+
     return [...rows].sort((a, b) => {
       const aCode = a.mapCode?.trim().toUpperCase() ?? '';
       const bCode = b.mapCode?.trim().toUpperCase() ?? '';
@@ -81,7 +102,7 @@ export default function Clients() {
       }
       return a.name.localeCompare(b.name);
     });
-  }, [clients, mapCodeFilter, sortByMapCode]);
+  }, [clients, mapCodeFilter, sort]);
 
   // Selection survives across filter changes but only ever acts on rows the
   // office can currently see — applying a map code to a client scrolled out of
@@ -167,10 +188,21 @@ export default function Clients() {
                   <button
                     type="button"
                     className="font-medium hover:text-primary transition-colors"
-                    onClick={() => setSortByMapCode(!sortByMapCode)}
+                    onClick={() => setSort(sort === 'mapCode' ? 'name' : 'mapCode')}
                     title="Group the list by route zone"
                   >
-                    Map Code / Water {sortByMapCode ? '▲' : ''}
+                    Map Code / Water {sort === 'mapCode' ? '▲' : ''}
+                  </button>
+                </TableHead>
+                <TableHead>
+                  <button
+                    type="button"
+                    className="font-medium hover:text-primary transition-colors"
+                    onClick={() => setSort(sort === 'added' ? 'name' : 'added')}
+                    title="Sort by when they were added, newest first"
+                    data-testid="sort-by-added"
+                  >
+                    Added {sort === 'added' ? '▼' : ''}
                   </button>
                 </TableHead>
                 <TableHead>Status</TableHead>
@@ -181,13 +213,13 @@ export default function Clients() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-10 text-muted-foreground animate-pulse">
+                  <TableCell colSpan={9} className="text-center py-10 text-muted-foreground animate-pulse">
                     Loading clients...
                   </TableCell>
                 </TableRow>
               ) : !visibleClients.length ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center py-10 text-muted-foreground">
                     No clients found.
                   </TableCell>
                 </TableRow>
@@ -325,6 +357,11 @@ function ClientRow({ client, selected, onSelectedChange }: {
             </span>
           )}
         </div>
+      </TableCell>
+      <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+        {client.createdAt
+          ? new Date(client.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+          : <span className="text-muted-foreground/50 italic text-xs">—</span>}
       </TableCell>
       <TableCell>
         <span className={`px-2.5 py-1 text-xs font-semibold rounded-full border ${statusColors[client.status as keyof typeof statusColors]}`}>
