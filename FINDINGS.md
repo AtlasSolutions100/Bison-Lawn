@@ -1140,3 +1140,19 @@ be filled from rate?"), and taking its premise seriously enough to measure the
 ratio is what exposed the error. That is now three times a cheap item has been
 hiding an expensive bug — the package counting deleted services, the $0 bands,
 and this.
+
+### Fixed 2026-09-08, with the owner's go-ahead
+
+The $13 band is now $130. Changed through the app's own
+`PATCH /api/services/280` rather than raw SQL, so it went through the normal
+validation and audit path, and guarded so it would only fire if band 7 was still
+`upTo 13 / rate 13`.
+
+The sequence now reads
+`6z:$60 7z:$70 8z:$80 9z:$90 10z:$100 11z:$110 12z:$120 13z:$130 14z:$140`,
+and pricing a 13-zone job returns $130.
+
+Swept the whole catalogue for the same class of error afterwards. Nothing else:
+no band anywhere has a cost above its own price, and no service has a price that
+falls as the band size rises. Both are worth re-running after any bulk price
+change — they are cheap and they catch dropped digits, which is what this was.
