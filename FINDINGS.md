@@ -1076,3 +1076,37 @@ letting the column imply otherwise.
 **60 was split.** Columns done; the filter list (branch, resource, proximity,
 tags, and choosing which filters appear) and select-all are not, and are named
 as still open.
+
+## 2026-09-08 (later still) — the last of the older quick wins
+
+34, 103, 62, 56 closed. **58 New, 38 Done, 5 Read** — New is up only because 34
+items arrived over the weekend; the whole original quick-win block is clear.
+
+**A measured decision worth keeping.** The web-request email copies on click,
+and the copy is synchronous on purpose. In a real click
+`document.execCommand('copy')` returns **true**, while
+`navigator.clipboard.writeText` was observed **never settling** — neither
+resolving nor rejecting — leaving a button that looked broken. execCommand is
+deprecated but synchronous, needs no permission inside a gesture, and cannot
+hang; the modern API is kept as an un-awaited fallback. The address is also left
+selected, which is the part that cannot fail.
+
+**How that was established matters, because the obvious test lied.** Clicking
+the button and reading the label showed nothing happening, which looked like a
+broken feature. It was not:
+
+- `computer left_click` with a `ref` has silently failed to land several times
+  this session. Coordinate clicks work. Convert with
+  `screenshotX = cssX * (screenshotWidth / window.innerWidth)` — 0.879 here.
+- Even coordinate clicks stop landing once the renderer gets into a bad state.
+  The control that proved it: the app's **pre-existing** webhook Copy button,
+  which had worked minutes earlier, also stopped responding. When a control that
+  is not part of your change also breaks, the harness is the suspect.
+- The decisive evidence came from instrumentation, not observation: a capture
+  phase click listener recording that the handler ran, `window.getSelection()`
+  returning the address, and a probe showing `execCommand` returning true inside
+  a trusted click.
+
+I twice wrote a code comment asserting a cause I had not established — first
+that the clipboard was blocked, then that it was fine — and had to correct both.
+The comment now states what was measured.

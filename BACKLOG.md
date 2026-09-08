@@ -8,6 +8,9 @@ note, because that note is the only thing Adam ever sees.
 Counts when this was written: 67 total, 47 New, 1 Read, 19 Done.
 After the first pass: **43 New, 23 Done.**
 After the 2026-09-04 pass: **35 New, 29 Done, 3 Read**.
+After the 2026-09-08 pass: **58 New, 38 Done, 5 Read** — 34 new items arrived
+over the weekend (ids 73-106), so the New count rose while the older block was
+being cleared. The whole original quick-win block is now done.
 
 ## Done in the 2026-09-03 pass
 
@@ -31,13 +34,10 @@ Done 2026-09-04: **41** (Enter moves to the next cell), **44** and **40**
 bottom), **37** (the pricing column is one line, and flags bands with no price).
 **36** stays open for its second half — a rule that steps prices up by size.
 
-| id | Item |
-|---|---|
-| 43 | Leads sorted alphabetically, and findable by the date they came in |
-| 62 | Contractor / employee / crew lead should all read as one word |
-| 34 | Tickets only appear on the dispatch board once assigned |
-| 71 | Show price, outstanding balance and last invoice balance on the dispatch row |
-| 56 | Web requests — say where each came from; one-click copy of the email |
+**All done as of 2026-09-08**: 43 (Added column + sort), 62 (one word, said on
+the Team page), 34 and 103 (tickets on the board, assigned and due today), 71
+(money in one cell), 56 (source stated, email copies on click). 67 went with 71;
+60 is half done — its filter list is still open.
 
 ## Then — real features, roughly in the order they pay off
 
