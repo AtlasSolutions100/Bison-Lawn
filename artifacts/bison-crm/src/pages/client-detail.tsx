@@ -25,7 +25,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, MapPin, Phone, Mail, DollarSign, Calendar, FileText,
   Settings, Plus, MessageSquare, Clock, Trash2, Briefcase, ListTodo,
-  Droplets, Route, Timer, X
+  Droplets, Route, Timer, X, Receipt
 } from 'lucide-react';
 import { MapCodeBadge, WaterProviderLookupLink } from '@/components/map-code';
 import { Link, useLocation } from 'wouter';
@@ -145,6 +145,7 @@ export default function ClientDetail() {
           </div>
 
           <div className="space-y-8">
+            <ClientBilling client={client} />
             <ClientRouting client={client} />
             <ClientProperties client={client} />
             <ClientNotes clientId={id} />
@@ -389,6 +390,174 @@ function ClientRouting({ client }: { client: Client }) {
           </p>
         </div>
         <Button size="sm" onClick={save} disabled={!dirty || updateClient.isPending}>
+          {updateClient.isPending ? 'Saving...' : 'Save'}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Billing details — where the bill goes, on what terms, and how.
+ *
+ * Every field here already existed and already drove the invoice: the Bill To
+ * block, the account number printed on the payment coupon, the terms
+ * snapshotted onto each invoice, the address a bill is emailed to. None of them
+ * were shown anywhere in the app, so the office was billing customers from data
+ * it could neither see nor correct. Asked for as "having a billing tab in
+ * clients account with email(s) to send invoices to, selection of them being
+ * emailed or printed or both, how they like to pay".
+ *
+ * The billing address deliberately stays empty for the ordinary customer whose
+ * bill goes to the house being mowed. Filling it in is what makes the invoice
+ * address a property manager instead, so a blank here is a real answer rather
+ * than a missing one — and the placeholder says so, because an empty field that
+ * means something is exactly the kind of thing someone "helpfully" fills in.
+ */
+function ClientBilling({ client }: { client: Client }) {
+  const initial = {
+    nameOnInvoice: client.nameOnInvoice ?? '',
+    billingAddressLine1: client.billingAddressLine1 ?? '',
+    billingAddressLine2: client.billingAddressLine2 ?? '',
+    billingCity: client.billingCity ?? '',
+    billingState: client.billingState ?? '',
+    billingPostalCode: client.billingPostalCode ?? '',
+    billingEmail: client.billingEmail ?? '',
+    accountNumber: client.accountNumber ?? '',
+    billingTerms: client.billingTerms ?? '',
+    invoiceFrequency: client.invoiceFrequency ?? '',
+    invoiceDelivery: client.invoiceDelivery ?? '',
+    accountType: client.accountType ?? '',
+  };
+  type BillingForm = typeof initial;
+  const [form, setForm] = useState<BillingForm>(initial);
+  const updateClient = useUpdateClient();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const set = (key: keyof BillingForm, value: string) =>
+    setForm(current => ({ ...current, [key]: value }));
+
+  const dirty = (Object.keys(initial) as (keyof BillingForm)[]).some(k => initial[k] !== form[k]);
+
+  const save = () => {
+    // Blank clears the field rather than storing "": an empty billing city must
+    // not read as a real answer when the invoice decides which address to print.
+    const clean = (v: string) => (v.trim() ? v.trim() : null);
+    updateClient.mutate({
+      id: client.id,
+      data: {
+        nameOnInvoice: clean(form.nameOnInvoice),
+        billingAddressLine1: clean(form.billingAddressLine1),
+        billingAddressLine2: clean(form.billingAddressLine2),
+        billingCity: clean(form.billingCity),
+        billingState: clean(form.billingState),
+        billingPostalCode: clean(form.billingPostalCode),
+        billingEmail: clean(form.billingEmail),
+        accountNumber: clean(form.accountNumber),
+        billingTerms: clean(form.billingTerms),
+        invoiceFrequency: clean(form.invoiceFrequency),
+        invoiceDelivery: clean(form.invoiceDelivery) as 'email' | 'print' | 'both' | null,
+        accountType: clean(form.accountType) as 'residential' | 'commercial' | null,
+      },
+    }, {
+      onSuccess: (data) => {
+        queryClient.setQueryData([`/api/clients/${client.id}`], data);
+        queryClient.invalidateQueries({ queryKey: ['/api/clients'] });
+        toast({ title: 'Billing details saved' });
+      },
+      onError: (error) => toast({
+        title: 'Billing details could not be saved',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      }),
+    });
+  };
+
+  const BillingField = ({ label, name, placeholder, type }: {
+    label: string; name: keyof BillingForm; placeholder?: string; type?: string;
+  }) => (
+    <div>
+      <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">{label}</label>
+      <Input
+        type={type}
+        value={form[name]}
+        placeholder={placeholder}
+        onChange={e => set(name, e.target.value)}
+        data-testid={'billing-' + String(name)}
+      />
+    </div>
+  );
+
+  return (
+    <Card className="shadow-sm border-border">
+      <CardHeader className="pb-3 border-b bg-card/50">
+        <CardTitle className="text-lg font-bold flex items-center gap-2">
+          <Receipt className="w-5 h-5 text-muted-foreground" />
+          Billing
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-4 space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <BillingField label="Name on invoice" name="nameOnInvoice" placeholder={client.name} />
+          <BillingField label="Account number" name="accountNumber" placeholder="Quoted when they pay" />
+        </div>
+
+        <div className="rounded-md border p-3 space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Bill To address. Leave empty when the bill goes to the property being serviced — fill it
+            in only when someone else is billed, such as a property manager or a second home.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <BillingField label="Address line 1" name="billingAddressLine1" placeholder="Same as service address" />
+            <BillingField label="Address line 2" name="billingAddressLine2" />
+            <BillingField label="City" name="billingCity" />
+            <div className="grid grid-cols-2 gap-3">
+              <BillingField label="State" name="billingState" />
+              <BillingField label="ZIP" name="billingPostalCode" />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <BillingField
+            label="Invoice email"
+            name="billingEmail"
+            type="email"
+            placeholder={client.email ?? 'Falls back to their contact email'}
+          />
+          <BillingField label="Terms" name="billingTerms" placeholder="e.g. Net 15, Net 30, Due on receipt" />
+          <BillingField label="How often invoiced" name="invoiceFrequency" placeholder="e.g. Monthly, Per service" />
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Send invoice by</label>
+            <select
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={form.invoiceDelivery}
+              onChange={e => set('invoiceDelivery', e.target.value)}
+              data-testid="billing-invoiceDelivery"
+            >
+              <option value="">Not set</option>
+              <option value="email">Email</option>
+              <option value="print">Print</option>
+              <option value="both">Both</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Account type</label>
+            <select
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={form.accountType}
+              onChange={e => set('accountType', e.target.value)}
+              data-testid="billing-accountType"
+            >
+              <option value="">Not set</option>
+              <option value="residential">Residential</option>
+              <option value="commercial">Commercial</option>
+            </select>
+          </div>
+        </div>
+
+        <Button size="sm" onClick={save} disabled={!dirty || updateClient.isPending} data-testid="billing-save">
           {updateClient.isPending ? 'Saving...' : 'Save'}
         </Button>
       </CardContent>
