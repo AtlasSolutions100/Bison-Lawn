@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, ticketsTable, clientsTable, usersTable } from "@workspace/db";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { CreateTicketBody, UpdateTicketBody } from "@workspace/api-zod";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
 
@@ -36,6 +36,13 @@ router.get("/tickets", async (req, res) => {
   if (q.clientId) conds.push(eq(ticketsTable.clientId, Number(q.clientId)));
   if (isAdmin && q.assignedTo) conds.push(eq(ticketsTable.assignedToId, Number(q.assignedTo)));
   if (q.status) conds.push(eq(ticketsTable.status, q.status));
+  // Dispatch board filters. Two requests, and they only make sense together:
+  // "tickets: put on dispatch board only if assigned to someone" and "tickets
+  // to show on dispatch board for the date(s) specified on ticket creation".
+  // A ticket nobody owns, or one not due on the day being worked, is noise on a
+  // board that is about today's route.
+  if (q.dueDate) conds.push(eq(ticketsTable.dueDate, q.dueDate));
+  if (q.assigned === "true") conds.push(isNotNull(ticketsTable.assignedToId));
   const rows = await db
     .select()
     .from(ticketsTable)

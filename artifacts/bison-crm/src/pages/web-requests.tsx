@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   useCreateWebRequest,
   useListWebRequests,
@@ -37,6 +37,80 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Please try again.';
 }
 
+/**
+ * The sender's email, with one click to get it.
+ *
+ * "can I copy the email and put it in there in with one click?" — it was plain
+ * text on a line that also held a phone number and an address, so getting it
+ * anywhere meant selecting it by hand.
+ *
+ * The copy is done synchronously, and that ordering is deliberate. Measured in
+ * Chrome on this app: inside a real click `document.execCommand('copy')`
+ * returns true, while `navigator.clipboard.writeText` sometimes never settles
+ * at all — neither resolving nor rejecting — so an implementation that awaited
+ * it left a button that looked broken. execCommand is deprecated but it is
+ * synchronous, needs no permission inside a gesture, and cannot hang. The
+ * modern API is kept as a fallback, deliberately not awaited, for whenever
+ * execCommand is finally removed.
+ *
+ * The address is also left selected. That is the part that cannot fail, so even
+ * where the clipboard refuses entirely he gets it highlighted ready for Ctrl+C,
+ * and the label says which of the two actually happened rather than claiming a
+ * copy that did not.
+ */
+function CopyableEmail({ email }: { email: string }) {
+  const [state, setState] = useState<'idle' | 'copied' | 'selected'>('idle');
+  const addressRef = useRef<HTMLSpanElement>(null);
+
+  const selectAddress = () => {
+    const node = addressRef.current;
+    const selection = window.getSelection();
+    if (!node || !selection) return false;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return true;
+  };
+
+  const handleClick = () => {
+    const selected = selectAddress();
+    let copied = false;
+    try {
+      // The address is already selected, so this copies it directly.
+      copied = document.execCommand('copy');
+    } catch {
+      copied = false;
+    }
+    if (!copied) {
+      navigator.clipboard?.writeText(email).then(
+        () => setState('copied'),
+        () => undefined,
+      );
+    }
+    setState(copied ? 'copied' : selected ? 'selected' : 'idle');
+    setTimeout(() => setState('idle'), 2500);
+  };
+
+  return (
+    <span className="flex items-center gap-1">
+      <button
+        type="button"
+        onClick={handleClick}
+        title="Copy this email address"
+        data-testid={`copy-email-${email}`}
+        className="flex items-center gap-1 rounded px-1 -mx-1 hover:bg-muted hover:text-foreground"
+      >
+        <Mail className="h-3.5 w-3.5" />
+        <span ref={addressRef}>{email}</span>
+      </button>
+      <span className="text-xs text-muted-foreground/70" data-testid={`copy-state-${email}`}>
+        {state === 'copied' ? 'copied' : state === 'selected' ? 'selected — press Ctrl+C' : 'copy'}
+      </span>
+    </span>
+  );
+}
+
 export default function WebRequests() {
   const [status, setStatus] = useState<Filter>('new');
   const [copied, setCopied] = useState(false);
@@ -69,8 +143,14 @@ export default function WebRequests() {
     <div className="p-8 max-w-6xl mx-auto space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Web Requests</h1>
+        {/* "Incoming web requests....where do they come from?" — the page never
+            said, so the only way to find out was to ask us. Each row also names
+            its own source underneath the status. */}
         <p className="text-muted-foreground mt-1">
           Turn incoming service inquiries into leads and tasks before they get lost.
+          These arrive automatically from the contact form on <strong>bisonlawncare.net</strong>,
+          which posts straight into this page. Anything you take by phone can be typed in below and
+          is marked <em>manual</em>.
         </p>
       </div>
 
@@ -303,7 +383,7 @@ function RequestCard({ request }: { request: RequestWithRaw }) {
               </span>
             </div>
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-              {request.email && <span className="flex items-center gap-1"><Mail className="h-3.5 w-3.5" />{request.email}</span>}
+              {request.email && <CopyableEmail email={request.email} />}
               {request.phone && <span className="flex items-center gap-1"><Phone className="h-3.5 w-3.5" />{request.phone}</span>}
               {request.address && <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{request.address}</span>}
             </div>

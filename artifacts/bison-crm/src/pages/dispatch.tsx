@@ -3,7 +3,7 @@ import { DispatchMap } from '@/components/dispatch-map';
 import { 
   useListJobs, useUpdateJob, useCompleteJob, useDeleteJob, useCreateJob, useGetJob,
   useListUsers, useAddJobProduct, useDeleteJobProduct, Job,
-  useListClients, useListServices, useBulkAssignJobs
+  useListClients, useListServices, useBulkAssignJobs, useListTickets
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
@@ -117,6 +117,8 @@ export default function Dispatch() {
           busy={bulkAssign.isPending}
         />
       )}
+
+      <TicketStrip date={date} />
 
       <SubLoadSummary
         date={date}
@@ -289,6 +291,44 @@ const money = (n: number) =>
  * never answer "too heavy compared to whom", because that is a question about
  * the subs side by side.
  */
+/**
+ * Tickets due on the day being worked, and only ones somebody owns.
+ *
+ * Two requests that only make sense together: "tickets: put on dispatch board
+ * only if assigned to someone" and "tickets to show on dispatch board for the
+ * date(s) specified on ticket creation". An unowned ticket, or one not due
+ * today, is noise on a board that is about today's route — so both filters are
+ * applied on the server rather than fetching everything and hiding most of it.
+ *
+ * A strip rather than table rows: a ticket is not a job. It has no route order,
+ * no price and no crew to assign, and forcing one into the jobs table would
+ * have meant a row of empty cells pretending otherwise.
+ */
+function TicketStrip({ date }: { date: string }) {
+  const { data: tickets } = useListTickets({ dueDate: date, assigned: 'true', status: 'open' });
+  if (!tickets?.length) return null;
+
+  return (
+    <div className="rounded-lg border bg-card p-3 shadow-sm" data-testid="dispatch-tickets">
+      <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+        <FileText className="h-4 w-4 text-muted-foreground" />
+        {tickets.length} {tickets.length === 1 ? 'ticket' : 'tickets'} due today
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {tickets.map(t => (
+          <div key={t.id} className="rounded-md border bg-background px-2.5 py-1.5 text-xs">
+            <div className="font-medium text-foreground">{t.title}</div>
+            <div className="text-muted-foreground">
+              {t.assignedToName ?? 'Unassigned'}
+              {t.clientName ? ` · ${t.clientName}` : ''}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SubLoadSummary({
   date,
   status,

@@ -228,9 +228,9 @@ export default function Reports() {
           </Card>
 
           <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-base">By crew</CardTitle></CardHeader>
+            <CardHeader className="pb-2"><CardTitle className="text-base">By contractor</CardTitle></CardHeader>
             <CardContent className="p-0">
-              <CostingTable rows={report.data?.bySub ?? []} firstColumn="Crew" />
+              <CostingTable rows={report.data?.bySub ?? []} firstColumn="Contractor" />
             </CardContent>
           </Card>
         </>

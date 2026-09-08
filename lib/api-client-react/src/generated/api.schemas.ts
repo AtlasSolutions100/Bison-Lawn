@@ -2775,6 +2775,14 @@ export type ListTicketsParams = {
 clientId?: number;
 assignedTo?: number;
 status?: ListTicketsStatus;
+/**
+ * Only tickets due on this date (yyyy-mm-dd).
+ */
+dueDate?: string;
+/**
+ * Set to true to return only tickets that have someone assigned.
+ */
+assigned?: string;
 };
 
 export type ListTicketsStatus = typeof ListTicketsStatus[keyof typeof ListTicketsStatus];

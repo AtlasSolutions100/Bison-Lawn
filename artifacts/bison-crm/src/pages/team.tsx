@@ -16,7 +16,13 @@ export default function Team() {
     <div className="p-8 max-w-6xl mx-auto space-y-6 flex flex-col h-[calc(100vh-2rem)]">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Team Directory</h1>
-        <p className="text-muted-foreground mt-1">Manage admins and contractors.</p>
+        {/* "words like contractor, employee, crew lead all the same" — so the
+            app settles on one and says so once, rather than making him work out
+            whether three labels mean three different things. */}
+        <p className="text-muted-foreground mt-1">
+          Manage admins and contractors. <span className="text-foreground">Contractor</span> covers
+          anyone who works jobs — employee, crew lead or subcontractor. There is one word for all of them here.
+        </p>
       </div>
 
       <div className="bg-card border rounded-lg shadow-sm overflow-auto max-h-[45vh]">

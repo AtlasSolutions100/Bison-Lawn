@@ -457,7 +457,7 @@ function ClientProperties({ client }: { client: Client }) {
       <CardContent className="pt-4 space-y-4">
         {client.mapNote && (
           <div>
-            <span className="text-xs font-semibold text-muted-foreground uppercase">Map / Crew Note</span>
+            <span className="text-xs font-semibold text-muted-foreground uppercase">Map / Contractor Note</span>
             <p className="text-sm font-medium bg-accent/10 border border-accent/20 p-2 rounded-md mt-1 text-accent-foreground">
               {client.mapNote}
             </p>

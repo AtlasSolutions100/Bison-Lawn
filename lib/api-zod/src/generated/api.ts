@@ -2719,7 +2719,9 @@ export const ApplyPaymentResponse = zod.object({
 export const ListTicketsQueryParams = zod.object({
   "clientId": zod.coerce.number().int().optional(),
   "assignedTo": zod.coerce.number().int().optional(),
-  "status": zod.enum(['open', 'done']).optional()
+  "status": zod.enum(['open', 'done']).optional(),
+  "dueDate": zod.coerce.string().optional().describe('Only tickets due on this date (yyyy-mm-dd).'),
+  "assigned": zod.coerce.string().optional().describe('Set to true to return only tickets that have someone assigned.')
 })
 
 export const ListTicketsResponseItem = zod.object({

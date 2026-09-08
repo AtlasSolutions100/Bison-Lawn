@@ -1540,6 +1540,14 @@ paths:
         - name: status
           in: query
           schema: { type: string, enum: [open, done] }
+        - name: dueDate
+          in: query
+          description: Only tickets due on this date (yyyy-mm-dd).
+          schema: { type: string }
+        - name: assigned
+          in: query
+          description: Set to true to return only tickets that have someone assigned.
+          schema: { type: string }
       responses:
         "200":
           description: Tickets
