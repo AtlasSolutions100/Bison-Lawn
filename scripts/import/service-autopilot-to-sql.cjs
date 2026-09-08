@@ -28,6 +28,36 @@ const num = (v) => {
 const q = (v) => (v === null || v === undefined ? 'NULL' : `$sa$${String(v)}$sa$`);
 const qn = (v) => (v === null || v === undefined ? 'NULL' : String(v));
 
+/**
+ * `invoice_delivery` and `account_type` are constrained to a fixed set by the
+ * API schema, so his wording has to be mapped rather than passed through.
+ *
+ * The cases below are the values that actually appear in his export — checked,
+ * not guessed: InvoiceDelivery is "Email", "Print" or "Email and Print", and
+ * AccountType is "Commercial" or "Residential". Anything unrecognised becomes
+ * null rather than a wrong guess: "not set" is honest and visible in the app,
+ * whereas quietly filing a customer as Residential decides how their mowing is
+ * edged.
+ */
+const invoiceDelivery = (v) => {
+  const t = s(v)?.toLowerCase();
+  if (!t) return null;
+  const hasEmail = t.includes('email');
+  const hasPrint = t.includes('print') || t.includes('mail ') || t === 'mail';
+  if (hasEmail && hasPrint) return 'both';
+  if (hasEmail) return 'email';
+  if (hasPrint) return 'print';
+  return null;
+};
+
+const accountType = (v) => {
+  const t = s(v)?.toLowerCase();
+  if (!t) return null;
+  if (t.startsWith('comm')) return 'commercial';
+  if (t.startsWith('res')) return 'residential';
+  return null;
+};
+
 // His column name on the left, the estimate-field label we use on the right.
 // "Driveway Sq. Ft." and "Driveway Sqft" are the same measurement spelled two
 // ways; mapping them keeps one field rather than creating a near-duplicate the
@@ -132,17 +162,44 @@ for (const r of cliRows) {
   const status = String(r.CustomerType ?? '').toLowerCase() === 'client' ? 'client' : 'lead';
   out.push(
     `INSERT INTO clients (external_id, name, status, service_address, address_line2, city, state, postal_code,
-  lat, lng, email, phone, additional_contact, map_note, map_code, account_balance, property_data)
+  lat, lng, email, phone, additional_contact, map_note, map_code, account_balance, property_data,
+  name_on_invoice, billing_address_line1, billing_city, billing_state, billing_postal_code,
+  billing_email, account_number, billing_terms, invoice_frequency, invoice_delivery, account_type)
 VALUES (${q(ext)}, ${q(name)}, ${q(status)}, ${q(s(r.PhysicalAddress))}, NULL, ${q(s(r.PhysicalCity))}, ${q(s(r.PhysicalState))}, ${q(s(r.PhysicalZip))},
   ${qn(num(r.Latitude))}, ${qn(num(r.Longitude))}, ${q(s(r.Email) ?? s(r.BillingEmail))}, ${q(s(r.CellPhone) ?? s(r.HomePhone))},
   ${q(s(r.HomePhone) && s(r.CellPhone) && s(r.HomePhone) !== s(r.CellPhone) ? `Home ${s(r.HomePhone)}` : null)},
-  ${q(s(r.OfficeNotes))}, ${q(s(r.MapCode))}, ${qn(num(r.AccountBalance) ?? 0)}, ${q(JSON.stringify(property))}::jsonb)
+  ${q(s(r.OfficeNotes))}, ${q(s(r.MapCode))}, ${qn(num(r.AccountBalance) ?? 0)}, ${q(JSON.stringify(property))}::jsonb,
+  ${q(s(r.NameOnInvoice))}, ${q(s(r.BillingAddress))}, ${q(s(r.BillingCity))}, ${q(s(r.BillingState))}, ${q(s(r.BillingZip))},
+  ${q(s(r.BillingEmail))}, ${q(s(r.AccountNumber))}, ${q(s(r.BillingTerms))}, ${q(s(r.InvoiceFrequency))},
+  ${q(invoiceDelivery(r.InvoiceDelivery))}, ${q(accountType(r.AccountType))})
 ON CONFLICT (external_id) DO UPDATE SET
   name = EXCLUDED.name, status = EXCLUDED.status, service_address = EXCLUDED.service_address,
   city = EXCLUDED.city, state = EXCLUDED.state, postal_code = EXCLUDED.postal_code,
   lat = EXCLUDED.lat, lng = EXCLUDED.lng, email = EXCLUDED.email, phone = EXCLUDED.phone,
   additional_contact = EXCLUDED.additional_contact, map_note = EXCLUDED.map_note,
   map_code = EXCLUDED.map_code, account_balance = EXCLUDED.account_balance,
+  -- Billing. These are the columns his invoices are actually built from — the
+  -- Bill To block, the account number on the payment coupon, the terms
+  -- snapshotted onto each invoice. They were in the export all along under
+  -- exactly these names and this script simply never read them, so all 709
+  -- customers came across with an empty billing record and every invoice
+  -- addressed the property being mowed. That is wrong for his property-managed
+  -- accounts, which are a large share of the book.
+  --
+  -- COALESCE keeps anything typed in the app: a billing address someone
+  -- corrected here is better information than a stale export, and an export
+  -- with the column blank must not wipe it.
+  name_on_invoice = COALESCE(EXCLUDED.name_on_invoice, clients.name_on_invoice),
+  billing_address_line1 = COALESCE(EXCLUDED.billing_address_line1, clients.billing_address_line1),
+  billing_city = COALESCE(EXCLUDED.billing_city, clients.billing_city),
+  billing_state = COALESCE(EXCLUDED.billing_state, clients.billing_state),
+  billing_postal_code = COALESCE(EXCLUDED.billing_postal_code, clients.billing_postal_code),
+  billing_email = COALESCE(EXCLUDED.billing_email, clients.billing_email),
+  account_number = COALESCE(EXCLUDED.account_number, clients.account_number),
+  billing_terms = COALESCE(EXCLUDED.billing_terms, clients.billing_terms),
+  invoice_frequency = COALESCE(EXCLUDED.invoice_frequency, clients.invoice_frequency),
+  invoice_delivery = COALESCE(EXCLUDED.invoice_delivery, clients.invoice_delivery),
+  account_type = COALESCE(EXCLUDED.account_type, clients.account_type),
   -- Merge, not replace: anything typed in our app for this customer survives a
   -- re-import, while the exported values refresh.
   property_data = clients.property_data || EXCLUDED.property_data;`,
