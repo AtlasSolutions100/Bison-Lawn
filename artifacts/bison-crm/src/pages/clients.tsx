@@ -179,7 +179,14 @@ export default function Clients() {
 
       <div className="bg-card border rounded-lg shadow-sm flex-1 overflow-hidden flex flex-col">
         <div className="overflow-auto flex-1">
-          <Table>
+          {/*
+            table-fixed, because without it the column widths above are only a
+            hint: the browser still grows a column to fit its longest cell, and
+            with 709 real customers that pushed the table to 1984px inside an
+            1141px container and put the horizontal scrollbar straight back.
+            Fixed layout is also what makes `truncate` do anything at all here.
+          */}
+          <Table className="table-fixed">
             <TableHeader className="bg-muted/50 sticky top-0 z-10 backdrop-blur-sm">
               <TableRow>
                 <TableHead className="w-10">
