@@ -1205,3 +1205,29 @@ The enum columns were mapped from the values actually present in the file
 ("Email and Print" → `both`), not guessed, and anything unrecognised became null
 rather than a wrong guess. Only one customer has an AccountNumber in the export,
 which is why that column is nearly empty — that is his data, not a mapping bug.
+
+## 2026-09-08 — office note, tags, date added
+
+95 (first half), 97 and 98 done. **51 New, 44 Done, 6 Read.**
+
+The office note exists because there was nowhere to write something the crew
+must not read. `mapNote` and `propertyData` are both copied onto the job card by
+design — that was a deliberate earlier decision and a good one — which means
+they are the wrong place for "argues about every bill". The new field says so on
+screen rather than relying on anyone remembering.
+
+Checked before building: his Service Autopilot `OfficeNotes` column was mapped
+to `map_note`, and the 86 populated ones are all genuinely crew-relevant (valve
+positions, drip line locations, where the shutoff is). So that mapping is right
+and this is a new field, not a correction.
+
+Tags are a jsonb array, lowercased on write, and searchable through the existing
+client search rather than a new control. Verified that adding "Above Ground
+Backflow" then "above ground backflow" yields one tag, not two.
+
+**95 was split, not closed.** The tabbed layout he also asked for (Personal
+info / Detail / Sales / Billing / Custom fields) is not built. The information
+is all on the page now — Billing is its own section, custom fields are Property
+Details — so what is missing is the arrangement. Asked him whether the tabs are
+what he wants before rearranging a page this size, because doing it twice is the
+expensive outcome.
