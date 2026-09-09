@@ -1231,3 +1231,66 @@ is all on the page now — Billing is its own section, custom fields are Propert
 Details — so what is missing is the arrangement. Asked him whether the tabs are
 what he wants before rearranging a page this size, because doing it twice is the
 expensive outcome.
+
+## 2026-09-09 — UI pass, judged against real data
+
+Reviewed the supplied design skills first. The `web-design` set is almost
+entirely landing-page craft — shader cursors, particle fields, orbit controls,
+"awwwards quality" — and none of it belongs in a dense internal CRM an office
+lives in all day. The `ui/no-ai-design-slop` skill was the applicable one, and
+it argues against exactly the thing "redo the UI" invites: it says preserve the
+product's direction, fix demonstrated defects, and do not replace a distinctive
+choice with a fashionable neutral. That is the brief this pass followed.
+
+Mobbin references (7shifts, Deputy, Fresha, Square scheduling boards) confirmed
+the pattern the board was already reaching for — compact filter row, counts in
+the header, sticky first column, status by colour rather than heavy chrome — so
+the direction needed no change.
+
+**What was actually wrong, found by looking at 709 real customers at a real
+viewport rather than at the source:**
+
+- No column in the client table had a width, so auto layout allocated by
+  content length. Email addresses are the longest strings in a row, so Contact
+  took half the table, the service address wrapped to three lines, and Added,
+  Status and Balance sat off the right edge behind a scrollbar. 80px rows, six
+  visible.
+- Absence shouted: "No contact info" and "No map code" in italics on hundreds
+  of rows, each costing a line of height.
+- The balance and the Payments button had **exactly zero pixels** between them.
+  Measured, after I first described it as an overlap and was wrong.
+- The office note card added on 2026-09-08 was ~200px of empty at the top of
+  every customer page — empty for almost all 709.
+- The billing card used `sm:grid-cols-2`, which keys off the viewport rather
+  than the container, so it halved a 330px sidebar and clipped every field
+  mid-word.
+- The dispatch empty state blamed filters that were not set.
+- The 404 page was starter scaffold asking "Did you forget to add the page to
+  the router?" in hardcoded greys, with no way back.
+
+Result: **row height 80px -> 59px, six rows visible -> ten, zero wrapped rows,
+no horizontal scroll.**
+
+### The bug the local fixture could not have caught
+
+The first fix set percentage column widths and looked correct locally against
+18 seeded rows. On production it was still 1984px wide inside an 1141px
+container: without `table-layout: fixed` a width is only a hint, and the browser
+still grows a column to fit its longest cell. `truncate` does nothing in a table
+cell without it either.
+
+It surfaced only because the same measurement was repeated against production
+after deploying. A small local fixture does not exercise a 709-row screen —
+worth measuring the real thing before calling a layout fix done.
+
+### Left alone on purpose
+
+The contractor field app: its own shell, a date stepper, bottom tab bar, warm
+empty state. Distinctive and specific to the product. The brief was to fix
+defects, not to neutralise character.
+
+### Still his to decide
+
+One customer has an address typed into the water district field
+("800 Block-N Second St, Coeur D Alene"). One row out of the eight that have a
+district at all, so a typo rather than a mapping fault — his field to correct.
