@@ -835,6 +835,9 @@ export interface Client {
   invoiceDelivery?: ClientInvoiceDelivery;
   /** @nullable */
   accountType?: ClientAccountType;
+  /** @nullable */
+  officeNote?: string | null;
+  tags?: string[];
   propertyData?: ClientPropertyData;
   /** @nullable */
   lastServiceDate?: string | null;
@@ -904,6 +907,9 @@ export interface ClientInput {
   invoiceFrequency?: string;
   invoiceDelivery?: ClientInputInvoiceDelivery;
   accountType?: ClientInputAccountType;
+  /** @nullable */
+  officeNote?: string | null;
+  tags?: string[];
   propertyData?: ClientInputPropertyData;
 }
 
@@ -1004,6 +1010,9 @@ export interface ClientUpdate {
   invoiceDelivery?: ClientUpdateInvoiceDelivery;
   /** @nullable */
   accountType?: ClientUpdateAccountType;
+  /** @nullable */
+  officeNote?: string | null;
+  tags?: string[];
   propertyData?: ClientUpdatePropertyData;
 }
 

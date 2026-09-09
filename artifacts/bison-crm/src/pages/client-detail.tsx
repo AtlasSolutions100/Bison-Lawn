@@ -33,6 +33,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { format } from 'date-fns';
 import { 
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter 
@@ -131,6 +132,12 @@ export default function ClientDetail() {
 
       {/* Main Content scrollable */}
       <div className="flex-1 overflow-y-auto p-8 bg-muted/20">
+        {/* Pinned above everything: "an office note ... that shows up on the
+            front of client account". A note the office has to remember is worth
+            nothing three cards down the page. */}
+        <div className="max-w-7xl mx-auto mb-8">
+          <ClientOfficeNote client={client} />
+        </div>
         <div className="max-w-7xl mx-auto grid grid-cols-1 xl:grid-cols-3 gap-8">
           
           <div className="xl:col-span-2 space-y-8">
@@ -392,6 +399,136 @@ function ClientRouting({ client }: { client: Client }) {
         <Button size="sm" onClick={save} disabled={!dirty || updateClient.isPending}>
           {updateClient.isPending ? 'Saving...' : 'Save'}
         </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * The office note and the customer's tags, pinned to the top of the page.
+ *
+ * Asked for as "an office note on clients account that shows up on the front of
+ * client account" and "ability to add custom tags to clients for specific look
+ * up in the future, example = above ground back flow, inside turn on/off".
+ *
+ * The office note is deliberately not the Map / Contractor note and not a
+ * property detail. Both of those are carried onto the crew's job card by
+ * design, so anything written there is read by whoever turns up to mow. This is
+ * the one place for something the office needs and the crew should not see —
+ * "always argues about the bill", "do not discuss price on site".
+ *
+ * Tags are stored lowercase so "Backflow" and "backflow" are one tag rather
+ * than two that look identical in a search, and they are searchable from the
+ * same box on the client list he already types names into.
+ */
+function ClientOfficeNote({ client }: { client: Client }) {
+  const [note, setNote] = useState(client.officeNote ?? '');
+  const [tagDraft, setTagDraft] = useState('');
+  const tags = client.tags ?? [];
+  const updateClient = useUpdateClient();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const persist = (data: { officeNote?: string | null; tags?: string[] }, message: string) => {
+    updateClient.mutate({ id: client.id, data }, {
+      onSuccess: (fresh) => {
+        queryClient.setQueryData([`/api/clients/${client.id}`], fresh);
+        queryClient.invalidateQueries({ queryKey: ['/api/clients'] });
+        toast({ title: message });
+      },
+      onError: (error) => toast({
+        title: 'Could not save',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      }),
+    });
+  };
+
+  const addTag = () => {
+    const next = tagDraft.trim().toLowerCase();
+    if (!next) return;
+    setTagDraft('');
+    if (tags.includes(next)) return;
+    persist({ tags: [...tags, next] }, `Tagged "${next}"`);
+  };
+
+  const removeTag = (tag: string) =>
+    persist({ tags: tags.filter(t => t !== tag) }, `Removed "${tag}"`);
+
+  const noteDirty = (client.officeNote ?? '') !== note;
+
+  return (
+    <Card className="shadow-sm border-accent/40 bg-accent/5">
+      <CardContent className="pt-4 space-y-3">
+        <div>
+          <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 flex items-center gap-1.5">
+            <MessageSquare className="w-3.5 h-3.5" /> Office note
+            <span className="font-normal normal-case text-muted-foreground/70">— the crew never sees this</span>
+          </label>
+          <Textarea
+            rows={2}
+            className="resize-y bg-background"
+            placeholder="Anything the office needs to remember about this customer."
+            value={note}
+            onChange={e => setNote(e.target.value)}
+            data-testid="office-note"
+          />
+          {noteDirty && (
+            <Button
+              size="sm"
+              className="mt-2"
+              onClick={() => persist({ officeNote: note.trim() || null }, 'Office note saved')}
+              disabled={updateClient.isPending}
+              data-testid="office-note-save"
+            >
+              {updateClient.isPending ? 'Saving...' : 'Save note'}
+            </Button>
+          )}
+        </div>
+
+        <div>
+          <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Tags</label>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {tags.map(tag => (
+              <span
+                key={tag}
+                className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-xs"
+                data-testid={`tag-${tag}`}
+              >
+                {tag}
+                <button
+                  type="button"
+                  onClick={() => removeTag(tag)}
+                  className="text-muted-foreground hover:text-destructive"
+                  aria-label={`Remove tag ${tag}`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+            <Input
+              className="h-7 w-44 text-xs"
+              placeholder="Add a tag + Enter"
+              value={tagDraft}
+              onChange={e => setTagDraft(e.target.value)}
+              onKeyDown={e => {
+                // Enter adds the tag rather than submitting anything — there is
+                // no form here, but the habit is worth honouring.
+                if (e.key === 'Enter') { e.preventDefault(); addTag(); }
+              }}
+              data-testid="tag-input"
+            />
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Searchable from the client list — try "above ground backflow".
+          </p>
+        </div>
+
+        {client.createdAt && (
+          <p className="text-xs text-muted-foreground">
+            Added {new Date(client.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}
+          </p>
+        )}
       </CardContent>
     </Card>
   );

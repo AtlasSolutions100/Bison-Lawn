@@ -52,6 +52,11 @@ router.get("/clients", async (req, res) => {
         // one into the same search box has to find them.
         ilike(clientsTable.mapCode, `%${search}%`),
         ilike(clientsTable.waterDistrict, `%${search}%`),
+        // Tags are how he wants to find a group later — "ability to add custom
+        // tags to clients for specific look up in the future, example = above
+        // ground back flow, inside turn on/off" — so they belong in the same box
+        // he already types into rather than behind a separate control.
+        sql`exists (select 1 from jsonb_array_elements_text(${clientsTable.tags}) tag where tag ilike ${`%${search}%`})`,
       ),
     );
   const rows = await db

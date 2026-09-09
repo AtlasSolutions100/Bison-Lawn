@@ -74,6 +74,9 @@ export interface Client {
   invoiceDelivery?: ClientInvoiceDelivery;
   /** @nullable */
   accountType?: ClientAccountType;
+  /** @nullable */
+  officeNote?: string | null;
+  tags?: string[];
   propertyData?: ClientPropertyData;
   /** @nullable */
   lastServiceDate?: string | null;

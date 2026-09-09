@@ -642,6 +642,8 @@ export const ListClientsResponseItem = zod.object({
   "invoiceFrequency": zod.string().nullish(),
   "invoiceDelivery": zod.union([zod.literal('email'),zod.literal('print'),zod.literal('both'),zod.literal(null)]).nullish(),
   "accountType": zod.union([zod.literal('commercial'),zod.literal('residential'),zod.literal(null)]).nullish(),
+  "officeNote": zod.string().nullish(),
+  "tags": zod.array(zod.string()).optional(),
   "propertyData": zod.record(zod.string(), zod.string()).optional(),
   "lastServiceDate": zod.string().nullish(),
   "unappliedCredit": zod.number().optional().describe('Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice.'),
@@ -681,6 +683,8 @@ export const CreateClientBody = zod.object({
   "invoiceFrequency": zod.string().optional(),
   "invoiceDelivery": zod.enum(['email', 'print', 'both']).optional(),
   "accountType": zod.enum(['commercial', 'residential']).optional(),
+  "officeNote": zod.string().nullish(),
+  "tags": zod.array(zod.string()).optional(),
   "propertyData": zod.record(zod.string(), zod.string()).optional()
 })
 
@@ -714,6 +718,8 @@ export const CreateClientResponse = zod.object({
   "invoiceFrequency": zod.string().nullish(),
   "invoiceDelivery": zod.union([zod.literal('email'),zod.literal('print'),zod.literal('both'),zod.literal(null)]).nullish(),
   "accountType": zod.union([zod.literal('commercial'),zod.literal('residential'),zod.literal(null)]).nullish(),
+  "officeNote": zod.string().nullish(),
+  "tags": zod.array(zod.string()).optional(),
   "propertyData": zod.record(zod.string(), zod.string()).optional(),
   "lastServiceDate": zod.string().nullish(),
   "unappliedCredit": zod.number().optional().describe('Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice.'),
@@ -755,6 +761,8 @@ export const GetClientResponse = zod.object({
   "invoiceFrequency": zod.string().nullish(),
   "invoiceDelivery": zod.union([zod.literal('email'),zod.literal('print'),zod.literal('both'),zod.literal(null)]).nullish(),
   "accountType": zod.union([zod.literal('commercial'),zod.literal('residential'),zod.literal(null)]).nullish(),
+  "officeNote": zod.string().nullish(),
+  "tags": zod.array(zod.string()).optional(),
   "propertyData": zod.record(zod.string(), zod.string()).optional(),
   "lastServiceDate": zod.string().nullish(),
   "unappliedCredit": zod.number().optional().describe('Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice.'),
@@ -797,6 +805,8 @@ export const UpdateClientBody = zod.object({
   "invoiceFrequency": zod.string().nullish(),
   "invoiceDelivery": zod.union([zod.literal('email'),zod.literal('print'),zod.literal('both'),zod.literal(null)]).nullish(),
   "accountType": zod.union([zod.literal('commercial'),zod.literal('residential'),zod.literal(null)]).nullish(),
+  "officeNote": zod.string().nullish(),
+  "tags": zod.array(zod.string()).optional(),
   "propertyData": zod.record(zod.string(), zod.string()).optional()
 })
 
@@ -830,6 +840,8 @@ export const UpdateClientResponse = zod.object({
   "invoiceFrequency": zod.string().nullish(),
   "invoiceDelivery": zod.union([zod.literal('email'),zod.literal('print'),zod.literal('both'),zod.literal(null)]).nullish(),
   "accountType": zod.union([zod.literal('commercial'),zod.literal('residential'),zod.literal(null)]).nullish(),
+  "officeNote": zod.string().nullish(),
+  "tags": zod.array(zod.string()).optional(),
   "propertyData": zod.record(zod.string(), zod.string()).optional(),
   "lastServiceDate": zod.string().nullish(),
   "unappliedCredit": zod.number().optional().describe('Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice.'),

@@ -2779,6 +2779,8 @@ components:
         invoiceFrequency: { type: ["string", "null"] }
         invoiceDelivery: { type: ["string", "null"], enum: [email, print, both, null] }
         accountType: { type: ["string", "null"], enum: [commercial, residential, null] }
+        officeNote: { type: ["string", "null"] }
+        tags: { type: array, items: { type: string } }
         propertyData:
           type: object
           additionalProperties: { type: string }
@@ -2820,6 +2822,8 @@ components:
         invoiceFrequency: { type: string }
         invoiceDelivery: { type: string, enum: [email, print, both] }
         accountType: { type: string, enum: [commercial, residential] }
+        officeNote: { type: ["string", "null"] }
+        tags: { type: array, items: { type: string } }
         propertyData:
           type: object
           additionalProperties: { type: string }
@@ -2853,6 +2857,8 @@ components:
         invoiceFrequency: { type: ["string", "null"] }
         invoiceDelivery: { type: ["string", "null"], enum: [email, print, both, null] }
         accountType: { type: ["string", "null"], enum: [commercial, residential, null] }
+        officeNote: { type: ["string", "null"] }
+        tags: { type: array, items: { type: string } }
         propertyData:
           type: object
           additionalProperties: { type: string }

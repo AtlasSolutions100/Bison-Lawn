@@ -101,6 +101,23 @@ export const clientsTable = pgTable("clients", {
   invoiceDelivery: text("invoice_delivery"),
   /** "commercial" | "residential". Drives the mowing edging policy, among others. */
   accountType: text("account_type"),
+  /**
+   * A note for the office, pinned to the top of the customer page.
+   *
+   * Deliberately NOT `mapNote` and NOT `propertyData`: both of those are carried
+   * onto the crew's job card by design, so anything written there is read by
+   * whoever turns up to mow. This is the one place to write something the office
+   * needs and the crew does not — "always argues about the bill", "son handles
+   * payment", "do not discuss price on site".
+   */
+  officeNote: text("office_note"),
+  /**
+   * Free-form labels for lookup — "above ground backflow", "inside turn on/off".
+   * A jsonb array rather than a table because a tag has no attributes of its
+   * own; it is the string. Stored lowercase so "Backflow" and "backflow" are the
+   * same tag rather than two that look identical in a filter.
+   */
+  tags: jsonb("tags").$type<string[]>().notNull().default([]),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 export const insertClientSchema = createInsertSchema(clientsTable).omit({ id: true, createdAt: true });

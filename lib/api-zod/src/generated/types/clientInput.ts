@@ -43,5 +43,8 @@ export interface ClientInput {
   invoiceFrequency?: string;
   invoiceDelivery?: ClientInputInvoiceDelivery;
   accountType?: ClientInputAccountType;
+  /** @nullable */
+  officeNote?: string | null;
+  tags?: string[];
   propertyData?: ClientInputPropertyData;
 }

@@ -73,5 +73,8 @@ export interface ClientUpdate {
   invoiceDelivery?: ClientUpdateInvoiceDelivery;
   /** @nullable */
   accountType?: ClientUpdateAccountType;
+  /** @nullable */
+  officeNote?: string | null;
+  tags?: string[];
   propertyData?: ClientUpdatePropertyData;
 }
