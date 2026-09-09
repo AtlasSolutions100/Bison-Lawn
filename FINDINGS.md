@@ -1156,3 +1156,52 @@ Swept the whole catalogue for the same class of error afterwards. Nothing else:
 no band anywhere has a cost above its own price, and no service has a price that
 falls as the band size rises. Both are worth re-running after any bulk price
 change — they are cheap and they catch dropped digits, which is what this was.
+
+## 2026-09-08 — the billing record his invoices were built from was empty
+
+Built the Billing section on the customer page (his 93). Every one of the twelve
+fields already existed and already drove the invoice; none had ever been shown,
+so the office was billing customers from data it could neither see nor correct.
+
+Then found out why every field was blank. Two faults in
+`scripts/import/service-autopilot-to-sql`:
+
+1. **It could not run.** It uses `require`, but `scripts/package.json` declares
+   `"type": "module"`, so Node treated the `.js` as ESM and it died on line 11.
+   Renamed `.cjs`. Whatever performed the original import, it was not this file
+   as committed.
+2. **It never read the billing columns.** All of them are in his export under
+   exactly the names the schema comment claims. `BillingEmail` was read, but
+   only as a fallback for the contact email.
+
+Added a `--billing-only` mode rather than re-running the full import, because
+the full import overwrites name, service address, city, state, postal code,
+email, phone, map code and account balance from the export outright — every
+correction typed since August would have gone. Billing-only emits nothing but
+`UPDATE clients SET <billing columns> WHERE external_id = ...`: it cannot
+insert, cannot reach another column, and within the billing set only fills
+blanks (`COALESCE(clients.x, exported)`), so it is safe to re-run at any time.
+
+Checked the generated file before running it: 698 statements, all `UPDATE
+clients SET`, no INSERT/DELETE/DROP/ALTER/TRUNCATE, and only the eleven billing
+columns assigned (no `line2` — his export has a single-line billing address).
+Rehearsed on the local database first, then applied to production.
+
+Production, before → after:
+
+```
+ billing email        0 → 639
+ payment terms        0 → 628
+ delivery preference  0 → 698
+ separate Bill To     0 → 698
+```
+
+**Eleven customers are billed in a different state from where the work happens**
+— B.S.P.M. serviced in Coeur d'Alene ID and billed to Sequim WA, Cedar Street
+LLC to Hillsboro OR, and others to St George UT and Spokane WA. Every invoice to
+those eleven would have been addressed to the lawn.
+
+The enum columns were mapped from the values actually present in the file
+("Email and Print" → `both`), not guessed, and anything unrecognised became null
+rather than a wrong guess. Only one customer has an AccountNumber in the export,
+which is why that column is nearly empty — that is his data, not a mapping bug.

@@ -12,7 +12,28 @@ const XLSX = require('xlsx');
 const fs = require('fs');
 
 const ROOT = 'C:/Users/kobys/OneDrive/Desktop/OptionallyWorking/BisonLawn';
-const OUT = 'C:/Users/kobys/.claude-second/jobs/324ddeb4/tmp/import.sql';
+
+/**
+ * `--billing-only` emits nothing but the twelve billing columns, as UPDATEs
+ * matched on external_id.
+ *
+ * The full import overwrites name, service address, city, state, postal code,
+ * email, phone, map code and account balance from the export outright, so
+ * re-running it to pick up billing data would throw away every correction the
+ * office has typed since the last run. This mode exists so the billing record
+ * can be filled without accepting that trade.
+ *
+ * It cannot insert, so it cannot invent a customer, and it cannot touch a
+ * column outside the billing set. Within that set it only ever fills a blank:
+ * `COALESCE(clients.x, <exported>)` keeps whatever is already there, which
+ * makes the script safe to run more than once and safe to run at any time. The
+ * cost is that a genuinely changed value in a later export will not overwrite
+ * what is here — clear the field in the app first if that is what you want.
+ */
+const BILLING_ONLY = process.argv.includes('--billing-only');
+const OUT = BILLING_ONLY
+  ? `${ROOT}/import-billing-only.sql`
+  : 'C:/Users/kobys/.claude-second/jobs/324ddeb4/tmp/import.sql';
 
 const s = (v) => {
   const t = String(v ?? '').trim();
@@ -99,6 +120,9 @@ const active = svcRows.filter((r) => String(r.Active) === 'True');
 const neededFields = new Set(
   active.map((r) => MATRIX_FIELD_ALIASES[s(r.MatrixCustomField)] ?? s(r.MatrixCustomField)).filter(Boolean),
 );
+// Billing-only touches customers and nothing else, so the estimate fields and
+// the whole service catalogue are skipped rather than emitted and ignored.
+if (!BILLING_ONLY) {
 out.push('-- Property details his services price off, created if missing.');
 for (const label of [...neededFields].sort()) {
   out.push(
@@ -132,6 +156,7 @@ ON CONFLICT (external_id) DO UPDATE SET
   );
 }
 out.push('');
+} // end !BILLING_ONLY
 
 // --------------------------------------------------------------- customers --
 const cliRows = XLSX.utils.sheet_to_json(
@@ -160,6 +185,31 @@ for (const r of cliRows) {
   }
 
   const status = String(r.CustomerType ?? '').toLowerCase() === 'client' ? 'client' : 'lead';
+
+  if (BILLING_ONLY) {
+    const billing = {
+      name_on_invoice: s(r.NameOnInvoice),
+      billing_address_line1: s(r.BillingAddress),
+      billing_city: s(r.BillingCity),
+      billing_state: s(r.BillingState),
+      billing_postal_code: s(r.BillingZip),
+      billing_email: s(r.BillingEmail),
+      account_number: s(r.AccountNumber),
+      billing_terms: s(r.BillingTerms),
+      invoice_frequency: s(r.InvoiceFrequency),
+      invoice_delivery: invoiceDelivery(r.InvoiceDelivery),
+      account_type: accountType(r.AccountType),
+    };
+    // Only emit a statement for customers who actually have something to set —
+    // 698 no-op UPDATEs would make the file unreadable and hide the real ones.
+    const present = Object.entries(billing).filter(([, v]) => v !== null && v !== undefined);
+    if (present.length) {
+      const sets = present.map(([col, v]) => `  ${col} = COALESCE(${col}, ${q(v)})`).join(',\n');
+      out.push(`UPDATE clients SET\n${sets}\nWHERE external_id = ${q(ext)};`);
+    }
+    continue;
+  }
+
   out.push(
     `INSERT INTO clients (external_id, name, status, service_address, address_line2, city, state, postal_code,
   lat, lng, email, phone, additional_contact, map_note, map_code, account_balance, property_data,
@@ -209,10 +259,17 @@ ON CONFLICT (external_id) DO UPDATE SET
 out.push('');
 out.push('COMMIT;');
 out.push('');
-out.push("SELECT 'services: ' || count(*) FROM services WHERE external_id IS NOT NULL;");
-out.push("SELECT 'clients:  ' || count(*) FROM clients WHERE external_id IS NOT NULL;");
-out.push("SELECT 'with map code: ' || count(*) FROM clients WHERE external_id IS NOT NULL AND map_code IS NOT NULL;");
-out.push("SELECT 'with turf sqft: ' || count(*) FROM clients WHERE property_data ? 'Turf Sqft';");
+if (BILLING_ONLY) {
+  out.push("SELECT 'billing email:    ' || count(billing_email)    || ' of ' || count(*) FROM clients;");
+  out.push("SELECT 'payment terms:    ' || count(billing_terms)    || ' of ' || count(*) FROM clients;");
+  out.push("SELECT 'delivery pref:    ' || count(invoice_delivery) || ' of ' || count(*) FROM clients;");
+  out.push("SELECT 'separate Bill To: ' || count(*) FROM clients WHERE billing_address_line1 IS NOT NULL;");
+} else {
+  out.push("SELECT 'services: ' || count(*) FROM services WHERE external_id IS NOT NULL;");
+  out.push("SELECT 'clients:  ' || count(*) FROM clients WHERE external_id IS NOT NULL;");
+  out.push("SELECT 'with map code: ' || count(*) FROM clients WHERE external_id IS NOT NULL AND map_code IS NOT NULL;");
+  out.push("SELECT 'with turf sqft: ' || count(*) FROM clients WHERE property_data ? 'Turf Sqft';");
+}
 
 fs.writeFileSync(OUT, out.join('\n'), 'utf8');
 
