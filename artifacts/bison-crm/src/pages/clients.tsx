@@ -118,8 +118,18 @@ export default function Clients() {
     <div className="p-8 max-w-7xl mx-auto space-y-6 flex flex-col h-[calc(100vh-2rem)]">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Clients & Leads</h1>
-          <p className="text-muted-foreground mt-1">Manage your customer database and properties.</p>
+          <h1 className="text-3xl font-bold tracking-tight">Clients &amp; Leads</h1>
+          {/* "Manage your customer database and properties" told the office
+              nothing it did not already know from the page it had just clicked.
+              How many customers there are, and how many the current filter is
+              hiding, is the thing actually worth a line here. */}
+          <p className="text-muted-foreground mt-1" data-testid="client-count">
+            {clients == null
+              ? 'Loading…'
+              : visibleClients.length === clients.length
+                ? `${clients.length} ${clients.length === 1 ? 'customer' : 'customers'}`
+                : `${visibleClients.length} of ${clients.length} shown`}
+          </p>
         </div>
         <NewClientDialog />
       </div>
@@ -181,23 +191,36 @@ export default function Clients() {
                     onChange={(e) => setSelectedIds(e.target.checked ? visibleIds : [])}
                   />
                 </TableHead>
-                <TableHead>Client</TableHead>
-                <TableHead>Contact</TableHead>
-                <TableHead>Service Location</TableHead>
-                <TableHead>
+                {/*
+                  Explicit widths, because auto table layout allocates by
+                  content length: email addresses are the longest strings in the
+                  row, so Contact took roughly half the table while the service
+                  address wrapped onto three lines and Added, Status and Balance
+                  were pushed off the right edge entirely. Width now follows how
+                  often a column is read, not how long its text happens to be.
+                */}
+                <TableHead className="w-[22%]">Client</TableHead>
+                <TableHead className="w-[22%]">Contact</TableHead>
+                <TableHead className="w-[24%]">Service Location</TableHead>
+                {/* "Zone", not "Map Code / Water": the old label was long enough
+                    to wrap onto three lines in its own header while the water
+                    district it named is filled in for 8 customers out of 709.
+                    The chip is what the office scans for; the district is a
+                    detail underneath it, on one line. */}
+                <TableHead className="w-28">
                   <button
                     type="button"
-                    className="font-medium hover:text-primary transition-colors"
+                    className="font-medium hover:text-primary transition-colors whitespace-nowrap"
                     onClick={() => setSort(sort === 'mapCode' ? 'name' : 'mapCode')}
                     title="Group the list by route zone"
                   >
-                    Map Code / Water {sort === 'mapCode' ? '▲' : ''}
+                    Zone {sort === 'mapCode' ? '▲' : ''}
                   </button>
                 </TableHead>
-                <TableHead>
+                <TableHead className="w-28">
                   <button
                     type="button"
-                    className="font-medium hover:text-primary transition-colors"
+                    className="font-medium hover:text-primary transition-colors whitespace-nowrap"
                     onClick={() => setSort(sort === 'added' ? 'name' : 'added')}
                     title="Sort by when they were added, newest first"
                     data-testid="sort-by-added"
@@ -205,8 +228,8 @@ export default function Clients() {
                     Added {sort === 'added' ? '▼' : ''}
                   </button>
                 </TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Balance</TableHead>
+                <TableHead className="w-24">Status</TableHead>
+                <TableHead className="w-28 text-right">Balance</TableHead>
                 <TableHead className="w-12"></TableHead>
               </TableRow>
             </TableHeader>
@@ -331,29 +354,52 @@ function ClientRow({ client, selected, onSelectedChange }: {
         />
       </TableCell>
       <TableCell className="font-semibold text-foreground">
-        {client.name}
+        <span className="block truncate" title={client.name}>{client.name}</span>
       </TableCell>
       <TableCell>
-        <div className="flex flex-col gap-1 text-sm">
-          {client.phone && <span className="flex items-center gap-1.5 text-muted-foreground"><Phone className="w-3 h-3"/> {client.phone}</span>}
-          {client.email && <span className="flex items-center gap-1.5 text-muted-foreground"><Mail className="w-3 h-3"/> {client.email}</span>}
-          {!client.phone && !client.email && <span className="text-muted-foreground/50 italic">No contact info</span>}
+        {/* An absent value is shown as a dash, not as a sentence. "No contact
+            info" in italics on hundreds of rows reads as an error state and
+            costs a line of height on every one of them. */}
+        <div className="flex flex-col gap-0.5 text-sm min-w-0">
+          {client.phone && (
+            <span className="flex items-center gap-1.5 text-muted-foreground">
+              <Phone className="w-3 h-3 shrink-0"/>
+              <span className="truncate">{client.phone}</span>
+            </span>
+          )}
+          {client.email && (
+            <span className="flex items-center gap-1.5 text-muted-foreground" title={client.email}>
+              <Mail className="w-3 h-3 shrink-0"/>
+              <span className="truncate">{client.email}</span>
+            </span>
+          )}
+          {!client.phone && !client.email && <span className="text-muted-foreground/40">—</span>}
         </div>
       </TableCell>
       <TableCell>
-        <div className="flex flex-col gap-1 text-sm">
-          <span className="flex items-center gap-1.5 font-medium text-foreground"><MapPin className="w-3.5 h-3.5 text-muted-foreground"/> {client.serviceAddress}</span>
-          <span className="text-muted-foreground ml-5">{client.city}</span>
+        <div className="flex flex-col gap-0.5 text-sm min-w-0">
+          <span
+            className="flex items-center gap-1.5 font-medium text-foreground"
+            title={[client.serviceAddress, client.city].filter(Boolean).join(', ')}
+          >
+            <MapPin className="w-3.5 h-3.5 shrink-0 text-muted-foreground"/>
+            <span className="truncate">{client.serviceAddress || '—'}</span>
+          </span>
+          {client.city && <span className="ml-5 truncate text-muted-foreground">{client.city}</span>}
         </div>
       </TableCell>
       <TableCell>
         <div className="flex flex-col items-start gap-1 text-sm">
           {client.mapCode?.trim()
             ? <MapCodeBadge code={client.mapCode} />
-            : <span className="text-muted-foreground/50 italic text-xs">No map code</span>}
+            : <span className="text-muted-foreground/40 text-xs">—</span>}
           {client.waterDistrict && (
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Droplets className="w-3 h-3" /> {client.waterDistrict}
+            <span
+              className="flex w-full items-center gap-1 text-xs text-muted-foreground"
+              title={client.waterDistrict}
+            >
+              <Droplets className="w-3 h-3 shrink-0" />
+              <span className="truncate">{client.waterDistrict}</span>
             </span>
           )}
         </div>

@@ -39,6 +39,7 @@ export default function Dispatch() {
   // job's status came for.
   const [showMap, setShowMap] = useState(false);
   const { visible, toggle } = useDispatchColumns();
+  const hasFilters = Boolean(contractorId || status || city);
   const bulkAssign = useBulkAssignJobs();
   const applyToSelection = (input: Parameters<typeof bulkAssign.mutate>[0]['data']) => {
     bulkAssign.mutate({ data: input }, {
@@ -159,7 +160,36 @@ export default function Dispatch() {
               {isLoading ? (
                 <TableRow><TableCell colSpan={14} className="text-center py-10 animate-pulse">Loading board...</TableCell></TableRow>
               ) : !jobs?.length ? (
-                <TableRow><TableCell colSpan={14} className="text-center py-10">No jobs match the current filters.</TableCell></TableRow>
+                <TableRow>
+                  <TableCell colSpan={14} className="py-12">
+                    {/*
+                      "No jobs match the current filters" was true and useless:
+                      on a day with nothing scheduled it blamed filters that
+                      were not set, and offered nothing to do next. Say which of
+                      the two situations it is, and offer the action that fits.
+                    */}
+                    <div className="mx-auto flex max-w-sm flex-col items-center gap-3 text-center">
+                      <p className="font-medium text-foreground">
+                        {hasFilters ? 'No jobs match these filters' : `Nothing scheduled for ${formatDispatchDate(date)}`}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {hasFilters
+                          ? 'Try clearing the contractor, status or city filter.'
+                          : 'Pick another date, or add a job to this day.'}
+                      </p>
+                      {hasFilters && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => { setContractorId(''); setStatus(''); setCity(''); }}
+                          data-testid="clear-dispatch-filters"
+                        >
+                          Clear filters
+                        </Button>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
               ) : (
                 jobs.map(job => <DispatchRow key={job.id} job={job} contractors={contractors} visible={visible} />)
               )}

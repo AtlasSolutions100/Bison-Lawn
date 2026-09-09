@@ -117,10 +117,13 @@ export default function ClientDetail() {
               </div>
             </div>
 
-            <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 min-w-[200px] flex items-center justify-between">
+            {/* gap-6, because the balance and the button had exactly zero
+                pixels between them — measured, not guessed. A four-figure
+                balance would have run straight into the button. */}
+            <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 min-w-[220px] flex items-center justify-between gap-6">
               <div>
                 <p className="text-sm font-semibold text-primary/80 uppercase tracking-wider">Balance</p>
-                <p className={`text-3xl font-bold mt-1 ${client.accountBalance > 0 ? 'text-destructive' : client.accountBalance < 0 ? 'text-primary' : 'text-foreground'}`}>
+                <p className={`text-3xl font-bold mt-1 whitespace-nowrap ${client.accountBalance > 0 ? 'text-destructive' : client.accountBalance < 0 ? 'text-primary' : 'text-foreground'}`}>
                   ${client.accountBalance.toLocaleString(undefined, {minimumFractionDigits: 2})}
                 </p>
               </div>
@@ -508,6 +511,7 @@ function ClientRouting({ client }: { client: Client }) {
 function ClientOfficeNote({ client }: { client: Client }) {
   const [note, setNote] = useState(client.officeNote ?? '');
   const [tagDraft, setTagDraft] = useState('');
+  const [expanded, setExpanded] = useState(false);
   const tags = client.tags ?? [];
   const updateClient = useUpdateClient();
   const queryClient = useQueryClient();
@@ -540,6 +544,40 @@ function ClientOfficeNote({ client }: { client: Client }) {
     persist({ tags: tags.filter(t => t !== tag) }, `Removed "${tag}"`);
 
   const noteDirty = (client.officeNote ?? '') !== note;
+
+  /*
+    Collapsed until it has something to say.
+
+    Expanded, this is a titled panel with a two-row textarea, a tag field and
+    two lines of help — roughly 200px at the very top of the page. It is empty
+    for almost every one of the 709 customers, so on almost every visit the
+    first thing on the page was a large box containing nothing, pushing the
+    services, estimates and invoices below the fold. Prominence has to be earned
+    by content: with a note or a tag it stays exactly as loud as before, and
+    without one it is a single quiet line.
+  */
+  const hasContent = Boolean((client.officeNote ?? '').trim()) || tags.length > 0;
+
+  if (!hasContent && !expanded) {
+    return (
+      <div className="flex items-center gap-4 text-sm">
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground"
+          data-testid="office-note-open"
+        >
+          <MessageSquare className="w-3.5 h-3.5" />
+          Add an office note or tag
+        </button>
+        {client.createdAt && (
+          <span className="text-muted-foreground/70">
+            Added {new Date(client.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}
+          </span>
+        )}
+      </div>
+    );
+  }
 
   return (
     <Card className="shadow-sm border-accent/40 bg-accent/5">
@@ -719,7 +757,11 @@ function ClientBilling({ client }: { client: Client }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="pt-4 space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2">
+        {/* Single column: this card sits in a ~330px sidebar, and sm:grid-cols-2
+            keys off the viewport rather than the container, so on any normal
+            screen it split that column in half and every input clipped
+            mid-word — "B.S.P.M. 1712 W Durha", "Quoted when they pay". */}
+        <div className="grid gap-3">
           <BillingField label="Name on invoice" name="nameOnInvoice" placeholder={client.name} />
           <BillingField label="Account number" name="accountNumber" placeholder="Quoted when they pay" />
         </div>
@@ -729,10 +771,11 @@ function ClientBilling({ client }: { client: Client }) {
             Bill To address. Leave empty when the bill goes to the property being serviced — fill it
             in only when someone else is billed, such as a property manager or a second home.
           </p>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3">
             <BillingField label="Address line 1" name="billingAddressLine1" placeholder="Same as service address" />
             <BillingField label="Address line 2" name="billingAddressLine2" />
             <BillingField label="City" name="billingCity" />
+            {/* State and ZIP are genuinely short, so they keep sharing a row. */}
             <div className="grid grid-cols-2 gap-3">
               <BillingField label="State" name="billingState" />
               <BillingField label="ZIP" name="billingPostalCode" />
@@ -740,7 +783,7 @@ function ClientBilling({ client }: { client: Client }) {
           </div>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3">
           <BillingField
             label="Invoice email"
             name="billingEmail"
