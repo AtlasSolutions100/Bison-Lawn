@@ -920,14 +920,29 @@ export const emailClientBodySubjectMax = 200;
 
 export const emailClientBodyBodyMax = 10000;
 
+export const emailClientBodyToEmailMax = 320;
+
+export const emailClientBodyCcItemMax = 320;
+
+export const emailClientBodyCcMax = 10;
+
+export const emailClientBodyBccItemMax = 320;
+
+export const emailClientBodyBccMax = 10;
+
 
 
 export const EmailClientBody = zod.object({
   "subject": zod.string().min(1).max(emailClientBodySubjectMax),
-  "body": zod.string().min(1).max(emailClientBodyBodyMax)
+  "body": zod.string().min(1).max(emailClientBodyBodyMax),
+  "toEmail": zod.string().max(emailClientBodyToEmailMax).optional(),
+  "cc": zod.array(zod.string().max(emailClientBodyCcItemMax)).max(emailClientBodyCcMax).optional(),
+  "bcc": zod.array(zod.string().max(emailClientBodyBccItemMax)).max(emailClientBodyBccMax).optional()
 })
 
 export const EmailClientResponse = zod.object({
+  "cc": zod.array(zod.string()).optional(),
+  "bcc": zod.array(zod.string()).optional(),
   "sent": zod.boolean(),
   "to": zod.string()
 })

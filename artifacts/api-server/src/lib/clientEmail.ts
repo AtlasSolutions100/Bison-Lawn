@@ -19,15 +19,45 @@ const escapeHtml = (value: string) =>
  * replaces the plain one, it accompanies it.
  */
 export async function sendClientEmailViaGmail(
-  { toEmail, subject, body, html }: { toEmail: string; subject: string; body: string; html?: string },
+  { toEmail, subject, body, html, cc, bcc }: {
+    toEmail: string;
+    subject: string;
+    body: string;
+    html?: string;
+    cc?: string[];
+    bcc?: string[];
+  },
   proxy: GmailProxy = defaultGmailProxy,
 ) {
-  if (/[\r\n]/.test(toEmail)) throw new Error("Invalid client email address");
+  /**
+   * A newline in an address is a header injection: everything after it becomes
+   * a new MIME header, which is how a "Cc" field turns into an extra Bcc to
+   * somebody else entirely. Every address is checked, not just the To — cc and
+   * bcc are typed by hand in the office, which is exactly where a pasted
+   * address with a stray newline comes from.
+   */
+  const assertClean = (address: string, field: string) => {
+    if (/[\r\n]/.test(address)) throw new Error(`Invalid ${field} email address`);
+    return address;
+  };
+  const clean = (list: string[] | undefined, field: string) =>
+    (list ?? [])
+      .map((a) => a.trim())
+      .filter(Boolean)
+      .map((a) => assertClean(a, field));
+
+  assertClean(toEmail, "client");
+  const ccList = clean(cc, "Cc");
+  const bccList = clean(bcc, "Bcc");
 
   const boundary = `bison_client_${randomBytes(12).toString("hex")}`;
   const encodedSubject = `=?UTF-8?B?${Buffer.from(subject).toString("base64")}?=`;
   const mime = [
     `To: ${toEmail}`,
+    ...(ccList.length ? [`Cc: ${ccList.join(", ")}`] : []),
+    // Bcc is a real header on the outgoing message; Gmail strips it from what
+    // recipients receive, which is the whole point of it.
+    ...(bccList.length ? [`Bcc: ${bccList.join(", ")}`] : []),
     `Subject: ${encodedSubject}`,
     "MIME-Version: 1.0",
     `Content-Type: multipart/alternative; boundary="${boundary}"`,

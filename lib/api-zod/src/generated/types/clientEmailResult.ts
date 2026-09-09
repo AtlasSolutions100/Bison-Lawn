@@ -7,6 +7,8 @@
  */
 
 export interface ClientEmailResult {
+  cc?: string[];
+  bcc?: string[];
   sent: boolean;
   to: string;
 }

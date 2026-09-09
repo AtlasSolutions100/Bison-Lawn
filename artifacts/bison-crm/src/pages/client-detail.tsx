@@ -174,20 +174,62 @@ function RecordPaymentDialog({ clientId }: { clientId: number }) {
   );
 }
 
+/**
+ * The office email, with the recipient editable and Cc / Bcc.
+ *
+ * "ability to delete email address when sending email to customer and the
+ * ability to add a different email and or CC, BCC". The To box used to be a
+ * line of read-only text, and the button was disabled outright for a customer
+ * with no address on file — so a customer whose email you happened to know but
+ * had not saved could not be emailed at all.
+ *
+ * Cc and Bcc are hidden until asked for. Most sends are one address to one
+ * customer, and two empty boxes on every send is clutter charged to everyone to
+ * serve the occasional case.
+ */
 function EmailClientDialog({ client }: { client: Client }) {
   const [open, setOpen] = useState(false);
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
+  const [to, setTo] = useState(client.email ?? '');
+  const [cc, setCc] = useState('');
+  const [bcc, setBcc] = useState('');
+  const [showCopies, setShowCopies] = useState(false);
   const emailClient = useEmailClient();
   const { toast } = useToast();
 
+  // Typed as "a@b.com, c@d.com" and sent as a list.
+  const splitAddresses = (value: string) =>
+    value.split(/[,;]/).map(a => a.trim()).filter(Boolean);
+
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
-    emailClient.mutate({ id: client.id, data: { subject, body } }, {
+    const ccList = splitAddresses(cc);
+    const bccList = splitAddresses(bcc);
+    emailClient.mutate({
+      id: client.id,
+      data: {
+        subject,
+        body,
+        toEmail: to.trim(),
+        ...(ccList.length ? { cc: ccList } : {}),
+        ...(bccList.length ? { bcc: bccList } : {}),
+      },
+    }, {
       onSuccess: (result) => {
-        toast({ title: 'Email sent', description: `Delivered to ${result.to}.` });
+        const copies = [
+          result.cc?.length ? `cc ${result.cc.length}` : null,
+          result.bcc?.length ? `bcc ${result.bcc.length}` : null,
+        ].filter(Boolean).join(', ');
+        toast({
+          title: 'Email sent',
+          description: `Delivered to ${result.to}${copies ? ` (${copies})` : ''}.`,
+        });
         setSubject('');
         setBody('');
+        setCc('');
+        setBcc('');
+        setShowCopies(false);
         setOpen(false);
       },
       onError: (error) => toast({
@@ -201,14 +243,56 @@ function EmailClientDialog({ client }: { client: Client }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="outline" disabled={!client.email} title={!client.email ? 'Add an email address to this client first' : undefined}>
+        <Button size="sm" variant="outline">
           <Mail className="w-4 h-4 mr-1" /> Send Email
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader><DialogTitle>Email {client.name}</DialogTitle></DialogHeader>
         <form onSubmit={submit} className="space-y-4">
-          <p className="text-sm text-muted-foreground">To: {client.email}</p>
+          <div>
+            <label className="text-sm font-medium mb-1 block">To</label>
+            <Input
+              type="email"
+              value={to}
+              onChange={e => setTo(e.target.value)}
+              placeholder="Nobody on file — type an address"
+              maxLength={320}
+              required
+              data-testid="email-to"
+            />
+            {!client.email && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                This customer has no email saved. Sending here does not save it — add it on the
+                customer if you want it kept.
+              </p>
+            )}
+          </div>
+
+          {showCopies ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="text-sm font-medium mb-1 block">Cc</label>
+                <Input value={cc} onChange={e => setCc(e.target.value)} placeholder="Comma separated" data-testid="email-cc" />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Bcc</label>
+                <Input value={bcc} onChange={e => setBcc(e.target.value)} placeholder="Comma separated" data-testid="email-bcc" />
+              </div>
+            </div>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-muted-foreground"
+              onClick={() => setShowCopies(true)}
+              data-testid="email-add-copies"
+            >
+              + Add Cc / Bcc
+            </Button>
+          )}
+
           <div>
             <label className="text-sm font-medium mb-1 block">Subject</label>
             <Input value={subject} onChange={e => setSubject(e.target.value)} maxLength={200} required />
@@ -219,7 +303,7 @@ function EmailClientDialog({ client }: { client: Client }) {
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={emailClient.isPending || !subject.trim() || !body.trim()}>
+            <Button type="submit" disabled={emailClient.isPending || !to.trim() || !subject.trim() || !body.trim()}>
               {emailClient.isPending ? 'Sending...' : 'Send Email'}
             </Button>
           </DialogFooter>

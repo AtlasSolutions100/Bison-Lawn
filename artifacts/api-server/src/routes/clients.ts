@@ -92,16 +92,48 @@ router.post("/clients/:id/email", async (req, res) => {
     .from(clientsTable)
     .where(eq(clientsTable.id, Number(req.params.id)));
   if (!client) return res.status(404).json({ error: "Client not found" });
-  if (!client.email) return res.status(400).json({ error: "Client has no email address" });
 
-  await sendClientEmailViaGmail({ toEmail: client.email, subject: body.subject, body: body.body });
+  // The customer's own address is the default, but the office can send to a
+  // different one — "ability to delete email address when sending email to
+  // customer and the ability to add a different email and or CC, BCC". A
+  // customer with no address on file is no longer a dead end, as long as one is
+  // typed in.
+  const toEmail = (body.toEmail ?? client.email ?? "").trim();
+  if (!toEmail) {
+    return res.status(400).json({ error: "No email address — add one to the customer, or type one in." });
+  }
+  const cc = (body.cc ?? []).map((a) => a.trim()).filter(Boolean);
+  const bcc = (body.bcc ?? []).map((a) => a.trim()).filter(Boolean);
+
+  // Checked here as well as in the sender, so a bad address the office typed
+  // comes back as a 400 naming the field rather than the generic 500 the
+  // unhandled-error handler produces. "Something went wrong, please try again"
+  // is actively misleading advice when retrying cannot possibly help.
+  const offending = [
+    ...(/[\r\n]/.test(toEmail) ? ["To"] : []),
+    ...(cc.some((a) => /[\r\n]/.test(a)) ? ["Cc"] : []),
+    ...(bcc.some((a) => /[\r\n]/.test(a)) ? ["Bcc"] : []),
+  ];
+  if (offending.length) {
+    return res.status(400).json({
+      error: `That ${offending.join(" and ")} address is not a valid email address.`,
+    });
+  }
+
+  await sendClientEmailViaGmail({ toEmail, subject: body.subject, body: body.body, cc, bcc });
   await logAudit({
     clientId: client.id,
     actorName: req.appUser?.name,
     action: "client_email_sent",
-    description: `Sent email to ${client.email}`,
+    // Cc is recorded because it is part of who saw this; Bcc is recorded as a
+    // count only, since writing the hidden addresses into an audit trail the
+    // whole office reads defeats the point of blind copying.
+    description:
+      `Sent email to ${toEmail}` +
+      (cc.length ? `, cc ${cc.join(", ")}` : "") +
+      (bcc.length ? `, plus ${bcc.length} bcc` : ""),
   });
-  return res.json({ sent: true, to: client.email });
+  return res.json({ sent: true, to: toEmail, cc, bcc });
 });
 
 /**

@@ -17,4 +17,16 @@ export interface ClientEmailInput {
      * @maxLength 10000
      */
   body: string;
+  /** @maxLength 320 */
+  toEmail?: string;
+  /**
+     * @maxItems 10
+     * @items.maxLength 320
+     */
+  cc?: string[];
+  /**
+     * @maxItems 10
+     * @items.maxLength 320
+     */
+  bcc?: string[];
 }

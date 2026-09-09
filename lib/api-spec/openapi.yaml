@@ -3534,10 +3534,17 @@ components:
       properties:
         subject: { type: string, minLength: 1, maxLength: 200 }
         body: { type: string, minLength: 1, maxLength: 10000 }
+        # Who it goes to. Omit toEmail to use the customer's own address, which
+        # is what the office wants nearly every time.
+        toEmail: { type: string, maxLength: 320 }
+        cc: { type: array, maxItems: 10, items: { type: string, maxLength: 320 } }
+        bcc: { type: array, maxItems: 10, items: { type: string, maxLength: 320 } }
     ClientEmailResult:
       type: object
       required: [sent, to]
       properties:
+        cc: { type: array, items: { type: string } }
+        bcc: { type: array, items: { type: string } }
         sent: { type: boolean }
         to: { type: string }
     ApplyPaymentInput:
