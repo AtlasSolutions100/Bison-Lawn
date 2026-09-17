@@ -7,6 +7,7 @@
  */
 import type { ClientInputAccountType } from './clientInputAccountType';
 import type { ClientInputInvoiceDelivery } from './clientInputInvoiceDelivery';
+import type { ClientInputPreferredPaymentMethod } from './clientInputPreferredPaymentMethod';
 import type { ClientInputPropertyData } from './clientInputPropertyData';
 import type { ClientInputStatus } from './clientInputStatus';
 
@@ -47,4 +48,13 @@ export interface ClientInput {
   officeNote?: string | null;
   tags?: string[];
   propertyData?: ClientInputPropertyData;
+  /** @nullable */
+  parentClientId?: number | null;
+  doNotEmail?: boolean;
+  /** @nullable */
+  source?: string | null;
+  /** @nullable */
+  referredByClientId?: number | null;
+  /** @nullable */
+  preferredPaymentMethod?: ClientInputPreferredPaymentMethod;
 }

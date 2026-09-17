@@ -5,7 +5,9 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
-import type { CostingRow } from './costingRow';
+import type { ReportColumn } from './reportColumn';
+import type { ReportRow } from './reportRow';
+import type { ReportTotals } from './reportTotals';
 
 export interface ReportAnswer {
   question: string;
@@ -14,5 +16,9 @@ export interface ReportAnswer {
   /** @nullable */
   reportTitle?: string | null;
   answer: string;
-  rows: CostingRow[];
+  columns: ReportColumn[];
+  rows: ReportRow[];
+  totals?: ReportTotals | null;
+  /** False when the question was routed on its words alone, with no model summary */
+  assistantUsed: boolean;
 }

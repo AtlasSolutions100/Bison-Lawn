@@ -13,7 +13,67 @@ export type EstimateBranding = {
   company: CompanyProfile;
   /** His terms with merge tokens already resolved, or null when unavailable. */
   contract: string | null;
+  /**
+   * The estimate document he picked to lead this quote (P6, "estimate
+   * templates with a cover document"), tokens already merged with the
+   * customer's details and the quoted work. Null when none was picked or the
+   * document has since been deleted — the quote still goes out, with the plain
+   * greeting it always had.
+   */
+  cover: { name: string; body: string } | null;
 };
+
+const money = (value: number) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
+
+/** "28 visits x $55.00" — the arithmetic behind a season total, in his words. */
+export function lineMathLabel(line: EstimateLine): string | null {
+  if (line.serviceId == null || line.unitPrice == null) return null;
+  const quantity = line.quantity ?? 1;
+  const visits = line.visits ?? 1;
+  const parts: string[] = [];
+  if (quantity !== 1) parts.push(`${quantity} x`);
+  if (visits !== 1) parts.push(`${visits} visit${visits === 1 ? "" : "s"} x`);
+  // Work he bills by the hour is quoted at the budgeted hours, so the customer
+  // reads both figures — the price of the visit and the rate behind it.
+  const perVisit = hoursLabel(line) ? `${money(line.unitPrice)} (${hoursLabel(line)})` : money(line.unitPrice);
+  if (!parts.length) return hoursLabel(line) ? perVisit : null;
+  return `${parts.join(" ")} ${perVisit}`;
+}
+
+/** "3 hr @ $65.00/hr" for a time-billed line, null for everything else. */
+export function hoursLabel(line: EstimateLine): string | null {
+  if (line.hours == null || line.hours <= 0 || line.unitPrice == null) return null;
+  return `${line.hours} hr @ ${money(Math.round((line.unitPrice / line.hours) * 100) / 100)}/hr`;
+}
+
+/**
+ * The quoted work as a plain block, for the `[bison_full_service]` token his
+ * estimate documents end with. Same shape the Settings preview renders, so what
+ * he approved on that screen is what the customer receives. A package prints
+ * as one heading with its services under it, matching how the customer will
+ * accept it: as a whole.
+ */
+export function quotedServicesBlock(lines: EstimateLine[]): string {
+  const out: string[] = [];
+  let openPackage: string | null = null;
+  for (const line of lines) {
+    if (line.calculatedPrice == null) continue;
+    const key = line.packageKey ?? null;
+    if (key !== openPackage) {
+      openPackage = key;
+      if (key) {
+        const total = lines
+          .filter((l) => l.packageKey === key)
+          .reduce((sum, l) => sum + (l.calculatedPrice ?? 0), 0);
+        out.push(`${line.packageName ?? "Package"} — ${money(total)}`);
+      }
+    }
+    const math = lineMathLabel(line);
+    out.push(`${key ? "  - " : ""}${line.label}${math ? ` (${math})` : ""} — ${money(line.calculatedPrice)}`);
+  }
+  return out.join("\n");
+}
 
 export type EstimateDocumentData = {
   estimate: Estimate;
@@ -21,9 +81,6 @@ export type EstimateDocumentData = {
   quotedServices: { id: number; name: string; description: string | null }[];
   branding?: EstimateBranding;
 };
-
-const money = (value: number) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
 
 const GREEN = "#215343";
 const DARK = "#2B2118";
@@ -65,6 +122,12 @@ export async function resolveEstimateBranding(data: EstimateDocumentData): Promi
   if (data.branding) return data.branding;
 
   const company = await getCompanyProfile();
+  const context = {
+    client: data.client,
+    company,
+    servicesBlock: quotedServicesBlock(data.estimate.lines as EstimateLine[]),
+    quoteTotal: data.estimate.total,
+  };
   let contract: string | null = null;
   try {
     const [row] = await db
@@ -73,11 +136,7 @@ export async function resolveEstimateBranding(data: EstimateDocumentData): Promi
       .where(eq(documentTemplatesTable.key, CONTRACT_TEMPLATE_KEY))
       .limit(1);
     if (row?.body.trim()) {
-      contract = renderTemplate(row.body, {
-        client: data.client,
-        company,
-        quoteTotal: data.estimate.total,
-      }).trim();
+      contract = renderTemplate(row.body, context).trim();
     }
   } catch {
     // The office can delete or rename his contract template, and a deployment
@@ -86,7 +145,26 @@ export async function resolveEstimateBranding(data: EstimateDocumentData): Promi
     contract = null;
   }
 
-  data.branding = { company, contract };
+  // Same reasoning for the cover document: a deleted or unreadable document
+  // costs the customer a letter, never their quote.
+  let cover: EstimateBranding["cover"] = null;
+  const coverTemplateId = (data.estimate as { coverTemplateId?: number | null }).coverTemplateId ?? null;
+  if (coverTemplateId != null) {
+    try {
+      const [row] = await db
+        .select({ name: documentTemplatesTable.name, body: documentTemplatesTable.body })
+        .from(documentTemplatesTable)
+        .where(eq(documentTemplatesTable.id, coverTemplateId))
+        .limit(1);
+      if (row?.body.trim()) {
+        cover = { name: row.name, body: renderTemplate(row.body, context).trim() };
+      }
+    } catch {
+      cover = null;
+    }
+  }
+
+  data.branding = { company, contract, cover };
   return data.branding;
 }
 
@@ -195,7 +273,7 @@ const isContractHeading = (paragraph: string) =>
 export async function createEstimatePdf(data: EstimateDocumentData): Promise<Buffer> {
   // Resolved before the stream opens so a failed lookup cannot abandon a
   // half-written document.
-  const { company, contract } = await resolveEstimateBranding(data);
+  const { company, contract, cover } = await resolveEstimateBranding(data);
   const { estimate, client, quotedServices } = data;
 
   return new Promise((resolve, reject) => {
@@ -249,22 +327,38 @@ export async function createEstimatePdf(data: EstimateDocumentData): Promise<Buf
     );
     y = doc.y + 22;
 
-    // --- address block ----------------------------------------------------
-    doc.fillColor(MUTED).font("Helvetica-Bold").fontSize(8.5).text("PREPARED FOR", 54, y, { characterSpacing: 1 });
-    doc.fillColor(DARK).font("Helvetica-Bold").fontSize(11).text(client.name, 54, doc.y + 5, { width: 300 });
-    const clientLines = clientAddressLines(client);
-    if (clientLines.length) {
-      doc.fillColor(MUTED).font("Helvetica").fontSize(10).text(clientLines.join("\n"), 54, doc.y + 1, {
-        width: 300,
-        lineGap: 1,
-      });
-    }
-    y = doc.y + 20;
+    if (cover) {
+      // --- his cover document ---------------------------------------------
+      // The document is his letter, address block and greeting included, so
+      // the built-in "PREPARED FOR" block and "Dear ..." would only repeat it.
+      for (const paragraph of cover.body.split(/\n{2,}/)) {
+        const text = paragraph.trim();
+        if (!text) continue;
+        doc.font("Helvetica").fontSize(10.5);
+        needSpace(doc.heightOfString(text, { width: 504, lineGap: 3 }) + 14);
+        doc.fillColor(DARK).text(text, 54, y, { width: 504, lineGap: 3 });
+        y = doc.y + 12;
+      }
+      y += 8;
+      needSpace(120);
+    } else {
+      // --- address block --------------------------------------------------
+      doc.fillColor(MUTED).font("Helvetica-Bold").fontSize(8.5).text("PREPARED FOR", 54, y, { characterSpacing: 1 });
+      doc.fillColor(DARK).font("Helvetica-Bold").fontSize(11).text(client.name, 54, doc.y + 5, { width: 300 });
+      const clientLines = clientAddressLines(client);
+      if (clientLines.length) {
+        doc.fillColor(MUTED).font("Helvetica").fontSize(10).text(clientLines.join("\n"), 54, doc.y + 1, {
+          width: 300,
+          lineGap: 1,
+        });
+      }
+      y = doc.y + 20;
 
-    const greetingName = firstNameOf(client.name);
-    if (greetingName) {
-      doc.fillColor(DARK).font("Helvetica").fontSize(11).text(`Dear ${greetingName},`, 54, y, { width: 504 });
-      y = doc.y + 12;
+      const greetingName = firstNameOf(client.name);
+      if (greetingName) {
+        doc.fillColor(DARK).font("Helvetica").fontSize(11).text(`Dear ${greetingName},`, 54, y, { width: 504 });
+        y = doc.y + 12;
+      }
     }
 
     if (estimate.coverNote?.trim()) {
@@ -278,24 +372,58 @@ export async function createEstimatePdf(data: EstimateDocumentData): Promise<Buf
     }
 
     // --- quoted services --------------------------------------------------
+    // VISITS and RATE are what he asked for: "the customer sees the quantity so
+    // they can divide the total by the visits". A season of mowing reads
+    // 28 x $55.00 = $1,540.00 rather than a bare total they have to guess at.
+    const COL = { label: 66, labelW: 196, detail: 268, detailW: 68, visits: 340, visitsW: 62, rate: 406, rateW: 66, amount: 476, amountW: 70 };
     doc.rect(54, y, 504, 30).fill(TINT);
-    doc.fillColor(DARK).font("Helvetica-Bold").fontSize(10);
-    doc.text("DESCRIPTION", 66, y + 10, { width: 270 });
-    doc.text("DETAIL", 340, y + 10, { width: 105 });
-    doc.text("AMOUNT", 450, y + 10, { width: 96, align: "right" });
+    doc.fillColor(DARK).font("Helvetica-Bold").fontSize(9.5);
+    doc.text("DESCRIPTION", COL.label, y + 10, { width: COL.labelW });
+    doc.text("DETAIL", COL.detail, y + 10, { width: COL.detailW });
+    doc.text("QTY x VISITS", COL.visits, y + 10, { width: COL.visitsW });
+    doc.text("RATE", COL.rate, y + 10, { width: COL.rateW, align: "right" });
+    doc.text("AMOUNT", COL.amount, y + 10, { width: COL.amountW, align: "right" });
     y += 40;
 
-    for (const line of estimate.lines as EstimateLine[]) {
+    const lines = estimate.lines as EstimateLine[];
+    let openPackage: string | null = null;
+    for (const line of lines) {
       needSpace(46);
-      doc.fillColor(DARK).font("Helvetica-Bold").fontSize(10).text(line.label, 66, y, { width: 260 });
-      doc.fillColor(MUTED).font("Helvetica").text(line.value || "—", 340, y, { width: 105 });
+      // A package gets one heading with its own subtotal: that heading is the
+      // one line the customer will tick or untick on the response page.
+      const key = line.packageKey ?? null;
+      if (key !== openPackage) {
+        openPackage = key;
+        if (key) {
+          const subtotal = lines.filter((l) => l.packageKey === key).reduce((s, l) => s + (l.calculatedPrice ?? 0), 0);
+          doc.fillColor(GREEN).font("Helvetica-Bold").fontSize(10).text(`${line.packageName ?? "Package"} (package)`, COL.label, y, { width: 300 });
+          doc.fillColor(GREEN).text(money(subtotal), COL.amount, y, { width: COL.amountW, align: "right" });
+          y = Math.max(doc.y, y + 14) + 6;
+        }
+      }
+      const indent = key ? 12 : 0;
+      doc.fillColor(DARK).font(key ? "Helvetica" : "Helvetica-Bold").fontSize(10).text(line.label, COL.label + indent, y, { width: COL.labelW - indent });
+      const labelBottom = doc.y;
+      doc
+        .fillColor(MUTED)
+        .font("Helvetica")
+        .fontSize(9.5)
+        // Nothing was measured for a clean-up, so the detail column carries the
+        // hours it is priced from instead of an empty dash.
+        .text(line.value || hoursLabel(line) || "—", COL.detail, y, { width: COL.detailW });
+      const quantity = line.quantity ?? 1;
+      const visits = line.visits ?? 1;
+      const showMath = line.serviceId != null && line.unitPrice != null && (quantity !== 1 || visits !== 1);
+      doc.text(showMath ? `${quantity} x ${visits}` : "—", COL.visits, y, { width: COL.visitsW });
+      doc.text(line.unitPrice != null && line.serviceId != null ? money(line.unitPrice) : "—", COL.rate, y, { width: COL.rateW, align: "right" });
       doc
         .fillColor(DARK)
-        .text(line.calculatedPrice == null ? "—" : money(line.calculatedPrice), 450, y, {
-          width: 96,
+        .fontSize(10)
+        .text(line.calculatedPrice == null ? "—" : money(line.calculatedPrice), COL.amount, y, {
+          width: COL.amountW,
           align: "right",
         });
-      y = Math.max(doc.y, y + 18) + 10;
+      y = Math.max(labelBottom, y + 18) + 10;
       doc.moveTo(54, y).lineTo(558, y).lineWidth(1).strokeColor(RULE).stroke();
       y += 12;
     }
@@ -421,17 +549,34 @@ export function createEstimateEmailHtml(
   // Populated by createEstimatePdf, which the send path always builds first.
   const company = data.branding?.company ?? FALLBACK_COMPANY_PROFILE;
   const contract = data.branding?.contract ?? null;
+  const cover = data.branding?.cover ?? null;
 
-  const rows = (estimate.lines as EstimateLine[])
-    .map(
-      (line) => `<tr>
-        <td style="padding:10px;border-bottom:1px solid #e7e2dc">${escape(line.label)}</td>
-        <td style="padding:10px;border-bottom:1px solid #e7e2dc">${escape(line.value || "—")}</td>
-        <td style="padding:10px;border-bottom:1px solid #e7e2dc;text-align:right">${
-          line.calculatedPrice == null ? "—" : money(line.calculatedPrice)
-        }</td>
-      </tr>`,
-    )
+  const cell = (content: string, extra = "") =>
+    `<td style="padding:10px;border-bottom:1px solid #e7e2dc;${extra}">${content}</td>`;
+  const lines = estimate.lines as EstimateLine[];
+  let openPackage: string | null = null;
+  const rows = lines
+    .map((line) => {
+      let heading = "";
+      const key = line.packageKey ?? null;
+      if (key !== openPackage) {
+        openPackage = key;
+        if (key) {
+          const subtotal = lines.filter((l) => l.packageKey === key).reduce((s, l) => s + (l.calculatedPrice ?? 0), 0);
+          heading = `<tr>${cell(`<strong style="color:#215343">${escape(line.packageName ?? "Package")}</strong> <span style="color:#6f675f;font-size:12px">(package)</span>`, "")}${cell("")}${cell("")}${cell(
+            `<strong style="color:#215343">${money(subtotal)}</strong>`,
+            "text-align:right",
+          )}</tr>`;
+        }
+      }
+      const math = lineMathLabel(line);
+      return `${heading}<tr>
+        ${cell(`${key ? '<span style="color:#6f675f">&nbsp;&nbsp;- </span>' : ""}${escape(line.label)}`)}
+        ${cell(escape(line.value || "—"))}
+        ${cell(math ? escape(math) : "—", "white-space:nowrap;color:#6f675f")}
+        ${cell(line.calculatedPrice == null ? "—" : money(line.calculatedPrice), "text-align:right")}
+      </tr>`;
+    })
     .join("");
 
   // Most mail clients block remote images, so every logo here is decoration:
@@ -457,15 +602,22 @@ export function createEstimateEmailHtml(
         <p style="margin:6px 0 0;font-size:13px">${escape(company.name)}</p>
       </div>
       <div style="padding:32px">
-        <p style="margin:0 0 20px;font-size:12px;color:#6f675f;line-height:1.5">
+        ${
+          cover
+            ? // His document carries its own address block and greeting; the
+              // typed message, when there is one, sits above it as a personal note.
+              `${message?.trim() ? `<p>${escape(message.trim())}</p>` : ""}
+              ${paragraphs(cover.body, "margin:0 0 12px;line-height:1.6")}`
+            : `<p style="margin:0 0 20px;font-size:12px;color:#6f675f;line-height:1.5">
           <strong style="color:#2b2118">${escape(client.name)}</strong>${
             clientLines.length ? `<br />${clientLines.map(escape).join("<br />")}` : ""
           }
         </p>
         <p>Dear ${escape(greeting)},</p>
-        <p>${escape(message || "Thank you for the opportunity to care for your property. Please review your estimate below.")}</p>
+        <p>${escape(message || "Thank you for the opportunity to care for your property. Please review your estimate below.")}</p>`
+        }
         <table style="width:100%;border-collapse:collapse;margin:24px 0">
-          <thead><tr style="background:#ebf1ee"><th style="padding:10px;text-align:left">Description</th><th style="padding:10px;text-align:left">Detail</th><th style="padding:10px;text-align:right">Amount</th></tr></thead>
+          <thead><tr style="background:#ebf1ee"><th style="padding:10px;text-align:left">Description</th><th style="padding:10px;text-align:left">Detail</th><th style="padding:10px;text-align:left">Qty x visits</th><th style="padding:10px;text-align:right">Amount</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
         <p style="font-size:20px;font-weight:bold;text-align:right">Total: <span style="color:#215343">${money(estimate.total)}</span></p>

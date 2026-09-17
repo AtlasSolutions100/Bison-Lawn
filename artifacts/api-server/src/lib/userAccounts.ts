@@ -8,8 +8,9 @@ import {
   ticketsTable,
   type User,
 } from "@workspace/db";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { redeemPendingInvitation, resolveNewAccountAccess } from "./invitations";
+import { effectiveLevel } from "./access";
 
 // Exported so lib/invitations.ts can type its transaction-scoped helpers
 // without importing this module at runtime (it only needs the type).
@@ -46,6 +47,26 @@ const ROLE_SOURCE_RANK: Record<string, number> = {
 type AccessFields = { role: string; roleSource: string };
 
 /**
+ * Same idea for the level and extras: when duplicate rows of one person are
+ * folded together, the one with the wider level wins and the extras of both
+ * rows are kept, so a merge can only ever keep access — never quietly narrow
+ * it. Narrowing is done on purpose on the Team page.
+ */
+const LEVEL_RANK: Record<string, number> = { full: 3, office: 2, mobile: 1 };
+
+export function widestLevel(
+  accounts: readonly { accessLevel: string; permissions: string[] | null }[],
+): { accessLevel: string; permissions: string[] } {
+  let accessLevel = "mobile";
+  const permissions = new Set<string>();
+  for (const a of accounts) {
+    if ((LEVEL_RANK[a.accessLevel] ?? 0) > (LEVEL_RANK[accessLevel] ?? 0)) accessLevel = a.accessLevel;
+    for (const p of a.permissions ?? []) permissions.add(p);
+  }
+  return { accessLevel, permissions: [...permissions] };
+}
+
+/**
  * Merging accounts must never silently drop access — otherwise cleaning up
  * duplicates could lock the configured owner out of their own app. The
  * strongest access among the merged rows wins; taking access away is done
@@ -67,14 +88,48 @@ export function strongestAccess(accounts: readonly AccessFields[]): AccessFields
   );
 }
 
-const FILLABLE_FIELDS = ["name", "email", "phone", "baseAddress", "baseLat", "baseLng"] as const;
+const FILLABLE_FIELDS = [
+  "name",
+  "email",
+  "phone",
+  "baseAddress",
+  "baseLat",
+  "baseLng",
+  "displayName",
+  "birthday",
+  "hireDate",
+] as const;
+
+/**
+ * The name the rest of the app shows for a person: the short name Adam typed
+ * on the Team page, else whatever the sign-in gave us. His complaint was a
+ * contractor showing up on the dispatch board as an email address — when the
+ * sign-in name is only an email, the part before the @ is at least a name.
+ */
+export function shownName(user: { name: string; displayName?: string | null }): string {
+  const display = user.displayName?.trim();
+  if (display) return display;
+  const name = user.name.trim();
+  if (name.includes("@")) return name.split("@")[0] || name;
+  return name;
+}
 
 /**
  * The surviving row keeps its own values; duplicates only fill in blanks, so a
  * phone number or home base entered on the newer account is not lost.
  */
 export function mergeAccountFields(canonical: User, duplicates: readonly User[]) {
-  const merged: Partial<User> = strongestAccess([canonical, ...duplicates]);
+  const access = strongestAccess([canonical, ...duplicates]);
+  const level = widestLevel([canonical, ...duplicates]);
+  const merged: Partial<User> = {
+    ...access,
+    ...level,
+    // A merge must not leave the role and the level disagreeing: folding a
+    // contractor row that still carries the old "full" default would write
+    // that level back out and make them look like a full user on the Team
+    // page. The role is the truth.
+    accessLevel: effectiveLevel({ ...access, accessLevel: level.accessLevel, permissions: null }),
+  };
   for (const field of FILLABLE_FIELDS) {
     if (canonical[field] != null && canonical[field] !== "") continue;
     const donor = duplicates.find((d) => d[field] != null && d[field] !== "");
@@ -245,6 +300,9 @@ export async function resolveAccountForClerkId(
         email: identity?.emailVerified ? identity.email : null,
         role: newAccountAccess.role,
         roleSource: newAccountAccess.roleSource,
+        // No verified email means no invitation to look up: the owner is a
+        // full user, anyone else starts in the phone app.
+        accessLevel: newAccountAccess.roleSource === "owner" ? "full" : "mobile",
       })
       .onConflictDoNothing({ target: usersTable.clerkId })
       .returning();
@@ -279,6 +337,8 @@ export async function resolveAccountForClerkId(
         email: identity?.emailVerified ? identity.email : null,
           role: access.role,
           roleSource: access.roleSource,
+          accessLevel: access.accessLevel,
+          permissions: access.permissions,
         })
         .onConflictDoNothing({ target: usersTable.clerkId })
         .returning();
@@ -299,13 +359,33 @@ export async function resolveAccountForClerkId(
 }
 
 /**
- * One-time-per-boot cleanup: registers identities for pre-existing accounts and
- * merges any duplicate accounts already in the database.
+ * Puts the stored level back in step with the role for anyone it drifted on.
+ * The level column arrived after his subcontractors were already in the
+ * database, so every one of them was stamped with the widest level there is.
+ * Nothing let them into the office (the role still ruled), but the Team page
+ * read the column, so they showed as full users and one Save would have made
+ * that real. Safe to run again: it only touches rows that disagree.
+ */
+export async function backfillContractorLevels(): Promise<number> {
+  const fixed = await db
+    .update(usersTable)
+    .set({ accessLevel: "mobile" })
+    .where(and(eq(usersTable.role, "contractor"), ne(usersTable.accessLevel, "mobile")))
+    .returning({ id: usersTable.id });
+  return fixed.length;
+}
+
+/**
+ * One-time-per-boot cleanup: registers identities for pre-existing accounts,
+ * merges any duplicate accounts already in the database, and puts any drifted
+ * access level back in step with its role.
  */
 export async function reconcileUserAccounts(): Promise<{
   identitiesBackfilled: number;
   accountsMerged: number;
+  levelsRealigned: number;
 }> {
+  const levelsRealigned = await backfillContractorLevels();
   const users = await db.select().from(usersTable);
   let identitiesBackfilled = 0;
   if (users.length > 0) {
@@ -333,5 +413,5 @@ export async function reconcileUserAccounts(): Promise<{
     await mergeAccountsForEmail(key);
     accountsMerged += before - 1;
   }
-  return { identitiesBackfilled, accountsMerged };
+  return { identitiesBackfilled, accountsMerged, levelsRealigned };
 }

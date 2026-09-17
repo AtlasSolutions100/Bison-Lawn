@@ -31,8 +31,11 @@ app.use(
           method: req.method,
             // Public estimate response tokens are bearer capabilities. Never
             // write them to application logs.
+            // Email open-pixel tokens are the same kind of thing: anyone who
+            // reads the log could mark a customer's email as opened.
             url: req.url
               ?.split("?")[0]
+              .replace(/\/api\/public\/email-open\/[^/]+/, "/api/public/email-open/[REDACTED]")
               .replace(/\/api\/public\/estimates\/[^/]+/, "/api/public/estimates/[REDACTED]"),
         };
       },

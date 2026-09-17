@@ -7,6 +7,7 @@
  */
 import type { ClientAccountType } from './clientAccountType';
 import type { ClientInvoiceDelivery } from './clientInvoiceDelivery';
+import type { ClientPreferredPaymentMethod } from './clientPreferredPaymentMethod';
 import type { ClientPropertyData } from './clientPropertyData';
 import type { ClientStatus } from './clientStatus';
 
@@ -82,5 +83,29 @@ export interface Client {
   lastServiceDate?: string | null;
   /** Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice. */
   unappliedCredit?: number;
+  /**
+     * The master account (property manager) this property sits under, one level only
+     * @nullable
+     */
+  parentClientId?: number | null;
+  /** @nullable */
+  parentClientName?: string | null;
+  /** How many properties sit under this account (0 unless it is a master) */
+  relatedPropertyCount?: number;
+  /** This account's balance plus every property under it. Equals accountBalance for an ordinary customer; on a master it is what the property manager owes in all. */
+  relatedBalanceTotal?: number;
+  /** Stops every bulk email (board, waiting list, automations). Invoices still go out. */
+  doNotEmail?: boolean;
+  /**
+     * Where they came from, e.g. Door Hanger
+     * @nullable
+     */
+  source?: string | null;
+  /** @nullable */
+  referredByClientId?: number | null;
+  /** @nullable */
+  referredByClientName?: string | null;
+  /** @nullable */
+  preferredPaymentMethod?: ClientPreferredPaymentMethod;
   createdAt?: string;
 }

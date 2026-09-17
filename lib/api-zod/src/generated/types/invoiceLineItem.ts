@@ -19,4 +19,9 @@ export interface InvoiceLineItem {
   unitPrice: number;
   total: number;
   sortOrder: number;
+  /**
+     * The missed job this line was added for; null for the invoice's own job or a typed line
+     * @nullable
+     */
+  jobId?: number | null;
 }

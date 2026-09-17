@@ -5,9 +5,27 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+import type { ListWaitingListStatus } from './listWaitingListStatus';
+import type { ListWaitingListWindow } from './listWaitingListWindow';
 
 export type ListWaitingListParams = {
 date?: string;
 from?: string;
 to?: string;
+window?: ListWaitingListWindow;
+serviceId?: number;
+assignedTo?: number;
+mapCode?: string;
+city?: string;
+/**
+ * The client's state: ID or WA.
+ */
+branch?: string;
+tag?: string;
+hasNotes?: boolean;
+/**
+ * Matches the client name or service address, any part of it.
+ */
+search?: string;
+status?: ListWaitingListStatus;
 };

@@ -22,8 +22,13 @@ import {
   SendEstimateBody,
 } from "@workspace/api-zod";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
-import { calculatePrice, logAudit } from "../lib/helpers";
-import { createEstimateEmailHtml, createEstimatePdf } from "../lib/estimateDocument";
+import { logAudit, priceService, roundMoney } from "../lib/helpers";
+import {
+  createEstimateEmailHtml,
+  createEstimatePdf,
+  lineMathLabel,
+  quotedServicesBlock,
+} from "../lib/estimateDocument";
 import {
   ATTACHMENT_BUDGET_BYTES,
   describeBytes,
@@ -34,7 +39,7 @@ import {
 } from "../lib/estimateDelivery";
 import { readFile } from "../lib/fileStorage";
 import { renderTemplate } from "../lib/mergeTokens";
-import { scheduleAcceptedEstimate } from "../lib/schedulingRules";
+import { putAcceptedEstimateOnAccount } from "../lib/estimateAcceptance";
 import { getCompanyProfile } from "../lib/companyProfile";
 import {
   claimEstimateDelivery,
@@ -137,6 +142,56 @@ function selectableLines(lines: EstimateLine[]) {
     .filter(({ line }) => (line.calculatedPrice ?? 0) !== 0);
 }
 
+/**
+ * What the customer ticks: a standalone line is one choice, and every line
+ * added together from one package is ONE choice carrying all of their indexes.
+ * He sells the Sprinkler Package as a package; a customer who could keep the
+ * turn-on and drop the blow-out has un-bundled it, and the package price no
+ * longer holds. The members are still listed under the choice so they can see
+ * what is in it.
+ */
+type ResponseChoice = {
+  label: string;
+  indexes: number[];
+  total: number;
+  members: { line: EstimateLine; index: number }[];
+  packageKey: string | null;
+};
+
+function responseChoices(lines: EstimateLine[]): ResponseChoice[] {
+  const choices: ResponseChoice[] = [];
+  const byPackage = new Map<string, ResponseChoice>();
+  for (const entry of selectableLines(lines)) {
+    const key = entry.line.packageKey ?? null;
+    if (!key) {
+      choices.push({
+        label: entry.line.label,
+        indexes: [entry.index],
+        total: entry.line.calculatedPrice ?? 0,
+        members: [entry],
+        packageKey: null,
+      });
+      continue;
+    }
+    let choice = byPackage.get(key);
+    if (!choice) {
+      choice = { label: entry.line.packageName ?? "Package", indexes: [], total: 0, members: [], packageKey: key };
+      byPackage.set(key, choice);
+      choices.push(choice);
+    }
+    choice.indexes.push(entry.index);
+    choice.total = roundMoney(choice.total + (entry.line.calculatedPrice ?? 0));
+    choice.members.push(entry);
+  }
+  return choices;
+}
+
+/** The "28 visits x $55.00" hint beside a line, for the response page. */
+const mathHint = (line: EstimateLine) => {
+  const math = lineMathLabel(line);
+  return math ? ` <em>(${escapeHtml(math)})</em>` : "";
+};
+
 function responseConfirmationPage(
   token: string,
   action: "accept" | "decline",
@@ -146,6 +201,7 @@ function responseConfirmationPage(
 ) {
   const accepting = action === "accept";
   const selectable = selectableLines(lines);
+  const choices = responseChoices(lines);
 
   /*
    * Per-line checkboxes, because his proposal promises them: "check the box
@@ -165,22 +221,31 @@ function responseConfirmationPage(
    * had boxes" both arrive as a missing line field — without the marker,
    * unticking everything reads as accepting everything, which is exactly the
    * wrong way for that ambiguity to fall.
+   *
+   * A package is one box whose value names every line inside it, so the
+   * customer takes or leaves the package whole; its services are listed
+   * beneath so they know what they are agreeing to.
    */
-  const lineRows = selectable
-    .map(
-      ({ line, index }) => `
+  const lineRows = choices
+    .map((choice) => {
+      const detail = choice.packageKey
+        ? `<span class="members">${choice.members
+            .map(({ line }) => `${escapeHtml(line.label)}${mathHint(line)} — ${asMoney(line.calculatedPrice ?? 0)}`)
+            .join("<br>")}</span>`
+        : `${choice.members[0]!.line.value ? ` <em>(${escapeHtml(choice.members[0]!.line.value)})</em>` : ""}${mathHint(choice.members[0]!.line)}`;
+      return `
       <label class="line">
-        <input type="checkbox" name="line" value="${index}" checked>
-        <span class="label">${escapeHtml(line.label)}${line.value ? ` <em>(${escapeHtml(line.value)})</em>` : ""}</span>
-        <span class="price">${asMoney(line.calculatedPrice ?? 0)}</span>
-      </label>`,
-    )
+        <input type="checkbox" name="line" value="${choice.indexes.join(",")}" checked>
+        <span class="label">${escapeHtml(choice.label)}${choice.packageKey ? ' <em>(package)</em>' : ""}${detail}</span>
+        <span class="price">${asMoney(choice.total)}</span>
+      </label>`;
+    })
     .join("");
 
   const total = selectable.reduce((sum, { line }) => sum + (line.calculatedPrice ?? 0), 0);
 
   return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Respond to estimate</title>
-  <style>body{margin:0;background:#f7f5f1;color:#2b2118;font-family:Arial,sans-serif;display:grid;min-height:100vh;place-items:center;padding:24px}.card{background:#fff;border:1px solid #e7e2dc;border-radius:16px;padding:42px;max-width:560px;width:100%;box-shadow:0 12px 40px #2b211814}h1{margin:0 0 12px;text-align:center}p{color:#6f675f;line-height:1.6}.line{display:flex;align-items:center;gap:12px;padding:12px 4px;border-bottom:1px solid #f0ece7}.line:last-of-type{border-bottom:0}.line input{width:20px;height:20px;flex:none}.label{flex:1}.label em{color:#6f675f;font-style:normal;font-size:14px}.price{font-weight:bold;white-space:nowrap}.total{display:flex;justify-content:space-between;padding:14px 4px;border-top:2px solid #2b2118;font-weight:bold;margin-top:4px}.button{border:0;border-radius:7px;padding:14px 26px;font-size:16px;font-weight:bold;cursor:pointer;background:${accepting ? "#215343" : "#864f36"};color:#fff;width:100%;margin-top:20px}.foot{text-align:center;margin-top:24px}</style></head>
+  <style>body{margin:0;background:#f7f5f1;color:#2b2118;font-family:Arial,sans-serif;display:grid;min-height:100vh;place-items:center;padding:24px}.card{background:#fff;border:1px solid #e7e2dc;border-radius:16px;padding:42px;max-width:560px;width:100%;box-shadow:0 12px 40px #2b211814}h1{margin:0 0 12px;text-align:center}p{color:#6f675f;line-height:1.6}.line{display:flex;align-items:center;gap:12px;padding:12px 4px;border-bottom:1px solid #f0ece7}.line:last-of-type{border-bottom:0}.line input{width:20px;height:20px;flex:none}.label{flex:1}.label em{color:#6f675f;font-style:normal;font-size:14px}.members{display:block;color:#6f675f;font-size:13px;margin-top:4px;line-height:1.5}.price{font-weight:bold;white-space:nowrap}.total{display:flex;justify-content:space-between;padding:14px 4px;border-top:2px solid #2b2118;font-weight:bold;margin-top:4px}.button{border:0;border-radius:7px;padding:14px 26px;font-size:16px;font-weight:bold;cursor:pointer;background:${accepting ? "#215343" : "#864f36"};color:#fff;width:100%;margin-top:20px}.foot{text-align:center;margin-top:24px}</style></head>
   <body><main class="card"><h1>${accepting ? "Accept" : "Decline"} estimate #${estimateId}?</h1>
   ${
     accepting && selectable.length > 0
@@ -222,9 +287,19 @@ function parseSelectedLines(
   const values = Array.isArray(raw) ? raw : [raw];
   const valid = new Set(selectableLines(lines).map(({ index }) => index));
   const chosen = values
+    .flatMap((v) => String(v).split(","))
     .map((v) => Number(v))
     .filter((n) => Number.isInteger(n) && valid.has(n));
-  return [...new Set(chosen)].sort((a, b) => a - b);
+  // A package is accepted whole or not at all. Its box carries every member
+  // index, so a normal submission already arrives complete; this closes the
+  // gap where an edited form names one member and would un-bundle the price.
+  const expanded = new Set(chosen);
+  for (const choice of responseChoices(lines)) {
+    if (choice.packageKey && choice.indexes.some((i) => expanded.has(i))) {
+      for (const i of choice.indexes) expanded.add(i);
+    }
+  }
+  return [...expanded].sort((a, b) => a - b);
 }
 
 // Public customer response routes. Tokens are random, only their SHA-256 hashes are stored.
@@ -365,42 +440,52 @@ router.post("/public/estimates/:token/respond", async (req, res) => {
       status === "accepted"
         ? acceptedLines === null || acceptedLines.length === selectable.length
           ? `Accepted estimate #${estimate.id} in full`
-          : `Accepted estimate #${estimate.id} in part (${acceptedLines.length} of ${selectable.length} items, ` +
-            `${asMoney(acceptedTotal ?? 0)} of ${asMoney(estimate.total)}). Declined: ` +
-            selectable
-              .filter(({ index }) => !acceptedLines.includes(index))
-              .map(({ line }) => line.label)
-              .join(", ")
+          : (() => {
+              // Counted by what they could tick: a declined package is one
+              // "no", not four, however many services it bundled.
+              const choices = responseChoices(lines);
+              const declined = choices.filter((c) => !c.indexes.every((i) => acceptedLines.includes(i)));
+              return (
+                `Accepted estimate #${estimate.id} in part (${choices.length - declined.length} of ${choices.length} items, ` +
+                `${asMoney(acceptedTotal ?? 0)} of ${asMoney(estimate.total)}). Declined: ` +
+                declined.map((c) => (c.packageKey ? `${c.label} (package)` : c.label)).join(", ")
+              );
+            })()
         : `Declined estimate #${estimate.id}`,
   });
-  // Auto-scheduling lives behind the conditional update above: only the single
-  // request that actually flipped "sent" → "accepted" gets here, so a prefetched
-  // link, a double-click or a retried POST cannot create the jobs twice.
+  // Putting the sale on the account (assigned services + the jobs the
+  // scheduling rules call for) lives behind the conditional update above: only
+  // the single request that actually flipped "sent" → "accepted" gets here, so
+  // a prefetched link, a double-click or a retried POST cannot do it twice.
   //
   // It must also never break the acceptance. The customer's approval is already
-  // committed and the page they see is about that approval — a scheduling rule
+  // committed and the page they see is about that approval — a row or a rule
   // that fails is an office problem, so it is logged and the customer is
   // thanked either way.
   if (status === "accepted") {
     try {
-      const scheduled = await scheduleAcceptedEstimate(updated, { clientName: data.client.name });
-      if (scheduled.length) {
+      const outcome = await putAcceptedEstimateOnAccount(updated, { clientName: data.client.name });
+      if (outcome.assigned.length || outcome.scheduled.length) {
         req.log.info(
-          { estimateId: updated.id, jobIds: scheduled.map((s) => s.jobId) },
-          "scheduled jobs from accepted estimate",
+          {
+            estimateId: updated.id,
+            clientServiceIds: outcome.assigned.map((a) => a.clientServiceId),
+            jobIds: outcome.scheduled.map((s) => s.jobId),
+          },
+          "accepted estimate put on the account",
         );
       }
     } catch (schedulingError) {
       req.log.error(
         { err: schedulingError, estimateId: updated.id },
-        "estimate accepted but automatic scheduling failed; the office must schedule this by hand",
+        "estimate accepted but putting it on the account failed; the office must assign and schedule this by hand",
       );
       try {
         await logAudit({
           clientId: estimate.clientId,
           action: "estimate_scheduling_failed",
           description:
-            `Estimate #${estimate.id} was accepted, but nothing could be scheduled automatically: ` +
+            `Estimate #${estimate.id} was accepted, but it could not be put on the account automatically: ` +
             `${schedulingError instanceof Error ? schedulingError.message : String(schedulingError)}`.slice(0, 500),
         });
       } catch (auditError) {
@@ -482,7 +567,15 @@ function parseChargePreset(raw: { label?: string; defaultPrice?: number }) {
 }
 
 router.get("/charge-presets", async (_req, res) => {
-  return res.json(await db.select().from(chargePresetsTable).orderBy(chargePresetsTable.label, chargePresetsTable.id));
+  // Only estimate charges: the parts and fees list (kind 'product', served by
+  // /product-presets) shares the table but a bag fee has no place on a quote.
+  return res.json(
+    await db
+      .select()
+      .from(chargePresetsTable)
+      .where(eq(chargePresetsTable.kind, "charge"))
+      .orderBy(chargePresetsTable.label, chargePresetsTable.id),
+  );
 });
 
 router.post("/charge-presets", async (req, res) => {
@@ -543,7 +636,31 @@ function chargePresetBadRequestMessage(error: unknown): string | null {
 
 async function withClientName(est: typeof estimatesTable.$inferSelect) {
   const [client] = await db.select().from(clientsTable).where(eq(clientsTable.id, est.clientId));
-  return { ...est, clientName: client?.name ?? null };
+  const [cover] = est.coverTemplateId
+    ? await db
+        .select({ name: documentTemplatesTable.name })
+        .from(documentTemplatesTable)
+        .where(eq(documentTemplatesTable.id, est.coverTemplateId))
+    : [];
+  return { ...est, clientName: client?.name ?? null, coverTemplateName: cover?.name ?? null };
+}
+
+/**
+ * The cover document must exist when it is chosen; a typo'd id would silently
+ * send the plain greeting. Undefined means "not mentioned" (leave alone on an
+ * edit), null means "clear it".
+ */
+async function resolveCoverTemplateId(raw: number | null | undefined): Promise<number | null | undefined> {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  const [template] = await db
+    .select({ id: documentTemplatesTable.id })
+    .from(documentTemplatesTable)
+    .where(eq(documentTemplatesTable.id, raw));
+  if (!template) {
+    throw Object.assign(new Error("The cover document you chose no longer exists. Pick another one."), { status: 400 });
+  }
+  return template.id;
 }
 
 router.get("/estimates", async (req, res) => {
@@ -557,10 +674,44 @@ router.get("/estimates", async (req, res) => {
 });
 
 /**
+ * A count typed on a service line (quantity or visits): absent means "use the
+ * service's default", anything present must be a real non-negative number.
+ * Zero is allowed on purpose — "0 visits" is how he prices a line at nothing
+ * while keeping it on the quote as a talking point.
+ */
+function lineCount(label: string, field: "quantity" | "visits", raw: unknown): number | null {
+  if (raw == null || raw === "") return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) {
+    throw Object.assign(new Error(`"${label}" needs a numeric ${field} of zero or more`), { status: 400 });
+  }
+  return field === "visits" ? Math.round(n) : n;
+}
+
+/**
+ * Package fields are only meaningful together: a key without a package id (or
+ * the other way round) is a client bug, and half a package on the response
+ * page would let a customer un-bundle it. Field and custom lines never carry
+ * them.
+ */
+function packageFields(line: EstimateLine) {
+  const packageId = line.packageId ?? null;
+  const packageKey = line.packageKey ?? null;
+  if (packageId == null && packageKey == null) return { packageId: null, packageKey: null, packageName: null };
+  if (packageId == null || !Number.isInteger(packageId) || !packageKey || typeof packageKey !== "string") {
+    throw Object.assign(new Error(`"${line.label}" has an incomplete package reference`), { status: 400 });
+  }
+  return { packageId, packageKey: packageKey.slice(0, 80), packageName: (line.packageName ?? "").trim().slice(0, 120) || null };
+}
+
+/**
  * Recompute each line's price from the authoritative field/service definitions
  * so a client cannot submit arbitrary prices for configured items.
  * - Calculable fields: value / unitSize * pricePerUnit
- * - Services: pricing equations against a sqft value, falling back to rate * quantity
+ * - Services: the band rate for the property's value (turf sqft, or whichever
+ *   field the service prices from), or the flat rate when there is no matrix,
+ *   times quantity times visits — his "rate x qty x visits". The band rate is
+ *   returned as unitPrice so the customer can see the per-visit figure.
  * - Other field types are informational (no price)
  * - Custom lines (no fieldId/serviceId): the submitted price is kept, but the
  *   label and the price are validated because nothing else vouches for them
@@ -568,23 +719,48 @@ router.get("/estimates", async (req, res) => {
 async function priceEstimateLines(lines: EstimateLine[]): Promise<EstimateLine[]> {
   const fieldIds = [...new Set(lines.map((l) => l.fieldId).filter((id): id is number => id != null))];
   const serviceIds = [...new Set(lines.map((l) => l.serviceId).filter((id): id is number => id != null))];
-  const fields = fieldIds.length
-    ? await db.select().from(estimateFieldsTable).where(inArray(estimateFieldsTable.id, fieldIds))
-    : [];
   const services = serviceIds.length
     ? await db.select().from(servicesTable).where(inArray(servicesTable.id, serviceIds))
+    : [];
+  // The fields the services price from are needed too, so a zone-priced
+  // blow-out is checked against a numeric field rather than trusted blindly.
+  const pricingFieldIds = services.map((s) => s.pricingFieldId).filter((id): id is number => id != null);
+  const wantedFieldIds = [...new Set([...fieldIds, ...pricingFieldIds])];
+  const fields = wantedFieldIds.length
+    ? await db.select().from(estimateFieldsTable).where(inArray(estimateFieldsTable.id, wantedFieldIds))
     : [];
   const round = (n: number) => Math.round(n * 100) / 100;
   return lines.map((line) => {
     if (line.serviceId != null) {
       const svc = services.find((s) => s.id === line.serviceId);
       if (!svc) throw Object.assign(new Error(`Service ${line.serviceId} not found`), { status: 400 });
+      const label = (line.label ?? "").trim() || svc.name;
       const numeric = Number(line.value);
-      const price =
-        svc.pricingEquations.length > 0 && Number.isFinite(numeric)
-          ? calculatePrice(svc.pricingEquations, numeric).price
-          : round(svc.rate * svc.quantity);
-      return { ...line, label: line.label || svc.name, calculatedPrice: price };
+      const pricingField = svc.pricingFieldId != null ? fields.find((f) => f.id === svc.pricingFieldId) ?? null : null;
+      // A clean-up he bills by the hour is quoted at the hours it is budgeted
+      // for, times the hourly rate. Quoting the bare $65/hr as the price of the
+      // visit under-quotes a three-hour job by two thirds, and the invoice the
+      // clock produces would come out at three times what the customer said yes
+      // to. The hours ride along on the line so the quote can show the math.
+      const hours = svc.billingMode === "time" ? (svc.billableHours ?? 1) : null;
+      const unitPrice =
+        hours != null
+          ? round(svc.rate * hours)
+          : svc.pricingEquations.length > 0 && line.value.trim() !== "" && Number.isFinite(numeric)
+            ? priceService(svc, pricingField, numeric).price
+            : round(svc.rate);
+      const quantity = lineCount(label, "quantity", line.quantity) ?? svc.quantity ?? 1;
+      const visits = lineCount(label, "visits", line.visits) ?? svc.visitsPerSeason ?? 1;
+      return {
+        ...line,
+        ...packageFields(line),
+        label,
+        unitPrice,
+        quantity,
+        visits,
+        hours,
+        calculatedPrice: roundMoney(unitPrice * quantity * visits),
+      };
     }
     if (line.fieldId != null) {
       const field = fields.find((f) => f.id === line.fieldId);
@@ -741,10 +917,12 @@ router.post("/estimates", async (req, res) => {
   let body: ReturnType<typeof CreateEstimateBody.parse>;
   let lines: EstimateLine[];
   let total: number;
+  let coverTemplateId: number | null;
   try {
     body = CreateEstimateBody.parse(req.body);
     lines = await priceEstimateLines(body.lines);
     total = estimateTotalOrThrow(lines);
+    coverTemplateId = (await resolveCoverTemplateId(body.coverTemplateId)) ?? null;
   } catch (error) {
     const message = estimateBadRequestMessage(error);
     if (message) return res.status(400).json({ error: message });
@@ -768,6 +946,7 @@ router.post("/estimates", async (req, res) => {
         notes: body.notes ?? null,
         coverNote: body.coverNote ?? null,
         includeServiceDescriptions: body.includeServiceDescriptions ?? false,
+        coverTemplateId,
         lines,
         total,
       })
@@ -848,9 +1027,11 @@ router.patch("/estimates/:id", async (req, res) => {
 
   let lines: EstimateLine[];
   let total: number;
+  let coverTemplateId: number | null | undefined;
   try {
     lines = await priceEstimateLinesPreservingHistory(body.lines, existing.lines);
     total = estimateTotalOrThrow(lines);
+    coverTemplateId = await resolveCoverTemplateId(body.coverTemplateId);
   } catch (error) {
     const message = estimateBadRequestMessage(error);
     if (message) return res.status(400).json({ error: message });
@@ -869,6 +1050,7 @@ router.patch("/estimates/:id", async (req, res) => {
         body.includeServiceDescriptions === undefined
           ? existing.includeServiceDescriptions
           : body.includeServiceDescriptions,
+      coverTemplateId: coverTemplateId === undefined ? existing.coverTemplateId : coverTemplateId,
       lines,
       total,
       version: existing.version + 1,
@@ -990,17 +1172,6 @@ function photoFileName(photo: JobPhoto): string {
   const caption = photo.caption ? slugForFile(photo.caption) : "";
   return `${caption || photo.kind || "photo"}-${photo.id}.${extension}`;
 }
-
-/**
- * The quoted work as a plain block, for the `[bison_full_service]` token his
- * estimate documents end with. Same shape the Settings preview renders, so what
- * he approved on that screen is what the customer receives.
- */
-const quotedServicesBlock = (lines: EstimateLine[]) =>
-  lines
-    .filter((line) => line.calculatedPrice != null)
-    .map((line) => `${line.label} — ${asMoney(line.calculatedPrice ?? 0)}`)
-    .join("\n");
 
 /**
  * Turn the sender's selection into files, or refuse the send outright.

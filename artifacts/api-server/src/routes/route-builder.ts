@@ -2,7 +2,8 @@ import { Router, type IRouter } from "express";
 import { db, jobsTable, clientsTable, servicesTable, usersTable } from "@workspace/db";
 import { and, asc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { BuildRouteFromWaitingListBody } from "@workspace/api-zod";
-import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
+import { requireAuth } from "../middlewares/requireAuth";
+import { requireArea } from "../lib/access";
 import { logAudit, roundMoney, type Executor } from "../lib/helpers";
 
 const router: IRouter = Router();
@@ -82,7 +83,12 @@ async function loadCandidates(
   filters: { serviceId?: number | null; mapCode?: string | null; city?: string | null },
   lock: boolean,
 ): Promise<Candidate[]> {
-  const conds = [eq(jobsTable.dispatched, false)];
+  const conds = [
+    eq(jobsTable.dispatched, false),
+    // A cancelled waiting-list job (a window that passed and was cleared in
+    // bulk) is not a stop for anyone; nor is one already done.
+    sql`${jobsTable.status} not in ('cancelled', 'completed')`,
+  ];
   if (filters.serviceId != null) conds.push(eq(jobsTable.serviceId, filters.serviceId));
 
   const query = exec
@@ -212,11 +218,17 @@ function fillToCaps(
  * something anyone unpicks by hand, so the default has to be the harmless one:
  * with apply false this endpoint opens no transaction and writes nothing.
  */
-router.post("/waiting-list/build-route", requireAdmin, async (req, res) => {
+router.post("/waiting-list/build-route", requireArea("dispatch"), async (req, res) => {
   const body = BuildRouteFromWaitingListBody.parse(req.body);
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(body.scheduledDate)) {
-    return res.status(400).json({ error: "scheduledDate must be yyyy-mm-dd" });
+  // A half-typed year ("0002-09-16") is a well-formed date, and a route built
+  // onto a day in year 2 is a route nobody can ever find again.
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(body.scheduledDate) ||
+    body.scheduledDate < "2000-01-01" ||
+    body.scheduledDate > "2100-12-31"
+  ) {
+    return res.status(400).json({ error: "scheduledDate must be yyyy-mm-dd, year 2000 or later" });
   }
   // A zero or negative cap is almost always a half-typed number rather than a
   // request for an empty route, and silently returning nothing looks like the

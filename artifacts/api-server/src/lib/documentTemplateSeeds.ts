@@ -1,5 +1,6 @@
-import { db, documentTemplatesTable, servicesTable } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { db, auditEventsTable, documentTemplatesTable, servicesTable } from "@workspace/db";
+import { and, eq, sql } from "drizzle-orm";
+import { logAudit } from "./helpers";
 
 /**
  * The owner's own documents, transcribed from what he actually sends.
@@ -12,10 +13,19 @@ import { eq, sql } from "drizzle-orm";
  * Seeded once and marked `isSeeded`, so an edit he makes is never overwritten
  * by a later ship of this file.
  */
+export type DocumentCategory = "client" | "marketing" | "estimate";
+
 type Seed = {
   key: string;
   name: string;
   kind: string;
+  /**
+   * His folders: client (notices and bills to a customer), marketing (goes to
+   * everybody), estimate (wraps or chases a quote). The editor tabs and the
+   * automation picker group on this, so a seed that lands in the wrong folder
+   * is a seed he cannot find.
+   */
+  category: DocumentCategory;
   /** Matched against the service catalogue by name, case-insensitive substring. */
   serviceMatch?: RegExp;
   subject: string | null;
@@ -92,6 +102,7 @@ export const DOCUMENT_TEMPLATE_SEEDS: Seed[] = [
     key: "aeration-notice",
     name: "Aeration notice",
     kind: "notice",
+    category: "client",
     serviceMatch: /aerat/i,
     subject: "Your upcoming aeration | [companyname]",
     body: `${ADDRESS_BLOCK}
@@ -114,6 +125,7 @@ ${COMPANY_FOOTER}`,
     key: "mow-care-welcome",
     name: "Mow care welcome",
     kind: "notice",
+    category: "client",
     serviceMatch: /mow/i,
     subject: "Your weekly mowing service | [companyname]",
     body: `${ADDRESS_BLOCK}
@@ -138,6 +150,7 @@ ${COMPANY_FOOTER}`,
     key: "estimate-proposal",
     name: "Estimate proposal",
     kind: "estimate_cover",
+    category: "estimate",
     subject: "Your estimate from [companyname]",
     body: `${ADDRESS_BLOCK}
 
@@ -165,6 +178,7 @@ Total Estimated Cost: [quotetotal]`,
     key: "sprinkler-repair-proposal",
     name: "Sprinkler repair proposal",
     kind: "estimate_cover",
+    category: "estimate",
     serviceMatch: /sprinkler|irrigation/i,
     subject: "Your irrigation system estimate | [companyname]",
     body: `${ADDRESS_BLOCK}
@@ -197,8 +211,218 @@ Total Estimated Cost: [quotetotal]`,
     key: "service-contract",
     name: "Service contract and payment disclosure",
     kind: "contract",
+    category: "estimate",
     subject: null,
     body: CONTRACT_BODY,
+  },
+
+  // ---- the rest of his document list, from the 2026-09-15 walkthrough ----
+  // Named as he names them in Service Autopilot so he recognises each one.
+  // The bodies are our first drafts in his voice; every one is editable and
+  // none is used by anything until he turns the matching automation on.
+  {
+    key: "bison-bill",
+    name: "Bison Bill",
+    kind: "notice",
+    category: "client",
+    subject: "Invoice #[invoicenumber] from [companyname]",
+    body: `${ADDRESS_BLOCK}
+
+Dear [clientfname],
+
+Thank you for your business! Your invoice #[invoicenumber], dated [invoicedate], is attached.
+
+Amount due: [invoicebalance]
+Due date: [invoiceduedate]
+
+You can pay by check, card, or online. Please put your invoice number on your payment so we can apply it to the right account.
+
+Payment Disclosure: Invoices are sent after the last completed job of the month. Late payments may incur a late fee of 3% per month on the outstanding balance, and service may be paused until the balance is settled. If you have any questions about this bill, just reply to this email or call us at [companyphonenumber].
+
+${SIGN_OFF}
+
+${COMPANY_FOOTER}`,
+  },
+  {
+    key: "past-due",
+    name: "Past Due",
+    kind: "notice",
+    category: "client",
+    subject: "Past due: invoice #[invoicenumber] | [companyname]",
+    body: `${ADDRESS_BLOCK}
+
+Dear [clientfname],
+
+This is a friendly reminder that invoice #[invoicenumber] for [invoicebalance] was due on [invoiceduedate] and is now [daysoverdue] days past due.
+
+If you have already sent payment, thank you — please disregard this notice. If not, we would appreciate payment at your earliest convenience. You can pay by check, card, or online, and please include your invoice number.
+
+If something about this bill looks wrong, or you need to make arrangements, please reply to this email or call us at [companyphonenumber]. We are happy to work with you.
+
+Thank you for your business.
+
+${SIGN_OFF}
+
+${COMPANY_FOOTER}`,
+  },
+  {
+    key: "final-notice",
+    name: "Final Notice",
+    kind: "notice",
+    category: "client",
+    subject: "Final notice: invoice #[invoicenumber] | [companyname]",
+    body: `${ADDRESS_BLOCK}
+
+Dear [clientfname],
+
+This is our final notice for invoice #[invoicenumber] in the amount of [invoicebalance], which was due on [invoiceduedate] and is now [daysoverdue] days past due.
+
+Per our payment disclosure, a late fee of 3% may be applied to the outstanding balance for each month it remains unpaid, and service may be suspended until the balance is settled. If payment is not received within 10 days of this notice, the account may be referred for collections, and any collection costs become the responsibility of the account holder.
+
+We would much rather sort this out with you directly. Please send payment, or reply to this email or call us at [companyphonenumber] to make arrangements.
+
+Thank you,
+
+${SIGN_OFF}
+
+${COMPANY_FOOTER}`,
+  },
+  {
+    key: "sprinkler-blowout-day",
+    name: "Sprinkler Blow Out Day",
+    kind: "notice",
+    category: "client",
+    serviceMatch: /blow.?out|winteriz/i,
+    subject: "Your sprinkler blow out is scheduled | [companyname]",
+    body: `${ADDRESS_BLOCK}
+
+Dear [clientfname],
+
+Your sprinkler blow out is scheduled for [servicedate].
+
+You do not need to be home. Please make sure we can reach your backflow and the shut-off, and that your timer is set to OFF before we arrive. If your system is inside a locked area, let us know how to get in.
+
+If that day does not work, or your system has already been blown out, please reply to this email or call us at [companyphonenumber] as soon as you can.
+
+Thank you for entrusting us with your business.
+
+${SIGN_OFF}
+
+${COMPANY_FOOTER}`,
+  },
+  {
+    key: "welcome-to-the-herd",
+    name: "Welcome to The Herd",
+    kind: "notice",
+    category: "client",
+    subject: "Welcome to the herd! | [companyname]",
+    body: `${ADDRESS_BLOCK}
+
+Dear [clientfname],
+
+Welcome to the herd! We are glad to have you as a [companyname] customer.
+
+Here is what to expect: we will email you before each visit that needs anything from you, invoices go out after the last completed job of the month, and you can always reach the office at [companyphonenumber] or [companyemail] with questions.
+
+If you ever have a concern about a visit, tell us right away and we will make it right. And if you know someone who could use a hand with their lawn, we would be grateful for the referral.
+
+Thank you for choosing us.
+
+${SIGN_OFF}
+
+${COMPANY_FOOTER}`,
+  },
+  {
+    key: "estimate-follow-up",
+    name: "Estimate Follow up",
+    kind: "notice",
+    category: "estimate",
+    subject: "Following up on your estimate | [companyname]",
+    body: `Dear [clientfname],
+
+We sent over an estimate for your property on [estimatesentdate] and wanted to make sure it reached you.
+
+If you have any questions about the services or the pricing, we are happy to walk through it with you. To accept, just use the link in the estimate email and check the services you would like.
+
+Thank you for considering [companyname].
+
+${SIGN_OFF}
+
+${COMPANY_FOOTER}`,
+  },
+  {
+    key: "dont-forget-us",
+    name: "Don't Forget Us",
+    kind: "notice",
+    category: "estimate",
+    subject: "Don't forget us! | [companyname]",
+    body: `Dear [clientfname],
+
+Just checking in one more time on the estimate we sent on [estimatesentdate].
+
+Our schedule fills up fast this time of year, so if you would like to get on the calendar, now is a great time. If the timing is not right, no problem at all — just let us know and we will check back with you later in the season.
+
+Either way, thank you for thinking of [companyname].
+
+${SIGN_OFF}
+
+${COMPANY_FOOTER}`,
+  },
+  {
+    key: "spring-letter",
+    name: "Spring Letter",
+    kind: "notice",
+    category: "marketing",
+    subject: "Spring is here | [companyname]",
+    body: `Dear [clientfname],
+
+Spring is here and the herd is back out on the lawns!
+
+Now is the time to get on the schedule for sprinkler turn-ons, backflow tests, spring clean-ups and aeration. Mowing starts as soon as the grass does. If your services from last year should carry over the same way, you do not need to do anything — we will reach out with your dates.
+
+If you want to add, change or drop a service this season, reply to this email or call us at [companyphonenumber].
+
+Thank you for another season with us.
+
+${SIGN_OFF}
+
+${COMPANY_FOOTER}`,
+  },
+  {
+    key: "turn-up-your-sprinklers",
+    name: "Turn Up Your Sprinklers",
+    kind: "notice",
+    category: "marketing",
+    subject: "Time to turn up your sprinklers | [companyname]",
+    body: `Dear [clientfname],
+
+The heat is here. Lawns in our area need more water from now through August than the spring setting gives them, so this is a good week to turn up your sprinkler timer.
+
+A good rule of thumb is about an inch to an inch and a half of water per week, split across early-morning runs. If you are seeing brown patches, footprints that stay in the grass, or a bluish tint, it is thirsty.
+
+If you would like us to adjust the timer for you, or check a zone that is not covering, reply to this email or call us at [companyphonenumber] and we will get you on the schedule.
+
+${SIGN_OFF}
+
+${COMPANY_FOOTER}`,
+  },
+  {
+    key: "fall-notice",
+    name: "Fall Notice",
+    kind: "notice",
+    category: "marketing",
+    subject: "Fall is coming — blow outs and fall services | [companyname]",
+    body: `Dear [clientfname],
+
+Fall is coming, and with it the first freeze. Sprinkler blow outs start in the next few weeks, and everyone on the blow-out list will get an email with their day.
+
+If you are not on the list yet and want to be, or you would like fall aeration, a fall clean-up, or a final fertilizer application, reply to this email or call us at [companyphonenumber] so we can get you on the schedule before the freeze.
+
+Thank you for a great season.
+
+${SIGN_OFF}
+
+${COMPANY_FOOTER}`,
   },
 ];
 
@@ -214,6 +438,8 @@ export async function ensureDocumentTemplates(): Promise<number> {
   const services = await db
     .select({ id: servicesTable.id, name: servicesTable.name })
     .from(servicesTable);
+
+  await backfillSeedCategories();
 
   let inserted = 0;
   for (const seed of DOCUMENT_TEMPLATE_SEEDS) {
@@ -236,9 +462,69 @@ export async function ensureDocumentTemplates(): Promise<number> {
       subject: seed.subject,
       body: seed.body,
       isSeeded: true,
+      category: seed.category,
       updatedAt: sql`now()`,
     });
     inserted += 1;
   }
   return inserted;
+}
+
+const CATEGORY_BACKFILL_MARKER = "document_template_categories_backfilled";
+
+/**
+ * The five original seeds went in before templates had folders, so every one
+ * of them sits in "client" — including the two estimate documents and the
+ * contract. Move those once. Marked in the audit trail rather than re-run on
+ * every start, because after the first pass a seeded template's folder is his
+ * to choose, and a restart must not keep putting it back.
+ */
+async function backfillSeedCategories(): Promise<void> {
+  const [done] = await db
+    .select({ id: auditEventsTable.id })
+    .from(auditEventsTable)
+    .where(eq(auditEventsTable.action, CATEGORY_BACKFILL_MARKER))
+    .limit(1);
+  if (done) return;
+
+  for (const seed of DOCUMENT_TEMPLATE_SEEDS) {
+    if (seed.category === "client") continue;
+    await db
+      .update(documentTemplatesTable)
+      .set({ category: seed.category })
+      .where(
+        and(
+          eq(documentTemplatesTable.key, seed.key),
+          eq(documentTemplatesTable.isSeeded, true),
+          eq(documentTemplatesTable.category, "client"),
+        ),
+      );
+  }
+  await logAudit({
+    action: CATEGORY_BACKFILL_MARKER,
+    description: "Sorted the built-in documents into the client / marketing / estimate folders",
+  });
+}
+
+let ensuredThisProcess: Promise<number> | null = null;
+
+/**
+ * Run the seed once per server process, and share the one run between callers.
+ *
+ * A fresh install used to have no templates at all until someone ran the demo
+ * seed — so his own letters were missing from the very screen built to show
+ * them. Startup and the first list request both call this; whichever arrives
+ * first does the work and the other waits on the same promise, so the seeds
+ * cannot race each other into duplicate keys.
+ */
+export function ensureDocumentTemplatesOnce(): Promise<number> {
+  if (!ensuredThisProcess) {
+    ensuredThisProcess = ensureDocumentTemplates().catch((err) => {
+      // Let the next caller try again rather than pinning a failure for the
+      // life of the process.
+      ensuredThisProcess = null;
+      throw err;
+    });
+  }
+  return ensuredThisProcess;
 }

@@ -5,7 +5,10 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+import type { ClientServiceInputDiscountType } from './clientServiceInputDiscountType';
+import type { ClientServiceInputFrequency } from './clientServiceInputFrequency';
 import type { ClientServiceInputScheduleType } from './clientServiceInputScheduleType';
+import type { ClientServiceInputWeekParity } from './clientServiceInputWeekParity';
 
 export interface ClientServiceInput {
   /** @nullable */
@@ -17,12 +20,12 @@ export interface ClientServiceInput {
   packageId?: number | null;
   quantity?: number;
   /**
-     * Override; defaults to engine-calculated or service rate
+     * Override; defaults to the matrix price from the customer's field, else the service rate
      * @nullable
      */
   amount?: number | null;
   /**
-     * Used with pricing equations to compute amount
+     * A typed measurement; beats the one on the customer's record
      * @nullable
      */
   sqft?: number | null;
@@ -32,7 +35,10 @@ export interface ClientServiceInput {
   startDate?: string | null;
   /** @nullable */
   endDate?: string | null;
-  /** @nullable */
+  /**
+     * Older callers; frequency is preferred
+     * @nullable
+     */
   frequencyWeeks?: number | null;
   /** @nullable */
   firstServiceDate?: string | null;
@@ -42,4 +48,39 @@ export interface ClientServiceInput {
   renewDate?: string | null;
   /** @nullable */
   budgetedHours?: number | null;
+  /** @nullable */
+  assignedToId?: number | null;
+  /** @nullable */
+  frequency?: ClientServiceInputFrequency;
+  /**
+     * @minimum 0
+     * @maximum 6
+     * @nullable
+     */
+  weekday?: number | null;
+  /** @nullable */
+  weekParity?: ClientServiceInputWeekParity;
+  /**
+     * @minimum 1
+     * @maximum 4
+     * @nullable
+     */
+  monthlyWeek?: number | null;
+  /** @nullable */
+  discountType?: ClientServiceInputDiscountType;
+  /** @nullable */
+  discountValue?: number | null;
+  /** @nullable */
+  discountLabel?: string | null;
+  /** @nullable */
+  contractorNote?: string | null;
+  /** @nullable */
+  noteStartDate?: string | null;
+  /** @nullable */
+  noteEndDate?: string | null;
+  autoRenew?: boolean;
+  /** @nullable */
+  contractMonths?: number | null;
+  /** @nullable */
+  contractTotal?: number | null;
 }

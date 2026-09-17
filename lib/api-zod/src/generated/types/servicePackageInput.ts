@@ -5,13 +5,16 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+import type { PackageItem } from './packageItem';
 import type { ServicePackageInputScheduleType } from './servicePackageInputScheduleType';
 
 export interface ServicePackageInput {
   /** @minLength 1 */
   name: string;
   description?: string;
-  serviceIds: number[];
+  /** Older callers send only ids; ignored when items is given */
+  serviceIds?: number[];
+  items?: PackageItem[];
   /** @nullable */
   scheduleType?: ServicePackageInputScheduleType;
   /** @nullable */

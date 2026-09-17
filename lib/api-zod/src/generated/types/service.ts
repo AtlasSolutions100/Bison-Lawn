@@ -6,12 +6,30 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { PricingEquation } from './pricingEquation';
+import type { ServiceBillingMode } from './serviceBillingMode';
 
 export interface Service {
   id: number;
   name: string;
   /** @nullable */
   description?: string | null;
+  /**
+     * Short code shown on the waiting list, e.g. BA7 or MOWIN
+     * @nullable
+     */
+  code?: string | null;
+  /**
+     * What prints on the invoice line; blank falls back to the name
+     * @nullable
+     */
+  invoiceDescription?: string | null;
+  /** fixed = set price; time = billed on the job's start/stop time and adjusted afterwards */
+  billingMode?: ServiceBillingMode;
+  /**
+     * Default number of visits an estimate multiplies the band rate by (28 mows a season). Null means one.
+     * @nullable
+     */
+  visitsPerSeason?: number | null;
   quantity: number;
   rate: number;
   /** @nullable */

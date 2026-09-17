@@ -5,7 +5,9 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+import type { JobBillingMode } from './jobBillingMode';
 import type { JobClientPropertyData } from './jobClientPropertyData';
+import type { JobDiscountType } from './jobDiscountType';
 import type { JobProduct } from './jobProduct';
 import type { JobStatus } from './jobStatus';
 
@@ -48,10 +50,35 @@ export interface Job {
   routeOrder?: number | null;
   /** @nullable */
   assignedToId?: number | null;
-  /** @nullable */
+  /**
+     * The contractor's short display name, never an email address.
+     * @nullable
+     */
   assignedToName?: string | null;
   /** @nullable */
   mapNote?: string | null;
+  /** @nullable */
+  cancelReason?: string | null;
+  /** @nullable */
+  cancelledAt?: string | null;
+  /** @nullable */
+  clientEmail?: string | null;
+  /** @nullable */
+  clientPhone?: string | null;
+  clientDoNotEmail?: boolean;
+  /** @nullable */
+  clientMapCode?: string | null;
+  /**
+     * His branch: ID or WA.
+     * @nullable
+     */
+  clientState?: string | null;
+  clientTags?: string[];
+  /**
+     * The service's short code, what the waiting list shows (BA7, BACKF, MOWIN).
+     * @nullable
+     */
+  serviceCode?: string | null;
   /** The client's saved property details, keyed by field label (Gate Code, Sprinkler Zones, Turf Sqft). Carried on the job so the crew can read access details from the job card without opening the client record, which a contractor cannot do. */
   clientPropertyData?: JobClientPropertyData;
   /** @nullable */
@@ -84,4 +111,34 @@ export interface Job {
      * @nullable
      */
   skipNotice?: string | null;
+  /**
+     * The assigned service's must-read note, when one is in force on this visit's day. The contractor must open it before Start unlocks.
+     * @nullable
+     */
+  contractorNote?: string | null;
+  /**
+     * When the contractor opened the note on this visit
+     * @nullable
+     */
+  noteAcknowledgedAt?: string | null;
+  /** Closed time entries on this job, all crew, in minutes */
+  clockedMinutes?: number;
+  /** Someone is still clocked in */
+  clockOpen?: boolean;
+  billingMode?: JobBillingMode;
+  /**
+     * On a time job: the rate the clock is billed at
+     * @nullable
+     */
+  hourlyRate?: number | null;
+  /** The office set the amount by hand; the clock no longer decides it */
+  amountOverridden?: boolean;
+  /** @nullable */
+  discountType?: JobDiscountType;
+  /** @nullable */
+  discountValue?: number | null;
+  /** @nullable */
+  discountLabel?: string | null;
+  /** The discount in dollars against the current amount; its own line on the invoice */
+  discountAmount?: number;
 }

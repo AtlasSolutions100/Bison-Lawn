@@ -28,11 +28,164 @@ export interface BulkAssignInput {
      * @nullable
      */
   routeOrderFrom?: number | null;
+  /** Wipe the route numbers off these jobs. This is the first half of "set route order": clear, then click the stops in the order they should be driven. */
+  clearRouteOrder?: boolean;
 }
 
 export interface BulkAssignResult {
   updated: number;
   jobIds?: number[];
+}
+
+/**
+ * move = change the date; assign = change the contractor (null unassigns); dispatch = waiting list onto the board for a date; waiting_list = off the board, back to waiting; cancel / skip = terminal statuses with a reason; delete = gone; add_note = append a note to each job, e.g. "NO EMAIL - call or text".
+ */
+export type BulkJobActionInputAction = typeof BulkJobActionInputAction[keyof typeof BulkJobActionInputAction];
+
+
+export const BulkJobActionInputAction = {
+  move: 'move',
+  assign: 'assign',
+  dispatch: 'dispatch',
+  waiting_list: 'waiting_list',
+  cancel: 'cancel',
+  skip: 'skip',
+  delete: 'delete',
+  add_note: 'add_note',
+} as const;
+
+export interface BulkJobActionInput {
+  /** @minItems 1 */
+  jobIds: number[];
+  /** move = change the date; assign = change the contractor (null unassigns); dispatch = waiting list onto the board for a date; waiting_list = off the board, back to waiting; cancel / skip = terminal statuses with a reason; delete = gone; add_note = append a note to each job, e.g. "NO EMAIL - call or text". */
+  action: BulkJobActionInputAction;
+  /**
+     * yyyy-mm-dd. Needed by move and dispatch.
+     * @nullable
+     */
+  scheduledDate?: string | null;
+  /**
+     * Needed by assign (null = unassign); optional on dispatch.
+     * @nullable
+     */
+  assignedToId?: number | null;
+  /**
+     * Why, for cancel and skip. Shown on the row.
+     * @nullable
+     */
+  reason?: string | null;
+  /**
+     * The text add_note appends to each job's notes.
+     * @nullable
+     */
+  note?: string | null;
+  /** With add_note: flag the note so it shows red on the board. */
+  notesImportant?: boolean;
+}
+
+export interface BulkJobActionResult {
+  action: string;
+  updated: number;
+  /** The jobs the action was applied to. */
+  jobIds: number[];
+  /** Jobs left alone because the action does not apply to them (completed jobs, mostly). */
+  skippedIds: number[];
+  /** For skip: the free-or-chargeable verdict per job, in plain words. */
+  skipNotices?: string[];
+}
+
+/**
+ * Activate = client, deactivate = former_client. Omit to leave alone.
+ */
+export type BulkClientUpdateInputStatus = typeof BulkClientUpdateInputStatus[keyof typeof BulkClientUpdateInputStatus];
+
+
+export const BulkClientUpdateInputStatus = {
+  lead: 'lead',
+  client: 'client',
+  former_client: 'former_client',
+} as const;
+
+/**
+ * @nullable
+ */
+export type BulkClientUpdateInputAccountType = typeof BulkClientUpdateInputAccountType[keyof typeof BulkClientUpdateInputAccountType] | null;
+
+
+export const BulkClientUpdateInputAccountType = {
+  commercial: 'commercial',
+  residential: 'residential',
+} as const;
+
+/**
+ * @nullable
+ */
+export type BulkClientUpdateInputInvoiceDelivery = typeof BulkClientUpdateInputInvoiceDelivery[keyof typeof BulkClientUpdateInputInvoiceDelivery] | null;
+
+
+export const BulkClientUpdateInputInvoiceDelivery = {
+  email: 'email',
+  print: 'print',
+  both: 'both',
+} as const;
+
+export interface BulkClientUpdateInput {
+  /** @minItems 1 */
+  clientIds: number[];
+  /** Activate = client, deactivate = former_client. Omit to leave alone. */
+  status?: BulkClientUpdateInputStatus;
+  /**
+     * Route zone, e.g. PF. Omit to leave alone; null to clear.
+     * @nullable
+     */
+  mapCode?: string | null;
+  /** @nullable */
+  waterDistrict?: string | null;
+  /**
+     * His branch: ID or WA. Omit to leave alone; null to clear.
+     * @nullable
+     */
+  state?: string | null;
+  /** @nullable */
+  accountType?: BulkClientUpdateInputAccountType;
+  /**
+     * Payment window, e.g. Net 15
+     * @nullable
+     */
+  billingTerms?: string | null;
+  /** @nullable */
+  invoiceFrequency?: string | null;
+  /** @nullable */
+  invoiceDelivery?: BulkClientUpdateInputInvoiceDelivery;
+  /**
+     * Omit to leave alone.
+     * @nullable
+     */
+  doNotEmail?: boolean | null;
+  /** Added to each customer's existing tags (stored lowercase). */
+  addTags?: string[];
+  removeTags?: string[];
+}
+
+export interface BulkClientResult {
+  updated: number;
+  clientIds: number[];
+}
+
+export interface BulkClientDeleteInput {
+  /** @minItems 1 */
+  clientIds: number[];
+  /** True only counts what would go, so the confirm can say so. Default false. */
+  preview?: boolean;
+}
+
+export interface BulkClientDeleteResult {
+  preview: boolean;
+  /** Clients matched (or deleted). */
+  clients: number;
+  invoices: number;
+  payments: number;
+  jobs: number;
 }
 
 export interface CostingRow {
@@ -90,6 +243,35 @@ export interface ReportQuestion {
   to: string;
 }
 
+export type ReportColumnKind = typeof ReportColumnKind[keyof typeof ReportColumnKind];
+
+
+export const ReportColumnKind = {
+  text: 'text',
+  money: 'money',
+  number: 'number',
+  hours: 'hours',
+  date: 'date',
+  sqft: 'sqft',
+  link: 'link',
+} as const;
+
+export interface ReportColumn {
+  key: string;
+  label: string;
+  kind: ReportColumnKind;
+}
+
+/**
+ * One row of a curated report; the keys are the report's column keys
+ */
+export interface ReportRow { [key: string]: unknown }
+
+/**
+ * Totals for the columns the report marks summable
+ */
+export interface ReportTotals {[key: string]: number}
+
 export interface ReportAnswer {
   question: string;
   /** @nullable */
@@ -97,7 +279,123 @@ export interface ReportAnswer {
   /** @nullable */
   reportTitle?: string | null;
   answer: string;
-  rows: CostingRow[];
+  columns: ReportColumn[];
+  rows: ReportRow[];
+  totals?: ReportTotals | null;
+  /** False when the question was routed on its words alone, with no model summary */
+  assistantUsed: boolean;
+}
+
+export interface ReportCatalogueEntry {
+  key: string;
+  title: string;
+  describes: string;
+  asks: string[];
+  columns: ReportColumn[];
+}
+
+export interface ReportCatalogue {
+  assistantAvailable: boolean;
+  reports: ReportCatalogueEntry[];
+}
+
+export interface ReportResult {
+  key: string;
+  title: string;
+  from: string;
+  to: string;
+  columns: ReportColumn[];
+  rows: ReportRow[];
+  totals?: ReportTotals | null;
+}
+
+export type SearchClientHitStatus = typeof SearchClientHitStatus[keyof typeof SearchClientHitStatus];
+
+
+export const SearchClientHitStatus = {
+  lead: 'lead',
+  client: 'client',
+  former_client: 'former_client',
+} as const;
+
+export interface SearchClientHit {
+  id: number;
+  name: string;
+  status: SearchClientHitStatus;
+  /** @nullable */
+  serviceAddress?: string | null;
+  /** @nullable */
+  city?: string | null;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  mapCode?: string | null;
+}
+
+export interface SearchTicketHit {
+  id: number;
+  title: string;
+  status: string;
+  /** @nullable */
+  dueDate?: string | null;
+  /** @nullable */
+  clientId?: number | null;
+  /** @nullable */
+  clientName?: string | null;
+}
+
+export interface SearchInvoiceHit {
+  id: number;
+  number: number;
+  status: string;
+  total: number;
+  balance: number;
+  /** @nullable */
+  invoiceDate?: string | null;
+  /** @nullable */
+  poNumber?: string | null;
+  clientId: number;
+  clientName: string;
+}
+
+export interface SearchPaymentHit {
+  id: number;
+  amount: number;
+  method: string;
+  /** @nullable */
+  reference?: string | null;
+  /** @nullable */
+  invoiceId?: number | null;
+  createdAt: string;
+  clientId: number;
+  clientName: string;
+}
+
+export interface SearchJobHit {
+  id: number;
+  status: string;
+  /** @nullable */
+  scheduledDate?: string | null;
+  amount: number;
+  clientId: number;
+  clientName: string;
+  /** @nullable */
+  address?: string | null;
+  /** @nullable */
+  city?: string | null;
+  /** @nullable */
+  serviceName?: string | null;
+}
+
+export interface SearchResults {
+  q: string;
+  clients: SearchClientHit[];
+  tickets: SearchTicketHit[];
+  invoices: SearchInvoiceHit[];
+  payments: SearchPaymentHit[];
+  jobs: SearchJobHit[];
 }
 
 /**
@@ -197,6 +495,80 @@ export interface JobPhoto {
   url: string;
 }
 
+export type PhotoUpdateKind = typeof PhotoUpdateKind[keyof typeof PhotoUpdateKind];
+
+
+export const PhotoUpdateKind = {
+  before: 'before',
+  after: 'after',
+  other: 'other',
+} as const;
+
+export interface PhotoUpdate {
+  kind?: PhotoUpdateKind;
+  /** @nullable */
+  caption?: string | null;
+}
+
+export type ActivityItemKind = typeof ActivityItemKind[keyof typeof ActivityItemKind];
+
+
+export const ActivityItemKind = {
+  visit: 'visit',
+  invoice: 'invoice',
+  payment: 'payment',
+  email: 'email',
+  estimate: 'estimate',
+  ticket: 'ticket',
+  note: 'note',
+  event: 'event',
+} as const;
+
+export type ActivityItemRefKind = typeof ActivityItemRefKind[keyof typeof ActivityItemRefKind];
+
+
+export const ActivityItemRefKind = {
+  job: 'job',
+  invoice: 'invoice',
+  payment: 'payment',
+  email: 'email',
+  estimate: 'estimate',
+  ticket: 'ticket',
+  note: 'note',
+  audit: 'audit',
+} as const;
+
+export interface ActivityItem {
+  kind: ActivityItemKind;
+  /** yyyy-mm-dd the item belongs to on the office's calendar (Pacific), used for the range filter */
+  date: string;
+  /**
+     * Exact instant when known, ISO
+     * @nullable
+     */
+  at?: string | null;
+  title: string;
+  /**
+     * Second line: who did it, the address it went to, the note body
+     * @nullable
+     */
+  detail?: string | null;
+  /**
+     * For a visit, what it bills at after the discount on the assigned service
+     * @nullable
+     */
+  amount?: number | null;
+  /**
+     * The row's own status word: completed, paid, opened, unopened, open, closed...
+     * @nullable
+     */
+  status?: string | null;
+  /** @nullable */
+  actorName?: string | null;
+  refKind: ActivityItemRefKind;
+  refId: number;
+}
+
 export interface RouteBuildInput {
   /** yyyy-mm-dd the route is for */
   scheduledDate: string;
@@ -270,6 +642,35 @@ export interface HealthStatus {
   status: string;
 }
 
+/**
+ * A part of the office app a person can be let into or kept out of
+ */
+export type AccessArea = typeof AccessArea[keyof typeof AccessArea];
+
+
+export const AccessArea = {
+  dispatch: 'dispatch',
+  clients: 'clients',
+  invoices: 'invoices',
+  quickbooks: 'quickbooks',
+  reports: 'reports',
+  settings: 'settings',
+  team: 'team',
+  documents: 'documents',
+} as const;
+
+/**
+ * full = every office screen; office = day-to-day screens plus whatever is granted; mobile = the phone app only
+ */
+export type AccessLevel = typeof AccessLevel[keyof typeof AccessLevel];
+
+
+export const AccessLevel = {
+  full: 'full',
+  office: 'office',
+  mobile: 'mobile',
+} as const;
+
 export type AppUserRole = typeof AppUserRole[keyof typeof AppUserRole];
 
 
@@ -278,21 +679,46 @@ export const AppUserRole = {
   contractor: 'contractor',
 } as const;
 
+export type AppUserRoleSource = typeof AppUserRoleSource[keyof typeof AppUserRoleSource];
+
+
+export const AppUserRoleSource = {
+  provisioned: 'provisioned',
+  owner: 'owner',
+  owner_assigned: 'owner_assigned',
+} as const;
+
 export interface AppUser {
   id: number;
   clerkId: string;
   name: string;
+  fullName?: string;
+  /** @nullable */
+  displayName?: string | null;
   /** @nullable */
   email?: string | null;
   role: AppUserRole;
+  roleSource?: AppUserRoleSource;
+  accessLevel: AccessLevel;
+  permissions: string[];
+  areas: AccessArea[];
+  active: boolean;
   /** @nullable */
   phone?: string | null;
+  /** @nullable */
+  birthday?: string | null;
+  /** @nullable */
+  hireDate?: string | null;
   /** @nullable */
   baseAddress?: string | null;
   /** @nullable */
   baseLat?: number | null;
   /** @nullable */
   baseLng?: number | null;
+  jobCount?: number;
+  historyCount?: number;
+  /** @nullable */
+  smsProxyNumber?: string | null;
 }
 
 export type AppUserUpdateRole = typeof AppUserUpdateRole[keyof typeof AppUserUpdateRole];
@@ -305,9 +731,18 @@ export const AppUserUpdateRole = {
 
 export interface AppUserUpdate {
   name?: string;
+  /** @nullable */
+  displayName?: string | null;
   role?: AppUserUpdateRole;
+  accessLevel?: AccessLevel;
+  permissions?: string[];
+  active?: boolean;
   /** @nullable */
   phone?: string | null;
+  /** @nullable */
+  birthday?: string | null;
+  /** @nullable */
+  hireDate?: string | null;
   /** @nullable */
   baseAddress?: string | null;
   /** @nullable */
@@ -328,6 +763,8 @@ export interface Invitation {
   id: number;
   email: string;
   role: InvitationRole;
+  accessLevel: AccessLevel;
+  permissions: string[];
   /** @nullable */
   invitedById?: number | null;
   /** @nullable */
@@ -357,6 +794,8 @@ export interface InvitationInput {
   /** @minLength 3 */
   email: string;
   role?: InvitationInputRole;
+  accessLevel?: AccessLevel;
+  permissions?: string[];
   /** @nullable */
   note?: string | null;
 }
@@ -575,6 +1014,15 @@ export interface CompanyProfileInput {
   signatureLine?: string;
 }
 
+export type DocumentTemplateCategory = typeof DocumentTemplateCategory[keyof typeof DocumentTemplateCategory];
+
+
+export const DocumentTemplateCategory = {
+  client: 'client',
+  marketing: 'marketing',
+  estimate: 'estimate',
+} as const;
+
 export type DocumentTemplateKind = typeof DocumentTemplateKind[keyof typeof DocumentTemplateKind];
 
 
@@ -589,6 +1037,7 @@ export interface DocumentTemplate {
   key: string;
   name: string;
   kind: DocumentTemplateKind;
+  category: DocumentTemplateCategory;
   /** @nullable */
   serviceId?: number | null;
   /** @nullable */
@@ -616,6 +1065,7 @@ export interface DocumentTemplateInput {
   /** @minLength 1 */
   name: string;
   kind?: DocumentTemplateInputKind;
+  category?: DocumentTemplateCategory;
   /** @nullable */
   serviceId?: number | null;
   /** @nullable */
@@ -637,12 +1087,308 @@ export interface DocumentTemplateUpdate {
   /** @minLength 1 */
   name?: string;
   kind?: DocumentTemplateUpdateKind;
+  category?: DocumentTemplateCategory;
   /** @nullable */
   serviceId?: number | null;
   /** @nullable */
   subject?: string | null;
   /** @minLength 1 */
   body?: string;
+}
+
+/**
+ * Extra merge values typed by the sender, e.g. { servicedate: 'October 3, 2026' }
+ */
+export type DocumentSendInputTokens = {[key: string]: string};
+
+export type DocumentSendInputSource = typeof DocumentSendInputSource[keyof typeof DocumentSendInputSource];
+
+
+export const DocumentSendInputSource = {
+  dispatch: 'dispatch',
+  waiting_list: 'waiting_list',
+  client_page: 'client_page',
+  automation: 'automation',
+  invoice: 'invoice',
+} as const;
+
+export interface DocumentSendInput {
+  /** @minItems 1 */
+  clientIds: number[];
+  /** Jobs the letter is about; fills [servicedate] and [servicename] and adds their customers */
+  jobIds?: number[];
+  /** Extra merge values typed by the sender, e.g. { servicedate: 'October 3, 2026' } */
+  tokens?: DocumentSendInputTokens;
+  source: DocumentSendInputSource;
+}
+
+export type DocumentSendSkipReason = typeof DocumentSendSkipReason[keyof typeof DocumentSendSkipReason];
+
+
+export const DocumentSendSkipReason = {
+  no_email: 'no_email',
+  do_not_email: 'do_not_email',
+  failed: 'failed',
+} as const;
+
+export interface DocumentSendSkip {
+  clientId: number;
+  clientName: string;
+  reason: DocumentSendSkipReason;
+}
+
+export interface DocumentSendResult {
+  batchId: string;
+  sent: number;
+  skipped: DocumentSendSkip[];
+}
+
+export interface EmailBatch {
+  batchId: string;
+  createdAt: string;
+  source: string;
+  sourceLabel: string;
+  /** @nullable */
+  templateId?: number | null;
+  /** @nullable */
+  templateName?: string | null;
+  /** @nullable */
+  ruleName?: string | null;
+  /** @nullable */
+  subject?: string | null;
+  /** @nullable */
+  sentByName?: string | null;
+  total: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+  opened: number;
+}
+
+export type EmailBatchRecipientStatus = typeof EmailBatchRecipientStatus[keyof typeof EmailBatchRecipientStatus];
+
+
+export const EmailBatchRecipientStatus = {
+  sent: 'sent',
+  failed: 'failed',
+  skipped: 'skipped',
+} as const;
+
+export interface EmailBatchRecipient {
+  id: number;
+  /** @nullable */
+  clientId?: number | null;
+  clientName: string;
+  /** @nullable */
+  toEmail?: string | null;
+  /** @nullable */
+  subject?: string | null;
+  status: EmailBatchRecipientStatus;
+  /** @nullable */
+  skipReason?: string | null;
+  /** @nullable */
+  error?: string | null;
+  /** @nullable */
+  openedAt?: string | null;
+  openCount: number;
+  /** @nullable */
+  sentAt?: string | null;
+  createdAt: string;
+}
+
+export type AutomationRuleTrigger = typeof AutomationRuleTrigger[keyof typeof AutomationRuleTrigger];
+
+
+export const AutomationRuleTrigger = {
+  invoice_past_due: 'invoice_past_due',
+  invoice_sent: 'invoice_sent',
+  estimate_sent: 'estimate_sent',
+  job_completed: 'job_completed',
+  client_added: 'client_added',
+  fixed_date: 'fixed_date',
+  after_rule: 'after_rule',
+} as const;
+
+export interface AutomationRuleConditions {
+  stillUnpaid?: boolean;
+  noResponse?: boolean;
+  /** @nullable */
+  serviceId?: number | null;
+  /** @nullable */
+  afterRuleId?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 3650
+     */
+  lookbackDays?: number;
+}
+
+export interface AutomationRule {
+  id: number;
+  name: string;
+  enabled: boolean;
+  trigger: AutomationRuleTrigger;
+  offsetDays: number;
+  /** @nullable */
+  monthDay?: string | null;
+  /** @nullable */
+  templateId?: number | null;
+  /** @nullable */
+  templateName?: string | null;
+  /** @nullable */
+  afterRuleName?: string | null;
+  /** @nullable */
+  serviceName?: string | null;
+  conditions: AutomationRuleConditions;
+  sentTotal: number;
+  /** @nullable */
+  lastRunAt?: string | null;
+  createdAt: string;
+}
+
+export interface AutomationRuleInput {
+  /** @minLength 1 */
+  name: string;
+  enabled?: boolean;
+  trigger: AutomationRuleTrigger;
+  /**
+     * @minimum 0
+     * @maximum 3650
+     */
+  offsetDays?: number;
+  /**
+     * @nullable
+     * @pattern ^\d{2}-\d{2}$
+     */
+  monthDay?: string | null;
+  /** @nullable */
+  templateId?: number | null;
+  conditions?: AutomationRuleConditions;
+}
+
+export interface AutomationRuleUpdate {
+  /** @minLength 1 */
+  name?: string;
+  enabled?: boolean;
+  trigger?: AutomationRuleTrigger;
+  /**
+     * @minimum 0
+     * @maximum 3650
+     */
+  offsetDays?: number;
+  /**
+     * @nullable
+     * @pattern ^\d{2}-\d{2}$
+     */
+  monthDay?: string | null;
+  /** @nullable */
+  templateId?: number | null;
+  conditions?: AutomationRuleConditions;
+}
+
+/**
+ * @nullable
+ */
+export type AutomationRulePreviewRecipientWouldSkip = typeof AutomationRulePreviewRecipientWouldSkip[keyof typeof AutomationRulePreviewRecipientWouldSkip] | null;
+
+
+export const AutomationRulePreviewRecipientWouldSkip = {
+  no_email: 'no_email',
+  do_not_email: 'do_not_email',
+} as const;
+
+export interface AutomationRulePreviewRecipient {
+  clientId: number;
+  clientName: string;
+  /** @nullable */
+  email?: string | null;
+  subjectLabel: string;
+  /** @nullable */
+  wouldSkip?: AutomationRulePreviewRecipientWouldSkip;
+}
+
+export type AutomationRulePreviewSample = {
+  clientName: string;
+  /** @nullable */
+  subject?: string | null;
+  body: string;
+} | null;
+
+export interface AutomationRulePreview {
+  ruleId: number;
+  ruleName: string;
+  /** @nullable */
+  templateName?: string | null;
+  today: string;
+  /** How many would actually be emailed */
+  count: number;
+  recipients: AutomationRulePreviewRecipient[];
+  sample?: AutomationRulePreviewSample;
+  /** @nullable */
+  problem?: string | null;
+}
+
+export type EmailAutomationRunTrigger = typeof EmailAutomationRunTrigger[keyof typeof EmailAutomationRunTrigger];
+
+
+export const EmailAutomationRunTrigger = {
+  scheduled: 'scheduled',
+  manual: 'manual',
+} as const;
+
+export type EmailAutomationRunStatus = typeof EmailAutomationRunStatus[keyof typeof EmailAutomationRunStatus];
+
+
+export const EmailAutomationRunStatus = {
+  running: 'running',
+  succeeded: 'succeeded',
+  failed: 'failed',
+} as const;
+
+export interface EmailAutomationRun {
+  id: number;
+  trigger: EmailAutomationRunTrigger;
+  status: EmailAutomationRunStatus;
+  /** @nullable */
+  day?: string | null;
+  considered: number;
+  sent: number;
+  /** @nullable */
+  summary?: string | null;
+  /** @nullable */
+  error?: string | null;
+  /** @nullable */
+  triggeredBy?: string | null;
+  startedAt: string;
+  /** @nullable */
+  finishedAt?: string | null;
+}
+
+export interface EmailAutomationStatus {
+  enabled: boolean;
+  runAtLocalTime: string;
+  timeZone: string;
+  today: string;
+  runs: EmailAutomationRun[];
+}
+
+export interface EmailAutomationRuleOutcome {
+  ruleId: number;
+  ruleName: string;
+  considered: number;
+  sent: number;
+  skipped: number;
+  failed: number;
+  /** @nullable */
+  batchId?: string | null;
+  /** @nullable */
+  problem?: string | null;
+}
+
+export interface EmailAutomationRunResult {
+  runId: number;
+  summary: string;
+  outcomes: EmailAutomationRuleOutcome[];
 }
 
 export interface DocumentPreviewInput {
@@ -654,6 +1400,8 @@ export interface DocumentPreview {
   /** @nullable */
   subject: string | null;
   body: string;
+  /** The letter inside the branded email shell, as the customer sees it */
+  html?: string;
   /** @nullable */
   clientName?: string | null;
   unknownTokens: string[];
@@ -771,6 +1519,22 @@ export const ClientAccountType = {
 
 export type ClientPropertyData = {[key: string]: string};
 
+/**
+ * @nullable
+ */
+export type ClientPreferredPaymentMethod = typeof ClientPreferredPaymentMethod[keyof typeof ClientPreferredPaymentMethod] | null;
+
+
+export const ClientPreferredPaymentMethod = {
+  check: 'check',
+  venmo: 'venmo',
+  zelle: 'zelle',
+  credit_card: 'credit_card',
+  cash: 'cash',
+  ach: 'ach',
+  other: 'other',
+} as const;
+
 export interface Client {
   id: number;
   name: string;
@@ -843,6 +1607,30 @@ export interface Client {
   lastServiceDate?: string | null;
   /** Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice. */
   unappliedCredit?: number;
+  /**
+     * The master account (property manager) this property sits under, one level only
+     * @nullable
+     */
+  parentClientId?: number | null;
+  /** @nullable */
+  parentClientName?: string | null;
+  /** How many properties sit under this account (0 unless it is a master) */
+  relatedPropertyCount?: number;
+  /** This account's balance plus every property under it. Equals accountBalance for an ordinary customer; on a master it is what the property manager owes in all. */
+  relatedBalanceTotal?: number;
+  /** Stops every bulk email (board, waiting list, automations). Invoices still go out. */
+  doNotEmail?: boolean;
+  /**
+     * Where they came from, e.g. Door Hanger
+     * @nullable
+     */
+  source?: string | null;
+  /** @nullable */
+  referredByClientId?: number | null;
+  /** @nullable */
+  referredByClientName?: string | null;
+  /** @nullable */
+  preferredPaymentMethod?: ClientPreferredPaymentMethod;
   createdAt?: string;
 }
 
@@ -873,6 +1661,22 @@ export const ClientInputAccountType = {
 } as const;
 
 export type ClientInputPropertyData = {[key: string]: string};
+
+/**
+ * @nullable
+ */
+export type ClientInputPreferredPaymentMethod = typeof ClientInputPreferredPaymentMethod[keyof typeof ClientInputPreferredPaymentMethod] | null;
+
+
+export const ClientInputPreferredPaymentMethod = {
+  check: 'check',
+  venmo: 'venmo',
+  zelle: 'zelle',
+  credit_card: 'credit_card',
+  cash: 'cash',
+  ach: 'ach',
+  other: 'other',
+} as const;
 
 export interface ClientInput {
   /** @minLength 1 */
@@ -911,6 +1715,15 @@ export interface ClientInput {
   officeNote?: string | null;
   tags?: string[];
   propertyData?: ClientInputPropertyData;
+  /** @nullable */
+  parentClientId?: number | null;
+  doNotEmail?: boolean;
+  /** @nullable */
+  source?: string | null;
+  /** @nullable */
+  referredByClientId?: number | null;
+  /** @nullable */
+  preferredPaymentMethod?: ClientInputPreferredPaymentMethod;
 }
 
 export type ClientUpdateStatus = typeof ClientUpdateStatus[keyof typeof ClientUpdateStatus];
@@ -946,6 +1759,22 @@ export const ClientUpdateAccountType = {
 } as const;
 
 export type ClientUpdatePropertyData = {[key: string]: string};
+
+/**
+ * @nullable
+ */
+export type ClientUpdatePreferredPaymentMethod = typeof ClientUpdatePreferredPaymentMethod[keyof typeof ClientUpdatePreferredPaymentMethod] | null;
+
+
+export const ClientUpdatePreferredPaymentMethod = {
+  check: 'check',
+  venmo: 'venmo',
+  zelle: 'zelle',
+  credit_card: 'credit_card',
+  cash: 'cash',
+  ach: 'ach',
+  other: 'other',
+} as const;
 
 export interface ClientUpdate {
   /** @minLength 1 */
@@ -1014,20 +1843,126 @@ export interface ClientUpdate {
   officeNote?: string | null;
   tags?: string[];
   propertyData?: ClientUpdatePropertyData;
+  /**
+     * Put this property under a master account; null takes it out again
+     * @nullable
+     */
+  parentClientId?: number | null;
+  doNotEmail?: boolean;
+  /** @nullable */
+  source?: string | null;
+  /** @nullable */
+  referredByClientId?: number | null;
+  /** @nullable */
+  preferredPaymentMethod?: ClientUpdatePreferredPaymentMethod;
 }
+
+export interface ClientContact {
+  id: number;
+  clientId: number;
+  name: string;
+  /**
+     * Who they are to the account: CPA, spouse, HOA president
+     * @nullable
+     */
+  role?: string | null;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  email?: string | null;
+  /**
+     * yyyy-mm-dd, or mm-dd when the year is not known
+     * @nullable
+     */
+  birthday?: string | null;
+  /** @nullable */
+  notes?: string | null;
+  createdAt: string;
+}
+
+export interface ClientContactInput {
+  /** @minLength 1 */
+  name: string;
+  /** @nullable */
+  role?: string | null;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  birthday?: string | null;
+  /** @nullable */
+  notes?: string | null;
+}
+
+export interface ClientContactUpdate {
+  /** @minLength 1 */
+  name?: string;
+  /** @nullable */
+  role?: string | null;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  birthday?: string | null;
+  /** @nullable */
+  notes?: string | null;
+}
+
+/**
+ * Open notes wait on the office and show on the dashboard until closed
+ */
+export type ClientNoteStatus = typeof ClientNoteStatus[keyof typeof ClientNoteStatus];
+
+
+export const ClientNoteStatus = {
+  open: 'open',
+  closed: 'closed',
+} as const;
 
 export interface ClientNote {
   id: number;
   clientId: number;
+  /**
+     * Filled on the cross-customer open-notes list
+     * @nullable
+     */
+  clientName?: string | null;
   body: string;
   /** @nullable */
   authorName?: string | null;
+  /** Open notes wait on the office and show on the dashboard until closed */
+  status: ClientNoteStatus;
+  /** @nullable */
+  closedAt?: string | null;
   createdAt: string;
 }
+
+export type ClientNoteInputStatus = typeof ClientNoteInputStatus[keyof typeof ClientNoteInputStatus];
+
+
+export const ClientNoteInputStatus = {
+  open: 'open',
+  closed: 'closed',
+} as const;
 
 export interface ClientNoteInput {
   /** @minLength 1 */
   body: string;
+  status?: ClientNoteInputStatus;
+}
+
+export type ClientNoteUpdateStatus = typeof ClientNoteUpdateStatus[keyof typeof ClientNoteUpdateStatus];
+
+
+export const ClientNoteUpdateStatus = {
+  open: 'open',
+  closed: 'closed',
+} as const;
+
+export interface ClientNoteUpdate {
+  status: ClientNoteUpdateStatus;
 }
 
 export interface AuditEvent {
@@ -1040,6 +1975,13 @@ export interface AuditEvent {
   actorName?: string | null;
   action: string;
   description: string;
+  /**
+     * Which record the event is about (invoice, payment, job); null on older rows
+     * @nullable
+     */
+  entityType?: string | null;
+  /** @nullable */
+  entityId?: number | null;
   createdAt: string;
 }
 
@@ -1067,11 +2009,39 @@ export interface PricingEquation {
   budgetedCost?: number | null;
 }
 
+/**
+ * fixed = set price; time = billed on the job's start/stop time and adjusted afterwards
+ */
+export type ServiceBillingMode = typeof ServiceBillingMode[keyof typeof ServiceBillingMode];
+
+
+export const ServiceBillingMode = {
+  fixed: 'fixed',
+  time: 'time',
+} as const;
+
 export interface Service {
   id: number;
   name: string;
   /** @nullable */
   description?: string | null;
+  /**
+     * Short code shown on the waiting list, e.g. BA7 or MOWIN
+     * @nullable
+     */
+  code?: string | null;
+  /**
+     * What prints on the invoice line; blank falls back to the name
+     * @nullable
+     */
+  invoiceDescription?: string | null;
+  /** fixed = set price; time = billed on the job's start/stop time and adjusted afterwards */
+  billingMode?: ServiceBillingMode;
+  /**
+     * Default number of visits an estimate multiplies the band rate by (28 mows a season). Null means one.
+     * @nullable
+     */
+  visitsPerSeason?: number | null;
   quantity: number;
   rate: number;
   /** @nullable */
@@ -1102,10 +2072,28 @@ export interface Service {
   pricingFieldId?: number | null;
 }
 
+export type ServiceInputBillingMode = typeof ServiceInputBillingMode[keyof typeof ServiceInputBillingMode];
+
+
+export const ServiceInputBillingMode = {
+  fixed: 'fixed',
+  time: 'time',
+} as const;
+
 export interface ServiceInput {
   /** @minLength 1 */
   name: string;
   description?: string;
+  /** @nullable */
+  code?: string | null;
+  /** @nullable */
+  invoiceDescription?: string | null;
+  billingMode?: ServiceInputBillingMode;
+  /**
+     * @minimum 1
+     * @nullable
+     */
+  visitsPerSeason?: number | null;
   quantity?: number;
   rate?: number;
   /** @nullable */
@@ -1133,11 +2121,29 @@ export interface ServiceInput {
   pricingFieldId?: number | null;
 }
 
+export type ServiceUpdateBillingMode = typeof ServiceUpdateBillingMode[keyof typeof ServiceUpdateBillingMode];
+
+
+export const ServiceUpdateBillingMode = {
+  fixed: 'fixed',
+  time: 'time',
+} as const;
+
 export interface ServiceUpdate {
   /** @minLength 1 */
   name?: string;
   /** @nullable */
   description?: string | null;
+  /** @nullable */
+  code?: string | null;
+  /** @nullable */
+  invoiceDescription?: string | null;
+  billingMode?: ServiceUpdateBillingMode;
+  /**
+     * @minimum 1
+     * @nullable
+     */
+  visitsPerSeason?: number | null;
   quantity?: number;
   rate?: number;
   /** @nullable */
@@ -1177,6 +2183,110 @@ export interface PriceResult {
 }
 
 /**
+ * multiply = rate x value (1.5 for a one-time mow); add = rate + $value; percent = rate + value%. Default multiply.
+ */
+export type CopyMatrixInputMode = typeof CopyMatrixInputMode[keyof typeof CopyMatrixInputMode];
+
+
+export const CopyMatrixInputMode = {
+  multiply: 'multiply',
+  add: 'add',
+  percent: 'percent',
+} as const;
+
+export interface CopyMatrixInput {
+  /** @minItems 1 */
+  targetServiceIds: number[];
+  /** multiply = rate x value (1.5 for a one-time mow); add = rate + $value; percent = rate + value%. Default multiply. */
+  mode?: CopyMatrixInputMode;
+  /** The multiplier, the dollars or the percent, depending on mode. Default 1 (multiply) or 0. */
+  value?: number;
+  /**
+     * Round every scaled price to this increment, e.g. 0.5 or 1. Null keeps cents.
+     * @nullable
+     */
+  roundTo?: number | null;
+  /** Point each target at the source's Price By field too (default true) — the bands are measured in it. */
+  copyPricingField?: boolean;
+  /** false (the default) only previews what each target would get; true writes it. */
+  apply?: boolean;
+  /** Must be true to replace a target that already has priced bands. */
+  overwrite?: boolean;
+}
+
+export interface CopyMatrixTarget {
+  serviceId: number;
+  serviceName: string;
+  /** Priced bands the target has today — the copy replaces them */
+  existingBands: number;
+  equations: PricingEquation[];
+  pricingFieldChanged: boolean;
+}
+
+export interface CopyMatrixResult {
+  applied: boolean;
+  sourceServiceId: number;
+  sourceServiceName: string;
+  targets: CopyMatrixTarget[];
+}
+
+export interface MatrixRuleTier {
+  /**
+     * Dollars added for every step
+     * @minimum 0
+     */
+  pricePerStep: number;
+  /**
+     * One step in the pricing unit, e.g. 1000 sqft or 500 sqft
+     * @exclusiveMinimum 0
+     */
+  stepSize: number;
+  /**
+     * Where this tier stops. Null makes one final and-up band that keeps adding pricePerStep per stepSize.
+     * @nullable
+     */
+  upTo?: number | null;
+}
+
+export interface MatrixRuleInput {
+  /**
+     * Price of the first band, which covers the first step
+     * @minimum 0
+     */
+  startPrice: number;
+  firstTier: MatrixRuleTier;
+  secondTier?: MatrixRuleTier;
+  /**
+     * Fill budgeted cost as this percent of each band's rate; null leaves cost blank
+     * @nullable
+     */
+  costPercent?: number | null;
+}
+
+export interface MatrixRuleResult {
+  equations: PricingEquation[];
+}
+
+/**
+ * One entry in a package. The same service may appear several times (Sprinkler timer adjustment x4, Aeration x2); the label tells the entries apart on the account and the window, when set, beats the package-wide start/end for that entry only.
+ */
+export interface PackageItem {
+  serviceId: number;
+  /** @nullable */
+  label?: string | null;
+  /**
+     * yyyy-mm-dd
+     * @nullable
+     */
+  windowStart?: string | null;
+  /**
+     * yyyy-mm-dd
+     * @nullable
+     */
+  windowEnd?: string | null;
+}
+
+/**
  * @nullable
  */
 export type ServicePackageScheduleType = typeof ServicePackageScheduleType[keyof typeof ServicePackageScheduleType] | null;
@@ -1196,7 +2306,9 @@ export interface ServicePackage {
   name: string;
   /** @nullable */
   description?: string | null;
+  /** One id per entry, repeats included — always the same order as items */
   serviceIds: number[];
+  items: PackageItem[];
   /** @nullable */
   scheduleType?: ServicePackageScheduleType;
   /** @nullable */
@@ -1209,6 +2321,7 @@ export interface ServicePackage {
   seasonEndDate?: string | null;
   /** @nullable */
   renewDate?: string | null;
+  /** The service behind each entry, in entry order, so a repeated service appears as many times as it is listed */
   services?: Service[];
 }
 
@@ -1228,7 +2341,9 @@ export interface ServicePackageInput {
   /** @minLength 1 */
   name: string;
   description?: string;
-  serviceIds: number[];
+  /** Older callers send only ids; ignored when items is given */
+  serviceIds?: number[];
+  items?: PackageItem[];
   /** @nullable */
   scheduleType?: ServicePackageInputScheduleType;
   /** @nullable */
@@ -1261,6 +2376,7 @@ export interface ServicePackageUpdate {
   /** @nullable */
   description?: string | null;
   serviceIds?: number[];
+  items?: PackageItem[];
   /** @nullable */
   scheduleType?: ServicePackageUpdateScheduleType;
   /** @nullable */
@@ -1275,6 +2391,17 @@ export interface ServicePackageUpdate {
   renewDate?: string | null;
 }
 
+/**
+ * From the service. On a time service `amount` is the hourly rate.
+ */
+export type ClientServiceBillingMode = typeof ClientServiceBillingMode[keyof typeof ClientServiceBillingMode];
+
+
+export const ClientServiceBillingMode = {
+  fixed: 'fixed',
+  time: 'time',
+} as const;
+
 export type ClientServiceScheduleType = typeof ClientServiceScheduleType[keyof typeof ClientServiceScheduleType];
 
 
@@ -1282,8 +2409,47 @@ export const ClientServiceScheduleType = {
   window: 'window',
   recurring: 'recurring',
   one_time: 'one_time',
+  contract: 'contract',
 } as const;
 
+/**
+ * @nullable
+ */
+export type ClientServiceFrequency = typeof ClientServiceFrequency[keyof typeof ClientServiceFrequency] | null;
+
+
+export const ClientServiceFrequency = {
+  weekly: 'weekly',
+  biweekly: 'biweekly',
+  monthly: 'monthly',
+} as const;
+
+/**
+ * ISO week parity for bi-weekly
+ * @nullable
+ */
+export type ClientServiceWeekParity = typeof ClientServiceWeekParity[keyof typeof ClientServiceWeekParity] | null;
+
+
+export const ClientServiceWeekParity = {
+  odd: 'odd',
+  even: 'even',
+} as const;
+
+/**
+ * @nullable
+ */
+export type ClientServiceDiscountType = typeof ClientServiceDiscountType[keyof typeof ClientServiceDiscountType] | null;
+
+
+export const ClientServiceDiscountType = {
+  amount: 'amount',
+  percent: 'percent',
+} as const;
+
+/**
+ * A service on a customer's account (2026-09-15 walkthrough): the contractor it always goes to, the cadence in words, the price and where the matrix got it, a discount that prints as its own invoice line, the must-read crew note with its dates, pause state, and what is ahead / behind.
+ */
 export interface ClientService {
   id: number;
   clientId: number;
@@ -1291,10 +2457,20 @@ export interface ClientService {
   /** @nullable */
   serviceName?: string | null;
   /** @nullable */
+  serviceCode?: string | null;
+  /** From the service. On a time service `amount` is the hourly rate. */
+  billingMode: ClientServiceBillingMode;
+  /** @nullable */
   packageId?: number | null;
   /** @nullable */
   packageName?: string | null;
+  /**
+     * The package entry's label, e.g. Timer adjustment — June
+     * @nullable
+     */
+  label?: string | null;
   quantity: number;
+  /** Per visit (or per hour on a time service, or the contract's annual total split is in retailAmount) */
   amount: number;
   scheduleType: ClientServiceScheduleType;
   /** @nullable */
@@ -1311,6 +2487,88 @@ export interface ClientService {
   renewDate?: string | null;
   /** @nullable */
   budgetedHours?: number | null;
+  /** @nullable */
+  lastRenewedAt?: string | null;
+  /** @nullable */
+  assignedToId?: number | null;
+  /** @nullable */
+  assignedToName?: string | null;
+  /** @nullable */
+  frequency?: ClientServiceFrequency;
+  /**
+     * 0 Sunday to 6 Saturday
+     * @nullable
+     */
+  weekday?: number | null;
+  /**
+     * ISO week parity for bi-weekly
+     * @nullable
+     */
+  weekParity?: ClientServiceWeekParity;
+  /**
+     * 1-4, which week of the month for monthly
+     * @nullable
+     */
+  monthlyWeek?: number | null;
+  /** Every other Wednesday (odd weeks) */
+  cadenceLabel: string;
+  /** @nullable */
+  discountType?: ClientServiceDiscountType;
+  /** @nullable */
+  discountValue?: number | null;
+  /** @nullable */
+  discountLabel?: string | null;
+  /**
+     * The note the crew must open before starting the job
+     * @nullable
+     */
+  contractorNote?: string | null;
+  /** @nullable */
+  noteStartDate?: string | null;
+  /** @nullable */
+  noteEndDate?: string | null;
+  noteActiveToday?: boolean;
+  /** @nullable */
+  pausedAt?: string | null;
+  /** @nullable */
+  pauseUntil?: string | null;
+  resumeWhenPaid: boolean;
+  /** @nullable */
+  pauseReason?: string | null;
+  /** Off means no visits are generated; a package entry can be switched off on its own */
+  active: boolean;
+  autoRenew: boolean;
+  /**
+     * The customer field the matrix priced from, e.g. Turf Sqft
+     * @nullable
+     */
+  pricedFromLabel?: string | null;
+  /** @nullable */
+  pricedFromValue?: number | null;
+  /**
+     * 8 or 12 for a contract
+     * @nullable
+     */
+  contractMonths?: number | null;
+  /**
+     * The contract's annual amount
+     * @nullable
+     */
+  contractTotal?: number | null;
+  /** Per visit before the discount (a time service: hourly rate x budgeted hours; a contract: one monthly line) */
+  retailAmount: number;
+  /** Per visit, in dollars */
+  discountAmount: number;
+  /** retailAmount less discountAmount */
+  netAmount: number;
+  upcomingCount: number;
+  upcomingTotal: number;
+  /** @nullable */
+  nextDate?: string | null;
+  completedCount: number;
+  /** @nullable */
+  lastCompletedDate?: string | null;
+  createdAt?: string;
 }
 
 /**
@@ -1323,6 +2581,41 @@ export const ClientServiceInputScheduleType = {
   window: 'window',
   recurring: 'recurring',
   one_time: 'one_time',
+  contract: 'contract',
+} as const;
+
+/**
+ * @nullable
+ */
+export type ClientServiceInputFrequency = typeof ClientServiceInputFrequency[keyof typeof ClientServiceInputFrequency] | null;
+
+
+export const ClientServiceInputFrequency = {
+  weekly: 'weekly',
+  biweekly: 'biweekly',
+  monthly: 'monthly',
+} as const;
+
+/**
+ * @nullable
+ */
+export type ClientServiceInputWeekParity = typeof ClientServiceInputWeekParity[keyof typeof ClientServiceInputWeekParity] | null;
+
+
+export const ClientServiceInputWeekParity = {
+  odd: 'odd',
+  even: 'even',
+} as const;
+
+/**
+ * @nullable
+ */
+export type ClientServiceInputDiscountType = typeof ClientServiceInputDiscountType[keyof typeof ClientServiceInputDiscountType] | null;
+
+
+export const ClientServiceInputDiscountType = {
+  amount: 'amount',
+  percent: 'percent',
 } as const;
 
 export interface ClientServiceInput {
@@ -1335,12 +2628,12 @@ export interface ClientServiceInput {
   packageId?: number | null;
   quantity?: number;
   /**
-     * Override; defaults to engine-calculated or service rate
+     * Override; defaults to the matrix price from the customer's field, else the service rate
      * @nullable
      */
   amount?: number | null;
   /**
-     * Used with pricing equations to compute amount
+     * A typed measurement; beats the one on the customer's record
      * @nullable
      */
   sqft?: number | null;
@@ -1350,7 +2643,10 @@ export interface ClientServiceInput {
   startDate?: string | null;
   /** @nullable */
   endDate?: string | null;
-  /** @nullable */
+  /**
+     * Older callers; frequency is preferred
+     * @nullable
+     */
   frequencyWeeks?: number | null;
   /** @nullable */
   firstServiceDate?: string | null;
@@ -1360,11 +2656,91 @@ export interface ClientServiceInput {
   renewDate?: string | null;
   /** @nullable */
   budgetedHours?: number | null;
+  /** @nullable */
+  assignedToId?: number | null;
+  /** @nullable */
+  frequency?: ClientServiceInputFrequency;
+  /**
+     * @minimum 0
+     * @maximum 6
+     * @nullable
+     */
+  weekday?: number | null;
+  /** @nullable */
+  weekParity?: ClientServiceInputWeekParity;
+  /**
+     * @minimum 1
+     * @maximum 4
+     * @nullable
+     */
+  monthlyWeek?: number | null;
+  /** @nullable */
+  discountType?: ClientServiceInputDiscountType;
+  /** @nullable */
+  discountValue?: number | null;
+  /** @nullable */
+  discountLabel?: string | null;
+  /** @nullable */
+  contractorNote?: string | null;
+  /** @nullable */
+  noteStartDate?: string | null;
+  /** @nullable */
+  noteEndDate?: string | null;
+  autoRenew?: boolean;
+  /** @nullable */
+  contractMonths?: number | null;
+  /** @nullable */
+  contractTotal?: number | null;
 }
+
+export type ClientServiceUpdateScheduleType = typeof ClientServiceUpdateScheduleType[keyof typeof ClientServiceUpdateScheduleType];
+
+
+export const ClientServiceUpdateScheduleType = {
+  window: 'window',
+  recurring: 'recurring',
+  one_time: 'one_time',
+  contract: 'contract',
+} as const;
+
+/**
+ * @nullable
+ */
+export type ClientServiceUpdateFrequency = typeof ClientServiceUpdateFrequency[keyof typeof ClientServiceUpdateFrequency] | null;
+
+
+export const ClientServiceUpdateFrequency = {
+  weekly: 'weekly',
+  biweekly: 'biweekly',
+  monthly: 'monthly',
+} as const;
+
+/**
+ * @nullable
+ */
+export type ClientServiceUpdateWeekParity = typeof ClientServiceUpdateWeekParity[keyof typeof ClientServiceUpdateWeekParity] | null;
+
+
+export const ClientServiceUpdateWeekParity = {
+  odd: 'odd',
+  even: 'even',
+} as const;
+
+/**
+ * @nullable
+ */
+export type ClientServiceUpdateDiscountType = typeof ClientServiceUpdateDiscountType[keyof typeof ClientServiceUpdateDiscountType] | null;
+
+
+export const ClientServiceUpdateDiscountType = {
+  amount: 'amount',
+  percent: 'percent',
+} as const;
 
 export interface ClientServiceUpdate {
   quantity?: number;
   amount?: number;
+  scheduleType?: ClientServiceUpdateScheduleType;
   /** @nullable */
   startDate?: string | null;
   /** @nullable */
@@ -1379,6 +2755,294 @@ export interface ClientServiceUpdate {
   renewDate?: string | null;
   /** @nullable */
   budgetedHours?: number | null;
+  /** @nullable */
+  assignedToId?: number | null;
+  /** @nullable */
+  frequency?: ClientServiceUpdateFrequency;
+  /**
+     * @minimum 0
+     * @maximum 6
+     * @nullable
+     */
+  weekday?: number | null;
+  /** @nullable */
+  weekParity?: ClientServiceUpdateWeekParity;
+  /**
+     * @minimum 1
+     * @maximum 4
+     * @nullable
+     */
+  monthlyWeek?: number | null;
+  /** @nullable */
+  discountType?: ClientServiceUpdateDiscountType;
+  /** @nullable */
+  discountValue?: number | null;
+  /** @nullable */
+  discountLabel?: string | null;
+  /** @nullable */
+  contractorNote?: string | null;
+  /** @nullable */
+  noteStartDate?: string | null;
+  /** @nullable */
+  noteEndDate?: string | null;
+  autoRenew?: boolean;
+  active?: boolean;
+  /** @nullable */
+  contractMonths?: number | null;
+  /** @nullable */
+  contractTotal?: number | null;
+}
+
+export interface ClientServicePriceInput {
+  serviceId: number;
+  /** @nullable */
+  quantity?: number | null;
+  /**
+     * A typed measurement to price against instead of the one on file
+     * @nullable
+     */
+  sqft?: number | null;
+}
+
+export type ClientServicePriceBillingMode = typeof ClientServicePriceBillingMode[keyof typeof ClientServicePriceBillingMode];
+
+
+export const ClientServicePriceBillingMode = {
+  fixed: 'fixed',
+  time: 'time',
+} as const;
+
+export interface ClientServicePrice {
+  amount: number;
+  /** @nullable */
+  budgetedHours?: number | null;
+  /** @nullable */
+  pricedFromLabel?: string | null;
+  /** @nullable */
+  pricedFromValue?: number | null;
+  /**
+     * Set when the matrix needs a customer field that is blank; amount is then the flat rate
+     * @nullable
+     */
+  missingField?: string | null;
+  billingMode: ClientServicePriceBillingMode;
+  rate: number;
+  serviceName: string;
+  /** @nullable */
+  defaultStartDate?: string | null;
+  /** @nullable */
+  defaultEndDate?: string | null;
+  /** @nullable */
+  renewDate?: string | null;
+}
+
+export type JobStatus = typeof JobStatus[keyof typeof JobStatus];
+
+
+export const JobStatus = {
+  scheduled: 'scheduled',
+  on_the_way: 'on_the_way',
+  in_progress: 'in_progress',
+  completed: 'completed',
+  skipped: 'skipped',
+  cancelled: 'cancelled',
+} as const;
+
+export interface JobProduct {
+  id: number;
+  jobId: number;
+  name: string;
+  price: number;
+  quantity?: number;
+  /** @nullable */
+  serviceId?: number | null;
+  /**
+     * Set when the line came from the parts list
+     * @nullable
+     */
+  chargePresetId?: number | null;
+}
+
+export type JobBillingMode = typeof JobBillingMode[keyof typeof JobBillingMode];
+
+
+export const JobBillingMode = {
+  fixed: 'fixed',
+  time: 'time',
+} as const;
+
+/**
+ * @nullable
+ */
+export type JobDiscountType = typeof JobDiscountType[keyof typeof JobDiscountType] | null;
+
+
+export const JobDiscountType = {
+  amount: 'amount',
+  percent: 'percent',
+} as const;
+
+/**
+ * The client's saved property details, keyed by field label (Gate Code, Sprinkler Zones, Turf Sqft). Carried on the job so the crew can read access details from the job card without opening the client record, which a contractor cannot do.
+ */
+export type JobClientPropertyData = {[key: string]: string};
+
+export interface Job {
+  id: number;
+  clientId: number;
+  /** @nullable */
+  clientName?: string | null;
+  /** @nullable */
+  clientAddress?: string | null;
+  /** @nullable */
+  clientBalance?: number | null;
+  /** @nullable */
+  lastInvoiceNumber?: number | null;
+  /** @nullable */
+  lastInvoiceBalance?: number | null;
+  /** @nullable */
+  lastInvoiceDate?: string | null;
+  /** @nullable */
+  clientLat?: number | null;
+  /** @nullable */
+  clientLng?: number | null;
+  /** @nullable */
+  city?: string | null;
+  /** @nullable */
+  clientServiceId?: number | null;
+  /** @nullable */
+  serviceId?: number | null;
+  /** @nullable */
+  serviceName?: string | null;
+  status: JobStatus;
+  dispatched: boolean;
+  /** @nullable */
+  scheduledDate?: string | null;
+  /** @nullable */
+  windowStart?: string | null;
+  /** @nullable */
+  windowEnd?: string | null;
+  /** @nullable */
+  routeOrder?: number | null;
+  /** @nullable */
+  assignedToId?: number | null;
+  /**
+     * The contractor's short display name, never an email address.
+     * @nullable
+     */
+  assignedToName?: string | null;
+  /** @nullable */
+  mapNote?: string | null;
+  /** @nullable */
+  cancelReason?: string | null;
+  /** @nullable */
+  cancelledAt?: string | null;
+  /** @nullable */
+  clientEmail?: string | null;
+  /** @nullable */
+  clientPhone?: string | null;
+  clientDoNotEmail?: boolean;
+  /** @nullable */
+  clientMapCode?: string | null;
+  /**
+     * His branch: ID or WA.
+     * @nullable
+     */
+  clientState?: string | null;
+  clientTags?: string[];
+  /**
+     * The service's short code, what the waiting list shows (BA7, BACKF, MOWIN).
+     * @nullable
+     */
+  serviceCode?: string | null;
+  /** The client's saved property details, keyed by field label (Gate Code, Sprinkler Zones, Turf Sqft). Carried on the job so the crew can read access details from the job card without opening the client record, which a contractor cannot do. */
+  clientPropertyData?: JobClientPropertyData;
+  /** @nullable */
+  lastServiceDate?: string | null;
+  /** @nullable */
+  budgetedHours?: number | null;
+  amount: number;
+  /** @nullable */
+  notes?: string | null;
+  /** @nullable */
+  notesImportant?: boolean | null;
+  /** @nullable */
+  visibleToContractor?: boolean | null;
+  products?: JobProduct[];
+  /** @nullable */
+  invoiceId?: number | null;
+  /** @nullable */
+  completedAt?: string | null;
+  /** @nullable */
+  skipReason?: string | null;
+  /** @nullable */
+  skippedAt?: string | null;
+  /**
+     * Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.
+     * @nullable
+     */
+  skipBillable?: boolean | null;
+  /**
+     * Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.
+     * @nullable
+     */
+  skipNotice?: string | null;
+  /**
+     * The assigned service's must-read note, when one is in force on this visit's day. The contractor must open it before Start unlocks.
+     * @nullable
+     */
+  contractorNote?: string | null;
+  /**
+     * When the contractor opened the note on this visit
+     * @nullable
+     */
+  noteAcknowledgedAt?: string | null;
+  /** Closed time entries on this job, all crew, in minutes */
+  clockedMinutes?: number;
+  /** Someone is still clocked in */
+  clockOpen?: boolean;
+  billingMode?: JobBillingMode;
+  /**
+     * On a time job: the rate the clock is billed at
+     * @nullable
+     */
+  hourlyRate?: number | null;
+  /** The office set the amount by hand; the clock no longer decides it */
+  amountOverridden?: boolean;
+  /** @nullable */
+  discountType?: JobDiscountType;
+  /** @nullable */
+  discountValue?: number | null;
+  /** @nullable */
+  discountLabel?: string | null;
+  /** The discount in dollars against the current amount; its own line on the invoice */
+  discountAmount?: number;
+}
+
+export interface ClientServiceJobs {
+  upcoming: Job[];
+  history: Job[];
+}
+
+export interface PauseClientServiceInput {
+  /** @nullable */
+  reason?: string | null;
+  /**
+     * yyyy-mm-dd; the nightly check resumes it that day
+     * @nullable
+     */
+  pauseUntil?: string | null;
+  /** Resume as soon as the account balance is zero or less */
+  resumeWhenPaid?: boolean;
+  /** Pause every service this package put on the account */
+  wholePackage?: boolean;
+}
+
+export interface ClientServiceDailyRun {
+  resumed: number;
+  renewed: number;
+  /** False when today's renewal pass had already been claimed */
+  renewalsRan: boolean;
 }
 
 export type EstimateFieldFieldType = typeof EstimateFieldFieldType[keyof typeof EstimateFieldFieldType];
@@ -1472,6 +3136,69 @@ export interface ChargePresetUpdate {
   defaultPrice?: number;
 }
 
+export type ProductPresetKind = typeof ProductPresetKind[keyof typeof ProductPresetKind];
+
+
+export const ProductPresetKind = {
+  charge: 'charge',
+  product: 'product',
+} as const;
+
+/**
+ * A part or fee on the office's list (bag fee, sprinkler head, valve). A contractor picks one on the job card and types how many; the job keeps its own copy of the name and price.
+ */
+export interface ProductPreset {
+  id: number;
+  label: string;
+  defaultPrice: number;
+  kind: ProductPresetKind;
+  /**
+     * bag, each, ft — shown next to the quantity
+     * @nullable
+     */
+  unit?: string | null;
+  /** Whether the crew may add it without asking the office */
+  contractorCanAdd: boolean;
+  /** @nullable */
+  sortOrder?: number | null;
+}
+
+export interface ProductPresetInput {
+  /** @minLength 1 */
+  label: string;
+  defaultPrice: number;
+  /** @nullable */
+  unit?: string | null;
+  contractorCanAdd?: boolean;
+  /** @nullable */
+  sortOrder?: number | null;
+}
+
+export interface ProductPresetUpdate {
+  /** @minLength 1 */
+  label?: string;
+  defaultPrice?: number;
+  /** @nullable */
+  unit?: string | null;
+  contractorCanAdd?: boolean;
+  /** @nullable */
+  sortOrder?: number | null;
+}
+
+export interface MyProduct {
+  id: number;
+  label: string;
+  price: number;
+  /** @nullable */
+  unit?: string | null;
+}
+
+export interface MyJobProductInput {
+  presetId: number;
+  /** @minimum 0.01 */
+  quantity?: number;
+}
+
 /**
  * A line on an estimate. With a fieldId or serviceId the price is computed server-side from that definition; with neither it is a custom one-off charge (haul-away, dump fee, discount) whose label and submitted price are validated and kept as entered.
  */
@@ -1494,6 +3221,41 @@ export interface EstimateLine {
      * @nullable
      */
   calculatedPrice?: number | null;
+  /**
+     * Service lines only. The per-visit rate the band (or the flat rate) gave; calculatedPrice = unitPrice x quantity x visits
+     * @nullable
+     */
+  unitPrice?: number | null;
+  /**
+     * Service lines only. Null means the service's own default quantity
+     * @nullable
+     */
+  quantity?: number | null;
+  /**
+     * Service lines only. Visits per season (28 mows). Null means the service's visitsPerSeason, or one
+     * @nullable
+     */
+  visits?: number | null;
+  /**
+     * Server-computed, time-billed service lines only: the hours one visit is budgeted for. unitPrice is those hours at the service's hourly rate, so the quote shows what a visit costs.
+     * @nullable
+     */
+  hours?: number | null;
+  /**
+     * Set when this line was added as part of a package
+     * @nullable
+     */
+  packageId?: number | null;
+  /**
+     * Lines added together from one package share this key; the customer accepts or declines them as one
+     * @nullable
+     */
+  packageKey?: string | null;
+  /**
+     * The package name as it read when the line was added
+     * @nullable
+     */
+  packageName?: string | null;
 }
 
 export type EstimateStatus = typeof EstimateStatus[keyof typeof EstimateStatus];
@@ -1531,6 +3293,13 @@ export interface Estimate {
   /** @nullable */
   coverNote?: string | null;
   includeServiceDescriptions?: boolean;
+  /**
+     * The estimate document (his 'estimate' folder) rendered above the quote in the PDF and email; null keeps the plain greeting
+     * @nullable
+     */
+  coverTemplateId?: number | null;
+  /** @nullable */
+  coverTemplateName?: string | null;
   lines: EstimateLine[];
   createdAt: string;
   /** @nullable */
@@ -1568,6 +3337,11 @@ export interface EstimateInput {
   coverNote?: string | null;
   /** Spell out what each quoted service includes, using the service descriptions at send time */
   includeServiceDescriptions?: boolean;
+  /**
+     * Estimate document to lead the quote with; must be a document_templates id
+     * @nullable
+     */
+  coverTemplateId?: number | null;
   /** Write the entered field values back to the client's saved property details, matched by field label */
   savePropertyData?: boolean;
   lines: EstimateLine[];
@@ -1581,6 +3355,11 @@ export interface EstimateUpdateInput {
   /** @nullable */
   coverNote?: string | null;
   includeServiceDescriptions?: boolean;
+  /**
+     * Omit to leave unchanged; null clears it
+     * @nullable
+     */
+  coverTemplateId?: number | null;
   lines: EstimateLine[];
 }
 
@@ -1610,114 +3389,16 @@ export interface EstimateSendInput {
   photoIds?: number[];
 }
 
-export interface JobProduct {
-  id: number;
-  jobId: number;
-  name: string;
-  price: number;
-  quantity?: number;
-  /** @nullable */
-  serviceId?: number | null;
-}
-
-export interface JobProductInput {
-  /** @minLength 1 */
-  name: string;
-  price: number;
-  quantity?: number;
-}
-
-export type JobStatus = typeof JobStatus[keyof typeof JobStatus];
-
-
-export const JobStatus = {
-  scheduled: 'scheduled',
-  on_the_way: 'on_the_way',
-  in_progress: 'in_progress',
-  completed: 'completed',
-  skipped: 'skipped',
-} as const;
-
 /**
- * The client's saved property details, keyed by field label (Gate Code, Sprinkler Zones, Turf Sqft). Carried on the job so the crew can read access details from the job card without opening the client record, which a contractor cannot do.
+ * Either a preset from the parts list (presetId; name and price are copied from it) or a free-text name and price.
  */
-export type JobClientPropertyData = {[key: string]: string};
-
-export interface Job {
-  id: number;
-  clientId: number;
+export interface JobProductInput {
   /** @nullable */
-  clientName?: string | null;
-  /** @nullable */
-  clientAddress?: string | null;
-  /** @nullable */
-  clientBalance?: number | null;
-  /** @nullable */
-  lastInvoiceNumber?: number | null;
-  /** @nullable */
-  lastInvoiceBalance?: number | null;
-  /** @nullable */
-  lastInvoiceDate?: string | null;
-  /** @nullable */
-  clientLat?: number | null;
-  /** @nullable */
-  clientLng?: number | null;
-  /** @nullable */
-  city?: string | null;
-  /** @nullable */
-  clientServiceId?: number | null;
-  /** @nullable */
-  serviceId?: number | null;
-  /** @nullable */
-  serviceName?: string | null;
-  status: JobStatus;
-  dispatched: boolean;
-  /** @nullable */
-  scheduledDate?: string | null;
-  /** @nullable */
-  windowStart?: string | null;
-  /** @nullable */
-  windowEnd?: string | null;
-  /** @nullable */
-  routeOrder?: number | null;
-  /** @nullable */
-  assignedToId?: number | null;
-  /** @nullable */
-  assignedToName?: string | null;
-  /** @nullable */
-  mapNote?: string | null;
-  /** The client's saved property details, keyed by field label (Gate Code, Sprinkler Zones, Turf Sqft). Carried on the job so the crew can read access details from the job card without opening the client record, which a contractor cannot do. */
-  clientPropertyData?: JobClientPropertyData;
-  /** @nullable */
-  lastServiceDate?: string | null;
-  /** @nullable */
-  budgetedHours?: number | null;
-  amount: number;
-  /** @nullable */
-  notes?: string | null;
-  /** @nullable */
-  notesImportant?: boolean | null;
-  /** @nullable */
-  visibleToContractor?: boolean | null;
-  products?: JobProduct[];
-  /** @nullable */
-  invoiceId?: number | null;
-  /** @nullable */
-  completedAt?: string | null;
-  /** @nullable */
-  skipReason?: string | null;
-  /** @nullable */
-  skippedAt?: string | null;
-  /**
-     * Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.
-     * @nullable
-     */
-  skipBillable?: boolean | null;
-  /**
-     * Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.
-     * @nullable
-     */
-  skipNotice?: string | null;
+  presetId?: number | null;
+  /** @minLength 1 */
+  name?: string;
+  price?: number;
+  quantity?: number;
 }
 
 export interface JobInput {
@@ -1753,6 +3434,7 @@ export const JobUpdateStatus = {
   in_progress: 'in_progress',
   completed: 'completed',
   skipped: 'skipped',
+  cancelled: 'cancelled',
 } as const;
 
 export interface JobUpdate {
@@ -1762,6 +3444,11 @@ export interface JobUpdate {
      * @nullable
      */
   skipReason?: string | null;
+  /**
+     * Why the office called it off. Only meaningful with status=cancelled.
+     * @nullable
+     */
+  cancelReason?: string | null;
   /** @nullable */
   scheduledDate?: string | null;
   /** @nullable */
@@ -1825,6 +3512,7 @@ export type InvoiceStatus = typeof InvoiceStatus[keyof typeof InvoiceStatus];
 
 
 export const InvoiceStatus = {
+  pending: 'pending',
   open: 'open',
   paid: 'paid',
   partial: 'partial',
@@ -1844,6 +3532,11 @@ export interface InvoiceLineItem {
   unitPrice: number;
   total: number;
   sortOrder: number;
+  /**
+     * The missed job this line was added for; null for the invoice's own job or a typed line
+     * @nullable
+     */
+  jobId?: number | null;
 }
 
 export interface Invoice {
@@ -1851,6 +3544,14 @@ export interface Invoice {
   clientId: number;
   /** @nullable */
   clientName?: string | null;
+  /** @nullable */
+  clientAddress?: string | null;
+  /**
+     * Where an emailed invoice goes (billing email, else the contact email)
+     * @nullable
+     */
+  clientEmail?: string | null;
+  clientDoNotEmail?: boolean;
   /** @nullable */
   jobId?: number | null;
   /** @nullable */
@@ -1860,6 +3561,17 @@ export interface Invoice {
   amountPaid: number;
   /** total minus amountPaid, never negative */
   balance: number;
+  /** The customer's account balance on bills that have actually been issued (checked, emailed or printed), so he can see it next to the invoice balance. Bills still waiting to be verified are left out, along with any money taken at the door for them - this is the figure the printed coupon and the emailed bill quote to the customer. */
+  accountBalance: number;
+  /** Credit sitting on the customer's account, not yet applied to any invoice */
+  unappliedCredit?: number;
+  /** Days past the due date (invoice date when due on receipt); 0 when not past due or nothing owed */
+  daysPastDue: number;
+  /**
+     * How this customer last paid, any invoice — his "how they pay" column
+     * @nullable
+     */
+  lastPaymentMethod?: string | null;
   /** @nullable */
   notes?: string | null;
   /** The number the customer sees; falls back to id on legacy rows */
@@ -1874,6 +3586,19 @@ export interface Invoice {
   poNumber?: string | null;
   /** @nullable */
   sentAt?: string | null;
+  /** @nullable */
+  verifiedAt?: string | null;
+  /** @nullable */
+  verifiedById?: number | null;
+  /** The office has not checked this bill yet (verifiedAt is empty, it is not void, and it has never been emailed or printed). Read this, not the status - a bill paid in full at the door is already "paid" and still needs checking, while one the customer already holds was checked by the act of going out. */
+  needsVerification: boolean;
+  /**
+     * Snapshot of the customer's delivery preference at verify time (email, print, both)
+     * @nullable
+     */
+  deliveryMethod?: string | null;
+  /** @nullable */
+  printedAt?: string | null;
   lines: InvoiceLineItem[];
   createdAt: string;
 }
@@ -1885,6 +3610,67 @@ export interface InvoiceLineItemInput {
   serviceDate?: string | null;
   quantity?: number;
   unitPrice?: number;
+  /** @nullable */
+  jobId?: number | null;
+}
+
+export interface InvoiceBatchEmailInput {
+  /**
+     * @minItems 1
+     * @maxItems 500
+     */
+  ids: number[];
+}
+
+export interface InvoiceBatchOutcome {
+  invoiceId: number;
+  number: number;
+  /** @nullable */
+  clientName: string | null;
+  /** no_email, not_verified, void, already_sent, or the error text. do_not_email is not one of them: that box stops bulk notices, not a customer's bill. */
+  reason: string;
+}
+
+export interface InvoiceBatchEmailResult {
+  batchId: string;
+  sent: number;
+  failed: InvoiceBatchOutcome[];
+  skipped: InvoiceBatchOutcome[];
+}
+
+export interface AttachJobInput {
+  jobId: number;
+}
+
+export interface DeleteInvoiceInput {
+  /** Delete even though it was sent or paid; any money paid stays on the account as credit */
+  force?: boolean;
+}
+
+/**
+ * Back onto the day it was scheduled, or onto the waiting list with no day
+ */
+export type UncompleteJobInputSendTo = typeof UncompleteJobInputSendTo[keyof typeof UncompleteJobInputSendTo];
+
+
+export const UncompleteJobInputSendTo = {
+  board: 'board',
+  waiting_list: 'waiting_list',
+} as const;
+
+export interface UncompleteJobInput {
+  /** Back onto the day it was scheduled, or onto the waiting list with no day */
+  sendTo?: UncompleteJobInputSendTo;
+}
+
+export interface UncompleteJobResult {
+  jobId: number;
+  /** @nullable */
+  invoiceId: number | null;
+  /** @nullable */
+  invoiceNumber?: number | null;
+  /** true when the job's lines were the whole invoice, so the invoice was voided */
+  invoiceVoided: boolean;
 }
 
 export interface InvoiceInput {
@@ -1967,6 +3753,11 @@ export interface Payment {
   clientName?: string | null;
   /** @nullable */
   invoiceId?: number | null;
+  /**
+     * The number of the invoice it is applied to, for the payments list
+     * @nullable
+     */
+  invoiceNumber?: number | null;
   /** @nullable */
   jobId?: number | null;
   amount: number;
@@ -1999,6 +3790,222 @@ export interface PaymentInput {
   method: PaymentInputMethod;
   reference?: string;
   notes?: string;
+}
+
+export interface LocationReport {
+  /**
+     * @minimum -90
+     * @maximum 90
+     */
+  lat: number;
+  /**
+     * @minimum -180
+     * @maximum 180
+     */
+  lng: number;
+  /** @nullable */
+  accuracyM?: number | null;
+  /** @nullable */
+  heading?: number | null;
+  /** @nullable */
+  speedMps?: number | null;
+  /**
+     * The job the phone thinks it is working; ignored unless that job is assigned to the sender
+     * @nullable
+     */
+  jobId?: number | null;
+  /**
+     * When the phone took the fix (ISO); server time when omitted
+     * @nullable
+     */
+  recordedAt?: string | null;
+}
+
+export type TeamLocationSource = typeof TeamLocationSource[keyof typeof TeamLocationSource];
+
+
+export const TeamLocationSource = {
+  live: 'live',
+  clock: 'clock',
+  none: 'none',
+} as const;
+
+export type TeamLocationStatus = typeof TeamLocationStatus[keyof typeof TeamLocationStatus];
+
+
+export const TeamLocationStatus = {
+  at_job: 'at_job',
+  en_route: 'en_route',
+  idle: 'idle',
+  stale: 'stale',
+  unknown: 'unknown',
+} as const;
+
+export interface TeamLocation {
+  userId: number;
+  userName: string;
+  /** @nullable */
+  lat: number | null;
+  /** @nullable */
+  lng: number | null;
+  /** @nullable */
+  accuracyM?: number | null;
+  /** @nullable */
+  recordedAt: string | null;
+  /** @nullable */
+  ageSeconds: number | null;
+  source: TeamLocationSource;
+  status: TeamLocationStatus;
+  /** @nullable */
+  jobId?: number | null;
+  /** @nullable */
+  jobStatus?: string | null;
+  /** @nullable */
+  jobClientName?: string | null;
+  /** @nullable */
+  jobAddress?: string | null;
+}
+
+export type SmsStatusProvider = typeof SmsStatusProvider[keyof typeof SmsStatusProvider];
+
+
+export const SmsStatusProvider = {
+  none: 'none',
+  twilio: 'twilio',
+} as const;
+
+export type SmsStatusEnvKeysItem = {
+  key: string;
+  set: boolean;
+  note: string;
+};
+
+export interface SmsStatus {
+  configured: boolean;
+  provider: SmsStatusProvider;
+  /** @nullable */
+  officeNumber: string | null;
+  /** @nullable */
+  myNumber: string | null;
+  numbersAssigned: number;
+  webhookUrl: string;
+  envKeys: SmsStatusEnvKeysItem[];
+}
+
+export type SmsMessageDirection = typeof SmsMessageDirection[keyof typeof SmsMessageDirection];
+
+
+export const SmsMessageDirection = {
+  outbound: 'outbound',
+  inbound: 'inbound',
+} as const;
+
+export type SmsMessageStatus = typeof SmsMessageStatus[keyof typeof SmsMessageStatus];
+
+
+export const SmsMessageStatus = {
+  queued: 'queued',
+  sent: 'sent',
+  delivered: 'delivered',
+  failed: 'failed',
+  received: 'received',
+  forwarded: 'forwarded',
+} as const;
+
+export interface SmsMessage {
+  id: number;
+  direction: SmsMessageDirection;
+  /** @nullable */
+  clientId: number | null;
+  /** @nullable */
+  userId: number | null;
+  /** @nullable */
+  userName?: string | null;
+  /** @nullable */
+  jobId: number | null;
+  fromNumber: string;
+  toNumber: string;
+  body: string;
+  status: SmsMessageStatus;
+  /** @nullable */
+  error?: string | null;
+  createdAt: string;
+}
+
+export interface SendSmsInput {
+  /**
+     * @minLength 1
+     * @maxLength 1000
+     */
+  body: string;
+  /**
+     * @maxLength 40
+     * @nullable
+     */
+  toPhone?: string | null;
+  /** @nullable */
+  fromUserId?: number | null;
+}
+
+export interface JobSmsInput {
+  /**
+     * @minLength 1
+     * @maxLength 1000
+     */
+  body: string;
+}
+
+export interface SendSmsResult {
+  sent: boolean;
+  to: string;
+  from: string;
+  messageId: number;
+  /** @nullable */
+  error?: string | null;
+}
+
+export interface SmsNumberInput {
+  /**
+     * @maxLength 40
+     * @nullable
+     */
+  smsProxyNumber: string | null;
+}
+
+export interface InboundSmsInput {
+  From: string;
+  To: string;
+  Body?: string;
+  MessageSid?: string;
+  NumMedia?: string;
+}
+
+/**
+ * @nullable
+ */
+export type OnTheWayNoticeReason = typeof OnTheWayNoticeReason[keyof typeof OnTheWayNoticeReason] | null;
+
+
+export const OnTheWayNoticeReason = {
+  no_email: 'no_email',
+  do_not_email: 'do_not_email',
+  already_sent: 'already_sent',
+  not_on_the_way: 'not_on_the_way',
+} as const;
+
+export interface OnTheWayNotice {
+  canSend: boolean;
+  /** @nullable */
+  reason: OnTheWayNoticeReason;
+  /** @nullable */
+  sentAt: string | null;
+  templateName: string;
+}
+
+export interface OnTheWayNoticeResult {
+  sent: boolean;
+  /** @nullable */
+  reason: string | null;
 }
 
 export interface ClientEmailInput {
@@ -2684,6 +4691,80 @@ export interface DashboardSummary {
   interruptedMessageCount: number;
 }
 
+export interface DashboardAlertEstimate {
+  id: number;
+  clientId: number;
+  clientName: string;
+  total: number;
+  /** @nullable */
+  at?: string | null;
+}
+
+export interface DashboardAlertInvoice {
+  id: number;
+  number: number;
+  clientId: number;
+  clientName: string;
+  total: number;
+  /** @nullable */
+  at?: string | null;
+}
+
+export interface DashboardAlertWebRequest {
+  id: number;
+  /** @nullable */
+  name?: string | null;
+  /** @nullable */
+  address?: string | null;
+  /** @nullable */
+  message?: string | null;
+  /** @nullable */
+  at?: string | null;
+}
+
+export interface DashboardAlertFailedEmail {
+  id: number;
+  /** @nullable */
+  clientId?: number | null;
+  /** @nullable */
+  clientName?: string | null;
+  /** @nullable */
+  toEmail?: string | null;
+  /** @nullable */
+  subject?: string | null;
+  /** @nullable */
+  error?: string | null;
+  /** @nullable */
+  at?: string | null;
+}
+
+export type DashboardAlertsEstimatesAccepted = {
+  count: number;
+  items: DashboardAlertEstimate[];
+};
+
+export type DashboardAlertsInvoicesSentToday = {
+  count: number;
+  items: DashboardAlertInvoice[];
+};
+
+export type DashboardAlertsWebRequests = {
+  count: number;
+  items: DashboardAlertWebRequest[];
+};
+
+export type DashboardAlertsFailedEmails = {
+  count: number;
+  items: DashboardAlertFailedEmail[];
+};
+
+export interface DashboardAlerts {
+  estimatesAccepted: DashboardAlertsEstimatesAccepted;
+  invoicesSentToday: DashboardAlertsInvoicesSentToday;
+  webRequests: DashboardAlertsWebRequests;
+  failedEmails: DashboardAlertsFailedEmails;
+}
+
 export interface ContractorEarnings {
   contractorId: number;
   contractorName: string;
@@ -2691,6 +4772,10 @@ export interface ContractorEarnings {
   totalAmount: number;
   completedCount?: number;
 }
+
+export type ListUsersParams = {
+includeInactive?: boolean;
+};
 
 export type ListFeedbackParams = {
 status?: ListFeedbackStatus;
@@ -2704,6 +4789,27 @@ export const ListFeedbackStatus = {
   read: 'read',
   done: 'done',
 } as const;
+
+export type ListDocumentTemplatesParams = {
+category?: ListDocumentTemplatesCategory;
+};
+
+export type ListDocumentTemplatesCategory = typeof ListDocumentTemplatesCategory[keyof typeof ListDocumentTemplatesCategory];
+
+
+export const ListDocumentTemplatesCategory = {
+  client: 'client',
+  marketing: 'marketing',
+  estimate: 'estimate',
+} as const;
+
+export type ListEmailBatchesParams = {
+/**
+ * @minimum 1
+ * @maximum 500
+ */
+limit?: number;
+};
 
 export type GetQuickbooksProfitAndLossParams = {
 from?: string;
@@ -2729,6 +4835,40 @@ export const ListClientsStatus = {
   former_client: 'former_client',
 } as const;
 
+export type ExportClientsParams = {
+status?: ExportClientsStatus;
+search?: string;
+/**
+ * Comma-separated client ids. Omit to export the whole filtered list.
+ */
+ids?: string;
+};
+
+export type ExportClientsStatus = typeof ExportClientsStatus[keyof typeof ExportClientsStatus];
+
+
+export const ExportClientsStatus = {
+  lead: 'lead',
+  client: 'client',
+  former_client: 'former_client',
+} as const;
+
+export type ListClientActivityParams = {
+clientId: number;
+/**
+ * yyyy-mm-dd, inclusive
+ */
+from?: string;
+/**
+ * yyyy-mm-dd, inclusive
+ */
+to?: string;
+/**
+ * Comma-separated subset of visit,invoice,payment,email,estimate,ticket,note,event
+ */
+kinds?: string;
+};
+
 export type ListEstimatesParams = {
 clientId?: number;
 };
@@ -2737,7 +4877,44 @@ export type ListWaitingListParams = {
 date?: string;
 from?: string;
 to?: string;
+window?: ListWaitingListWindow;
+serviceId?: number;
+assignedTo?: number;
+mapCode?: string;
+city?: string;
+/**
+ * The client's state: ID or WA.
+ */
+branch?: string;
+tag?: string;
+hasNotes?: boolean;
+/**
+ * Matches the client name or service address, any part of it.
+ */
+search?: string;
+status?: ListWaitingListStatus;
 };
+
+export type ListWaitingListWindow = typeof ListWaitingListWindow[keyof typeof ListWaitingListWindow];
+
+
+export const ListWaitingListWindow = {
+  open: 'open',
+  past: 'past',
+  all: 'all',
+} as const;
+
+export type ListWaitingListStatus = typeof ListWaitingListStatus[keyof typeof ListWaitingListStatus];
+
+
+export const ListWaitingListStatus = {
+  scheduled: 'scheduled',
+  on_the_way: 'on_the_way',
+  in_progress: 'in_progress',
+  completed: 'completed',
+  skipped: 'skipped',
+  cancelled: 'cancelled',
+} as const;
 
 export type ListJobsParams = {
 date?: string;
@@ -2748,6 +4925,17 @@ status?: ListJobsStatus;
 city?: string;
 serviceId?: number;
 clientId?: number;
+mapCode?: string;
+/**
+ * The client's state: ID or WA.
+ */
+branch?: string;
+tag?: string;
+/**
+ * Matches the client name or service address, any part of it.
+ */
+search?: string;
+hasNotes?: boolean;
 };
 
 export type ListJobsStatus = typeof ListJobsStatus[keyof typeof ListJobsStatus];
@@ -2759,6 +4947,7 @@ export const ListJobsStatus = {
   in_progress: 'in_progress',
   completed: 'completed',
   skipped: 'skipped',
+  cancelled: 'cancelled',
 } as const;
 
 export type ListMyJobsParams = {
@@ -2774,17 +4963,46 @@ date: string;
 export type ListInvoicesParams = {
 clientId?: number;
 status?: ListInvoicesStatus;
+/**
+ * His invoice tabs. pending = completed jobs waiting for him to verify; to_email / to_print = verified and not yet sent by that method; open = anything still owed; past_due = open and past its due date (invoice date when the terms are due on receipt).
+ */
+queue?: ListInvoicesQueue;
+/**
+ * Customer name, address or invoice number
+ */
+search?: string;
 };
 
 export type ListInvoicesStatus = typeof ListInvoicesStatus[keyof typeof ListInvoicesStatus];
 
 
 export const ListInvoicesStatus = {
+  pending: 'pending',
   open: 'open',
   paid: 'paid',
   partial: 'partial',
   void: 'void',
 } as const;
+
+export type ListInvoicesQueue = typeof ListInvoicesQueue[keyof typeof ListInvoicesQueue];
+
+
+export const ListInvoicesQueue = {
+  pending: 'pending',
+  to_email: 'to_email',
+  to_print: 'to_print',
+  open: 'open',
+  past_due: 'past_due',
+  paid: 'paid',
+  void: 'void',
+} as const;
+
+export type PrintInvoicesParams = {
+/**
+ * Comma-separated invoice ids
+ */
+ids: string;
+};
 
 export type ListPaymentsParams = {
 clientId?: number;
@@ -2792,7 +5010,32 @@ clientId?: number;
  * Only payments not attached to an invoice (credit on account)
  */
 unapplied?: boolean;
+/**
+ * Customer name, reference / check number, amount or invoice number
+ */
+search?: string;
+/**
+ * Payment date from (YYYY-MM-DD)
+ */
+from?: string;
+/**
+ * Payment date to (YYYY-MM-DD)
+ */
+to?: string;
+method?: ListPaymentsMethod;
 };
+
+export type ListPaymentsMethod = typeof ListPaymentsMethod[keyof typeof ListPaymentsMethod];
+
+
+export const ListPaymentsMethod = {
+  check: 'check',
+  venmo: 'venmo',
+  zelle: 'zelle',
+  credit_card: 'credit_card',
+  cash: 'cash',
+  other: 'other',
+} as const;
 
 export type ListTicketsParams = {
 clientId?: number;
@@ -2860,5 +5103,34 @@ export const ListWebRequestsStatus = {
 export type GetCostingReportParams = {
 from: string;
 to: string;
+};
+
+export type GetReportParams = {
+key: string;
+from: string;
+to: string;
+format?: GetReportFormat;
+};
+
+export type GetReportFormat = typeof GetReportFormat[keyof typeof GetReportFormat];
+
+
+export const GetReportFormat = {
+  json: 'json',
+  csv: 'csv',
+} as const;
+
+export type GlobalSearchParams = {
+/**
+ * @minLength 2
+ */
+q: string;
+};
+
+export type ListTeamLocationsParams = {
+/**
+ * The dispatch day to judge "at a job" against; today when omitted
+ */
+date?: string;
 };
 

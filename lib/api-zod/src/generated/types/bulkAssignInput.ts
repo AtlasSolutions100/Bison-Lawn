@@ -29,4 +29,6 @@ export interface BulkAssignInput {
      * @nullable
      */
   routeOrderFrom?: number | null;
+  /** Wipe the route numbers off these jobs. This is the first half of "set route order": clear, then click the stops in the order they should be driven. */
+  clearRouteOrder?: boolean;
 }

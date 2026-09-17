@@ -5,8 +5,15 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+import type { ClientServiceBillingMode } from './clientServiceBillingMode';
+import type { ClientServiceDiscountType } from './clientServiceDiscountType';
+import type { ClientServiceFrequency } from './clientServiceFrequency';
 import type { ClientServiceScheduleType } from './clientServiceScheduleType';
+import type { ClientServiceWeekParity } from './clientServiceWeekParity';
 
+/**
+ * A service on a customer's account (2026-09-15 walkthrough): the contractor it always goes to, the cadence in words, the price and where the matrix got it, a discount that prints as its own invoice line, the must-read crew note with its dates, pause state, and what is ahead / behind.
+ */
 export interface ClientService {
   id: number;
   clientId: number;
@@ -14,10 +21,20 @@ export interface ClientService {
   /** @nullable */
   serviceName?: string | null;
   /** @nullable */
+  serviceCode?: string | null;
+  /** From the service. On a time service `amount` is the hourly rate. */
+  billingMode: ClientServiceBillingMode;
+  /** @nullable */
   packageId?: number | null;
   /** @nullable */
   packageName?: string | null;
+  /**
+     * The package entry's label, e.g. Timer adjustment — June
+     * @nullable
+     */
+  label?: string | null;
   quantity: number;
+  /** Per visit (or per hour on a time service, or the contract's annual total split is in retailAmount) */
   amount: number;
   scheduleType: ClientServiceScheduleType;
   /** @nullable */
@@ -34,4 +51,86 @@ export interface ClientService {
   renewDate?: string | null;
   /** @nullable */
   budgetedHours?: number | null;
+  /** @nullable */
+  lastRenewedAt?: string | null;
+  /** @nullable */
+  assignedToId?: number | null;
+  /** @nullable */
+  assignedToName?: string | null;
+  /** @nullable */
+  frequency?: ClientServiceFrequency;
+  /**
+     * 0 Sunday to 6 Saturday
+     * @nullable
+     */
+  weekday?: number | null;
+  /**
+     * ISO week parity for bi-weekly
+     * @nullable
+     */
+  weekParity?: ClientServiceWeekParity;
+  /**
+     * 1-4, which week of the month for monthly
+     * @nullable
+     */
+  monthlyWeek?: number | null;
+  /** Every other Wednesday (odd weeks) */
+  cadenceLabel: string;
+  /** @nullable */
+  discountType?: ClientServiceDiscountType;
+  /** @nullable */
+  discountValue?: number | null;
+  /** @nullable */
+  discountLabel?: string | null;
+  /**
+     * The note the crew must open before starting the job
+     * @nullable
+     */
+  contractorNote?: string | null;
+  /** @nullable */
+  noteStartDate?: string | null;
+  /** @nullable */
+  noteEndDate?: string | null;
+  noteActiveToday?: boolean;
+  /** @nullable */
+  pausedAt?: string | null;
+  /** @nullable */
+  pauseUntil?: string | null;
+  resumeWhenPaid: boolean;
+  /** @nullable */
+  pauseReason?: string | null;
+  /** Off means no visits are generated; a package entry can be switched off on its own */
+  active: boolean;
+  autoRenew: boolean;
+  /**
+     * The customer field the matrix priced from, e.g. Turf Sqft
+     * @nullable
+     */
+  pricedFromLabel?: string | null;
+  /** @nullable */
+  pricedFromValue?: number | null;
+  /**
+     * 8 or 12 for a contract
+     * @nullable
+     */
+  contractMonths?: number | null;
+  /**
+     * The contract's annual amount
+     * @nullable
+     */
+  contractTotal?: number | null;
+  /** Per visit before the discount (a time service: hourly rate x budgeted hours; a contract: one monthly line) */
+  retailAmount: number;
+  /** Per visit, in dollars */
+  discountAmount: number;
+  /** retailAmount less discountAmount */
+  netAmount: number;
+  upcomingCount: number;
+  upcomingTotal: number;
+  /** @nullable */
+  nextDate?: string | null;
+  completedCount: number;
+  /** @nullable */
+  lastCompletedDate?: string | null;
+  createdAt?: string;
 }

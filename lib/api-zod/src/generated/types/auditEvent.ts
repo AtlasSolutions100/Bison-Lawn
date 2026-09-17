@@ -16,5 +16,12 @@ export interface AuditEvent {
   actorName?: string | null;
   action: string;
   description: string;
+  /**
+     * Which record the event is about (invoice, payment, job); null on older rows
+     * @nullable
+     */
+  entityType?: string | null;
+  /** @nullable */
+  entityId?: number | null;
   createdAt: string;
 }

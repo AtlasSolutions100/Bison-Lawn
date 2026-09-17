@@ -28,4 +28,39 @@ export interface EstimateLine {
      * @nullable
      */
   calculatedPrice?: number | null;
+  /**
+     * Service lines only. The per-visit rate the band (or the flat rate) gave; calculatedPrice = unitPrice x quantity x visits
+     * @nullable
+     */
+  unitPrice?: number | null;
+  /**
+     * Service lines only. Null means the service's own default quantity
+     * @nullable
+     */
+  quantity?: number | null;
+  /**
+     * Service lines only. Visits per season (28 mows). Null means the service's visitsPerSeason, or one
+     * @nullable
+     */
+  visits?: number | null;
+  /**
+     * Server-computed, time-billed service lines only: the hours one visit is budgeted for. unitPrice is those hours at the service's hourly rate, so the quote shows what a visit costs.
+     * @nullable
+     */
+  hours?: number | null;
+  /**
+     * Set when this line was added as part of a package
+     * @nullable
+     */
+  packageId?: number | null;
+  /**
+     * Lines added together from one package share this key; the customer accepts or declines them as one
+     * @nullable
+     */
+  packageKey?: string | null;
+  /**
+     * The package name as it read when the line was added
+     * @nullable
+     */
+  packageName?: string | null;
 }

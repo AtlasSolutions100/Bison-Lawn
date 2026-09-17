@@ -2,13 +2,14 @@ import { Router, type IRouter } from "express";
 import { db, jobsTable } from "@workspace/db";
 import { inArray, sql } from "drizzle-orm";
 import { BulkAssignJobsBody } from "@workspace/api-zod";
-import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
+import { requireAuth } from "../middlewares/requireAuth";
+import { requireArea } from "../lib/access";
 import { logAudit } from "../lib/helpers";
 
 const router: IRouter = Router();
 
 // Moving other people's work around the board is an office job.
-router.use(["/jobs/bulk-assign"], requireAuth, requireAdmin);
+router.use(["/jobs/bulk-assign"], requireAuth, requireArea("dispatch"));
 
 const isDate = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
 
@@ -37,6 +38,15 @@ router.post("/jobs/bulk-assign", async (req, res) => {
   if (has("assignedToId")) patch.assignedToId = body.assignedToId ?? null;
   if (has("scheduledDate")) patch.scheduledDate = body.scheduledDate ?? null;
   if (has("dispatched") && body.dispatched != null) patch.dispatched = body.dispatched;
+  // "Set route order" starts by wiping the numbers so he can click the stops in
+  // the order they should be driven. Clearing and numbering in one call would
+  // be contradictory, so the clear wins and the numbering is refused.
+  if (body.clearRouteOrder === true) {
+    if (body.routeOrderFrom != null) {
+      return res.status(400).json({ error: "Clear the route order or number it, not both at once" });
+    }
+    patch.routeOrder = null;
+  }
 
   if (Object.keys(patch).length === 0 && body.routeOrderFrom == null) {
     return res.status(400).json({ error: "Nothing to change" });
@@ -69,6 +79,7 @@ router.post("/jobs/bulk-assign", async (req, res) => {
     has("scheduledDate") ? (body.scheduledDate == null ? "date cleared" : `moved to ${body.scheduledDate}`) : null,
     has("dispatched") && body.dispatched != null ? (body.dispatched ? "dispatched" : "returned to the waiting list") : null,
     body.routeOrderFrom != null ? `route order set from ${body.routeOrderFrom}` : null,
+    body.clearRouteOrder === true ? "route order cleared" : null,
   ].filter(Boolean);
 
   await logAudit({

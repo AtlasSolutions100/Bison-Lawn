@@ -14,6 +14,11 @@ export interface JobUpdate {
      * @nullable
      */
   skipReason?: string | null;
+  /**
+     * Why the office called it off. Only meaningful with status=cancelled.
+     * @nullable
+     */
+  cancelReason?: string | null;
   /** @nullable */
   scheduledDate?: string | null;
   /** @nullable */

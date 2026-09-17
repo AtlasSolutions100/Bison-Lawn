@@ -10,6 +10,7 @@ export type ListInvoicesStatus = typeof ListInvoicesStatus[keyof typeof ListInvo
 
 
 export const ListInvoicesStatus = {
+  pending: 'pending',
   open: 'open',
   paid: 'paid',
   partial: 'partial',

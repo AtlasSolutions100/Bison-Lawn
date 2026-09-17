@@ -147,11 +147,17 @@ for (const r of active) {
   const pricingField = matrixField
     ? `(SELECT id FROM estimate_fields WHERE lower(label) = lower(${q(matrixField)}) LIMIT 1)`
     : 'NULL';
+  // 2026-09-15 walkthrough: the CODE and the INVOICE DESCRIPTION are their own
+  // columns now (the waiting list shows the code, the bill prints the invoice
+  // description), so a re-import fills them instead of folding both
+  // descriptions into one. `description` keeps the customer-facing estimate
+  // text, falling back to the invoice text as before for services with none.
   out.push(
-    `INSERT INTO services (external_id, name, description, rate, billable_hours, quantity, pricing_field_id, pricing_equations)
-VALUES (${q(externalId)}, ${q(name)}, ${q(s(r.InvoiceDescription) ?? s(r.EstimateDescription))}, ${qn(num(r.DefaultRate) ?? 0)}, ${qn(num(r.DefaultBudgetedHours))}, 1, ${pricingField}, '[]'::jsonb)
+    `INSERT INTO services (external_id, code, name, description, invoice_description, rate, billable_hours, quantity, pricing_field_id, pricing_equations)
+VALUES (${q(externalId)}, ${q(code)}, ${q(name)}, ${q(s(r.EstimateDescription) ?? s(r.InvoiceDescription))}, ${q(s(r.InvoiceDescription))}, ${qn(num(r.DefaultRate) ?? 0)}, ${qn(num(r.DefaultBudgetedHours))}, 1, ${pricingField}, '[]'::jsonb)
 ON CONFLICT (external_id) DO UPDATE SET
-  name = EXCLUDED.name, description = EXCLUDED.description, rate = EXCLUDED.rate,
+  code = EXCLUDED.code, name = EXCLUDED.name, description = EXCLUDED.description,
+  invoice_description = EXCLUDED.invoice_description, rate = EXCLUDED.rate,
   billable_hours = EXCLUDED.billable_hours, pricing_field_id = EXCLUDED.pricing_field_id;`,
   );
 }

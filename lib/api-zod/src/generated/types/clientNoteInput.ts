@@ -5,8 +5,10 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+import type { ClientNoteInputStatus } from './clientNoteInputStatus';
 
 export interface ClientNoteInput {
   /** @minLength 1 */
   body: string;
+  status?: ClientNoteInputStatus;
 }

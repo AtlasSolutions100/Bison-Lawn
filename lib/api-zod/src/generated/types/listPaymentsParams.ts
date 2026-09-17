@@ -5,6 +5,7 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+import type { ListPaymentsMethod } from './listPaymentsMethod';
 
 export type ListPaymentsParams = {
 clientId?: number;
@@ -12,4 +13,17 @@ clientId?: number;
  * Only payments not attached to an invoice (credit on account)
  */
 unapplied?: boolean;
+/**
+ * Customer name, reference / check number, amount or invoice number
+ */
+search?: string;
+/**
+ * Payment date from (YYYY-MM-DD)
+ */
+from?: string;
+/**
+ * Payment date to (YYYY-MM-DD)
+ */
+to?: string;
+method?: ListPaymentsMethod;
 };

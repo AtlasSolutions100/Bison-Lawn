@@ -1,10 +1,11 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { db, jobPhotosTable, jobsTable, usersTable } from "@workspace/db";
+import { db, clientsTable, jobPhotosTable, jobsTable, usersTable } from "@workspace/db";
 import type { JobPhoto } from "@workspace/db";
 import { desc, eq, inArray } from "drizzle-orm";
-import { UploadJobPhotoBody } from "@workspace/api-zod";
+import { UploadJobPhotoBody, UploadClientPhotoBody, UpdatePhotoBody } from "@workspace/api-zod";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
 import { logAudit } from "../lib/helpers";
+import { shownName } from "../lib/userAccounts";
 import {
   MAX_UPLOAD_BYTES,
   deleteFile,
@@ -59,7 +60,7 @@ async function hydrate(rows: JobPhoto[]) {
   const users = userIds.length
     ? await db.select().from(usersTable).where(inArray(usersTable.id, userIds))
     : [];
-  const uMap = new Map(users.map((u) => [u.id, u.name]));
+  const uMap = new Map(users.map((u) => [u.id, shownName(u)]));
   return rows.map((r) => ({
     id: r.id,
     jobId: r.jobId,
@@ -86,15 +87,23 @@ router.get("/jobs/:id/photos", async (req, res) => {
   return res.json(await hydrate(rows));
 });
 
-router.post("/jobs/:id/photos", async (req, res) => {
-  const body = UploadJobPhotoBody.parse(req.body);
-  const job = await loadAccessibleJob(req, res);
-  if (!job) return;
+type UploadBody = { contentType: string; dataBase64: string; kind: "before" | "after" | "other"; caption?: string | null };
 
+/**
+ * Decode, check and store one upload, then write its row. Shared by the job
+ * upload and the account-level upload so the size and type rules cannot drift
+ * between the crew's phone and the office's desk. Returns the stored row, or
+ * an error message the caller sends back as a 400.
+ */
+async function storeUpload(
+  req: Request,
+  body: UploadBody,
+  target: { jobId: number | null; clientId: number },
+): Promise<{ photo: JobPhoto } | { error: string }> {
   // The enum in the schema and the storage layer's own list can drift apart —
   // storage is the one that has to be able to hand the file back, so it decides.
   if (!isAllowedContentType(body.contentType)) {
-    return res.status(400).json({ error: `${body.contentType} files cannot be stored` });
+    return { error: `${body.contentType} files cannot be stored` };
   }
 
   // A phone can send a data: URL straight out of a canvas or FileReader; the
@@ -103,14 +112,12 @@ router.post("/jobs/:id/photos", async (req, res) => {
   // Checked against the encoded length first so a 20MB overshoot is rejected
   // before it is materialised into a buffer only to be thrown away.
   if (Math.floor((encoded.length * 3) / 4) > MAX_UPLOAD_BYTES) {
-    return res.status(400).json({
-      error: `Photo is larger than the ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)}MB limit`,
-    });
+    return { error: `Photo is larger than the ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)}MB limit` };
   }
 
   const bytes = Buffer.from(encoded, "base64");
   if (bytes.byteLength === 0) {
-    return res.status(400).json({ error: "Photo was empty or not valid base64" });
+    return { error: "Photo was empty or not valid base64" };
   }
 
   let stored: Awaited<ReturnType<typeof saveFile>>;
@@ -119,17 +126,17 @@ router.post("/jobs/:id/photos", async (req, res) => {
   } catch (err) {
     // saveFile's own limits are the last word on what is storable, and a
     // rejection there is the caller's fault, not a server fault.
-    req.log.warn({ err, jobId: job.id }, "photo upload rejected by file storage");
-    return res.status(400).json({ error: (err as Error).message });
+    req.log.warn({ err, ...target }, "photo upload rejected by file storage");
+    return { error: (err as Error).message };
   }
 
   const photo = await db
     .insert(jobPhotosTable)
     .values({
-      jobId: job.id,
+      jobId: target.jobId,
       // Denormalised from the job so the office can still find the photo when
       // looking at the customer years later, whatever became of the job.
-      clientId: job.clientId,
+      clientId: target.clientId,
       uploadedById: req.appUser!.id,
       storageKey: stored.key,
       contentType: body.contentType,
@@ -149,6 +156,16 @@ router.post("/jobs/:id/photos", async (req, res) => {
       await deleteFile(stored.key).catch(() => {});
       throw err;
     });
+  return { photo };
+}
+
+router.post("/jobs/:id/photos", async (req, res) => {
+  const body = UploadJobPhotoBody.parse(req.body);
+  const job = await loadAccessibleJob(req, res);
+  if (!job) return;
+
+  const result = await storeUpload(req, body, { jobId: job.id, clientId: job.clientId });
+  if ("error" in result) return res.status(400).json({ error: result.error });
 
   await logAudit({
     clientId: job.clientId,
@@ -157,7 +174,55 @@ router.post("/jobs/:id/photos", async (req, res) => {
     description: `${body.kind} photo added to job #${job.id}`,
   });
 
-  return res.status(201).json((await hydrate([photo]))[0]);
+  return res.status(201).json((await hydrate([result.photo]))[0]);
+});
+
+// The office saving something straight to the customer: a photo a sub texted
+// in, the backflow test form, a picture of where the shut-off is. No job
+// behind it, so this is the one upload path that is office-only.
+router.post("/clients/:id/photos", requireAdmin, async (req, res) => {
+  const body = UploadClientPhotoBody.parse(req.body);
+  const clientId = Number(req.params.id);
+  const [client] = await db.select().from(clientsTable).where(eq(clientsTable.id, clientId));
+  if (!client) return res.status(404).json({ error: "Client not found" });
+
+  const result = await storeUpload(req, body, { jobId: null, clientId });
+  if ("error" in result) return res.status(400).json({ error: result.error });
+
+  const what = body.contentType === "application/pdf" ? "file" : `${body.kind} photo`;
+  await logAudit({
+    clientId,
+    actorName: req.appUser?.name,
+    action: "client_photo_uploaded",
+    description: `${what} added to ${client.name}${body.caption ? ` — ${body.caption}` : ""}`,
+  });
+
+  return res.status(201).json((await hydrate([result.photo]))[0]);
+});
+
+// Relabel: which one is "before" and which is "after" is often only clear
+// once both exist, so the label has to be changeable after the fact.
+router.patch("/photos/:id", async (req, res) => {
+  const body = UpdatePhotoBody.parse(req.body);
+  const [photo] = await db
+    .select()
+    .from(jobPhotosTable)
+    .where(eq(jobPhotosTable.id, Number(req.params.id)));
+  if (!photo) return res.status(404).json({ error: "Photo not found" });
+
+  // Same rule as delete: the office, or the person who took it.
+  const isOwnUpload = photo.uploadedById != null && photo.uploadedById === req.appUser?.id;
+  if (req.appUser?.role !== "admin" && !isOwnUpload) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  const set: { kind?: string; caption?: string | null } = {};
+  if (body.kind !== undefined) set.kind = body.kind;
+  if (body.caption !== undefined) set.caption = body.caption;
+  const [updated] = Object.keys(set).length
+    ? await db.update(jobPhotosTable).set(set).where(eq(jobPhotosTable.id, photo.id)).returning()
+    : [photo];
+  return res.json((await hydrate([updated]))[0]);
 });
 
 // Admin-only, and deliberately so: this is the office's "come back to it later"

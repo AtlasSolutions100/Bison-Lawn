@@ -13,6 +13,7 @@ import { CompleteVendorRunBody, ListVendorRunsQueryParams } from "@workspace/api
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
 import { logAudit, recalcClientBalance, recalcInvoice } from "../lib/helpers";
 import { createInvoiceForJob } from "../lib/invoiceFromJob";
+import { discountAmountFor } from "../lib/jobGeneration";
 
 const router: IRouter = Router();
 
@@ -204,16 +205,23 @@ router.post("/vendor-runs/complete", async (req, res) => {
           .from(paymentsTable)
           .where(and(eq(paymentsTable.jobId, job.id), isNull(paymentsTable.invoiceId)));
         const pendingFees = pendingPayments.reduce((sum, payment) => sum + payment.cardFee, 0);
-        const total = Math.round((job.amount + productTotal + pendingFees) * 100) / 100;
+        // The assigned service's discount rides on the job like the amount does,
+        // and prints as its own line here the same as on a crew-completed visit.
+        // It comes off the service only — the base the board and the account
+        // page use — so a percent discount is the same number everywhere.
+        const discount = discountAmountFor(job.amount, job.discountType, job.discountValue);
+        const total = Math.round((job.amount + productTotal + pendingFees - discount) * 100) / 100;
 
         const invoice = await createInvoiceForJob(tx, {
           clientId,
           jobId: job.id,
           serviceAmount: job.amount,
           serviceName: service.name,
+          invoiceDescription: service.invoiceDescription,
           serviceDate: body.serviceDate,
           products: products.map((p) => ({ name: p.name, price: p.price, quantity: p.quantity })),
           pendingFees,
+          discount: discount > 0 ? { label: job.discountLabel?.trim() || "Discount", amount: discount } : null,
         });
         await tx
           .update(paymentsTable)

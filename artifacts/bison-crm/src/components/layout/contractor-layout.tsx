@@ -2,6 +2,7 @@ import { Link, useLocation } from 'wouter';
 import { useClerk } from '@clerk/react';
 import { Map, ListTodo, LogOut } from 'lucide-react';
 import { FeedbackButton } from '@/components/feedback-button';
+import { LocationBeacon } from '@/components/location-beacon';
 
 export function ContractorLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
@@ -28,6 +29,9 @@ export function ContractorLayout({ children }: { children: React.ReactNode }) {
           <LogOut className="w-5 h-5" />
         </button>
       </header>
+
+      {/* GPS-SMS: asks once, then tells the crew whether the office can see them (owns the only location watcher) */}
+      <LocationBeacon />
 
       {/* Main Content Area */}
       <main className="flex-1 overflow-y-auto pb-20 bg-muted/30">

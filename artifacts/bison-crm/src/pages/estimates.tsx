@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { 
+import {
   useListEstimates, useGetEstimate, useCreateEstimate, useUpdateEstimate, useDeleteEstimate, useSendEstimate,
   useReconcileEstimateDelivery,
   useListEstimateFields, useCreateEstimateField, useUpdateEstimateField, useDeleteEstimateField,
@@ -9,15 +9,15 @@ import {
   getListDocumentTemplatesQueryKey, getListClientPhotosQueryKey
 } from '@workspace/api-client-react';
 import type {
-  ChargePreset, Estimate, EstimateField, EstimateFieldInput, EstimateLine, EstimateSendInput, Service
+  ChargePreset, Client, DocumentTemplate, Estimate, EstimateField, EstimateFieldInput, EstimateLine, EstimateSendInput, Service
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocation, useSearch } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
-import { Download, Send, Trash2, Plus, AlertCircle, Pencil, Bookmark, RotateCcw } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Download, Send, Trash2, Plus, AlertCircle, Pencil, Bookmark, RotateCcw, FileText, MapPin, Phone, Mail } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useUnsavedChangesWarning } from '@/hooks/use-unsaved-changes-warning';
 import { cn } from '@/lib/utils';
@@ -29,7 +29,17 @@ import {
   writeEstimateDraft,
   type EstimateDraft,
   type StoredSelection,
+  type StoredServiceLine,
 } from '@/lib/estimate-draft-storage';
+import ClientPicker, { NEW_PROSPECT, clientCaption } from '@/components/estimates/client-picker';
+import ServiceLinesEditor, {
+  lineCount,
+  money,
+  pricingFieldFor,
+  serviceLineMath,
+  withLineKey,
+  type ServiceLineDraft,
+} from '@/components/estimates/service-lines';
 
 const isEditableDraft = (estimate: Estimate) =>
   estimate.status === 'draft' &&
@@ -60,18 +70,26 @@ const describeBytes = (byteSize: number) => {
  */
 const CONTRACT_TEMPLATE_KEY = 'service-contract';
 
-const NEW_PROSPECT = '__new_prospect__';
+/**
+ * The documents that can lead a quote (P6): whatever he filed under his
+ * "estimate" folder, plus the older proposal letters that were written as
+ * estimate covers before the folders existed.
+ */
+const isCoverDocument = (template: DocumentTemplate) =>
+  template.key !== CONTRACT_TEMPLATE_KEY && (template.category === 'estimate' || template.kind === 'estimate_cover');
+
 type ProspectDraft = { name: string; address: string; city: string; email: string; phone: string };
 type BuilderDraftExtras = {
   estimateId: number | null;
   clientId: string;
   coverNote: string;
   includeServiceDescriptions: boolean;
+  coverTemplateId: number | null;
   prospect: ProspectDraft;
   createdProspectId: number | null;
 };
 const emptyProspect = (): ProspectDraft => ({ name: '', address: '', city: '', email: '', phone: '' });
-const extrasKey = (key: string) => `${key}:builder-extras-v1`;
+const extrasKey = (key: string) => `${key}:builder-extras-v2`;
 function readDraftExtras(key: string): BuilderDraftExtras | null {
   try {
     const value = JSON.parse(localStorage.getItem(extrasKey(key)) ?? 'null') as Partial<BuilderDraftExtras> | null;
@@ -86,6 +104,7 @@ function readDraftExtras(key: string): BuilderDraftExtras | null {
       clientId: typeof value.clientId === 'string' ? value.clientId : '',
       coverNote: value.coverNote,
       includeServiceDescriptions: value.includeServiceDescriptions,
+      coverTemplateId: typeof value.coverTemplateId === 'number' ? value.coverTemplateId : null,
       prospect,
       createdProspectId: typeof value.createdProspectId === 'number' ? value.createdProspectId : null,
     };
@@ -128,7 +147,7 @@ export default function Estimates() {
   const reconcileDelivery = useReconcileEstimateDelivery();
   const { data: clients } = useListClients();
   const queryClient = useQueryClient();
-  const [sendTarget, setSendTarget] = useState<{ id: number; clientId: number; email: string; clientName: string } | null>(null);
+  const [sendTarget, setSendTarget] = useState<{ id: number; clientId: number; email: string; clientName: string; coverTemplateName: string | null } | null>(null);
   const [sendEmail, setSendEmail] = useState('');
   const [sendMessage, setSendMessage] = useState('Thank you for the opportunity to care for your property. Please review the attached estimate.');
   const [sendError, setSendError] = useState('');
@@ -141,7 +160,7 @@ export default function Estimates() {
 
   // Only fetched once the dialog is open — neither list is worth a request on
   // every visit to the estimates page.
-  const { data: documentTemplates } = useListDocumentTemplates({
+  const { data: documentTemplates } = useListDocumentTemplates(undefined, {
     query: { queryKey: getListDocumentTemplatesQueryKey(), enabled: !!sendTarget },
   });
   const { data: clientPhotos } = useListClientPhotos(sendTarget?.clientId ?? 0, {
@@ -156,7 +175,13 @@ export default function Estimates() {
 
   const openSend = (estimate: NonNullable<typeof estimates>[number]) => {
     const email = clients?.find(c => c.id === estimate.clientId)?.email ?? '';
-    setSendTarget({ id: estimate.id, clientId: estimate.clientId, email, clientName: estimate.clientName ?? 'Client' });
+    setSendTarget({
+      id: estimate.id,
+      clientId: estimate.clientId,
+      email,
+      clientName: estimate.clientName ?? 'Client',
+      coverTemplateName: estimate.coverTemplateName ?? null,
+    });
     setSendEmail(email);
     setSendError('');
     setSendDocumentIds([]);
@@ -169,7 +194,6 @@ export default function Estimates() {
   const handleSend = () => {
     if (!sendTarget) return;
     setSendError('');
-    // The generated EstimateSendInput has no attachment fields yet, so the body
     const data: EstimateSendInput = {
       toEmail: sendEmail,
       message: sendMessage,
@@ -395,8 +419,19 @@ export default function Estimates() {
                 ) : (
                   estimates.map(e => (
                     <TableRow key={e.id}>
-                      <TableCell className="font-medium">{e.clientName}</TableCell>
-                      <TableCell className="font-semibold">${e.total.toLocaleString(undefined, {minimumFractionDigits:2})}</TableCell>
+                      <TableCell className="font-medium">
+                        {e.clientName}
+                        <div className="text-xs text-muted-foreground font-normal">
+                          #{e.id} · {e.lines.filter(l => l.serviceId != null).length} service{e.lines.filter(l => l.serviceId != null).length === 1 ? '' : 's'}
+                          {e.coverTemplateName ? ` · ${e.coverTemplateName}` : ''}
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-semibold">
+                        ${e.total.toLocaleString(undefined, {minimumFractionDigits:2})}
+                        {e.status === 'accepted' && e.acceptedTotal != null && e.acceptedTotal !== e.total && (
+                          <div className="text-xs text-muted-foreground font-normal">accepted {money(e.acceptedTotal)}</div>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <span className={`px-2 py-1 rounded text-xs font-bold ${
                           e.status === 'accepted' ? 'bg-green-100 text-green-800' :
@@ -533,6 +568,11 @@ export default function Estimates() {
                 value={sendMessage}
                 onChange={e => setSendMessage(e.target.value)}
               />
+              {sendTarget?.coverTemplateName && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Your “{sendTarget.coverTemplateName}” document leads the estimate; this message sits above it as a personal note.
+                </p>
+              )}
             </div>
             <div>
               <label className="text-sm font-medium mb-1 block">Documents to include</label>
@@ -604,7 +644,7 @@ export default function Estimates() {
             </div>
 
             <p className="text-xs text-muted-foreground">
-              The email includes a polished PDF plus secure Accept and Decline buttons.
+              The email includes a polished PDF plus a link where the customer ticks the services and packages they want.
             </p>
             {sendError && (
               <div className="flex gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
@@ -626,33 +666,12 @@ export default function Estimates() {
   );
 }
 
-const money = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
 function fieldLinePrice(field: EstimateField, value: string): number | null {
   if (field.fieldType !== 'calculable') return null;
   const numeric = Number(value);
   if (!Number.isFinite(numeric) || value.trim() === '') return null;
   const unitSize = field.unitSize && field.unitSize > 0 ? field.unitSize : 1;
   return Math.round((numeric / unitSize) * (field.pricePerUnit ?? 0) * 100) / 100;
-}
-
-function serviceLinePrice(service: Service, value: string): number {
-  const numeric = Number(value);
-  const eqs = service.pricingEquations ?? [];
-  if (eqs.length > 0 && Number.isFinite(numeric) && value.trim() !== '') {
-    let idx = eqs.findIndex(e => e.upToSqft != null && numeric <= e.upToSqft);
-    if (idx === -1) {
-      idx = eqs.findIndex(e => e.upToSqft == null);
-      if (idx === -1) idx = eqs.length - 1;
-    }
-    const eq = eqs[idx];
-    let price = eq.basePrice;
-    if (numeric > eq.baseSqft && eq.incrementSqft > 0) {
-      price += Math.ceil((numeric - eq.baseSqft) / eq.incrementSqft) * eq.incrementPrice;
-    }
-    return Math.round(price * 100) / 100;
-  }
-  return Math.round(service.rate * service.quantity * 100) / 100;
 }
 
 type SelectionState = Record<number, { selected: boolean; value: string }>;
@@ -669,16 +688,18 @@ function customLinePrice(raw: string): number | null {
   return Number.isFinite(numeric) ? Math.round(numeric * 100) / 100 : null;
 }
 
+/** What the builder holds, flattened so two states can be compared for "dirty". */
 function builderSnapshot(
   clientId: string,
   notes: string,
   fields: SelectionState,
-  services: SelectionState,
+  serviceLines: ServiceLineDraft[],
   customLines: CustomLineDraft[],
   coverNote = '',
   includeServiceDescriptions = false,
   prospect: ProspectDraft = emptyProspect(),
   savePropertyData = true,
+  coverTemplateId: number | null = null,
 ) {
   const normalize = (state: SelectionState) =>
     Object.entries(state)
@@ -690,10 +711,11 @@ function builderSnapshot(
     notes,
     coverNote,
     includeServiceDescriptions,
+    coverTemplateId,
     prospect,
     savePropertyData,
     fields: normalize(fields),
-    services: normalize(services),
+    services: serviceLines.map(storedServiceLine),
     custom: customLines.map(c => [c.label, c.value, c.price]),
   });
 }
@@ -705,6 +727,22 @@ function selectionToStored(state: SelectionState): StoredSelection[] {
     .map(([id, v]) => ({ id: Number(id), selected: v.selected, value: v.value }))
     .sort((a, b) => a.id - b.id);
 }
+const storedServiceLine = ({ key: _key, ...line }: ServiceLineDraft): StoredServiceLine => line;
+
+/** A saved estimate line back into the shape the builder edits. */
+function serviceLineFromSaved(line: EstimateLine): ServiceLineDraft {
+  return withLineKey({
+    serviceId: line.serviceId!,
+    label: line.label,
+    value: line.value,
+    quantity: line.quantity == null ? '' : String(line.quantity),
+    visits: line.visits == null ? '' : String(line.visits),
+    packageId: line.packageId ?? null,
+    packageKey: line.packageKey ?? null,
+    packageName: line.packageName ?? null,
+  });
+}
+
 type VersionConflict = { message: string; current: Estimate | null };
 function EstimateBuilder({
   editEstimate, initialDraft, initialClientId, storageKey, persistDraft,
@@ -741,13 +779,18 @@ function EstimateBuilder({
   const [includeServiceDescriptions, setIncludeServiceDescriptions] = useState(
     usableExtras?.includeServiceDescriptions ?? editEstimate?.includeServiceDescriptions ?? false,
   );
+  const [coverTemplateId, setCoverTemplateId] = useState<number | null>(
+    usableExtras ? usableExtras.coverTemplateId : editEstimate?.coverTemplateId ?? null,
+  );
   const [prospect, setProspect] = useState<ProspectDraft>(usableExtras?.prospect ?? emptyProspect());
   const [createdProspectId, setCreatedProspectId] = useState<number | null>(
     usableExtras?.createdProspectId ?? null,
   );
   const [savePropertyData, setSavePropertyData] = useState(initialDraft ? initialDraft.savePropertyData : true);
   const [fieldValues, setFieldValues] = useState<SelectionState>(() => selectionFromStored(initialDraft?.fields));
-  const [serviceValues, setServiceValues] = useState<SelectionState>(() => selectionFromStored(initialDraft?.services));
+  const [serviceLines, setServiceLines] = useState<ServiceLineDraft[]>(
+    () => (initialDraft?.services ?? []).map(withLineKey),
+  );
   // Saved lines whose field/service no longer exists. They are carried through
   // an edit untouched so an edit never silently drops part of the estimate.
   const [carriedLines, setCarriedLines] = useState<EstimateLine[]>([]);
@@ -765,12 +808,13 @@ function EstimateBuilder({
       editEstimate ? String(editEstimate.clientId) : '',
       editEstimate?.notes ?? '',
       {},
-      {},
+      [],
       [],
       editEstimate?.coverNote ?? '',
       editEstimate?.includeServiceDescriptions ?? false,
       emptyProspect(),
       true,
+      editEstimate?.coverTemplateId ?? null,
     ),
   );
   // Snapshot taken right after a client's saved property values are prefilled.
@@ -782,6 +826,8 @@ function EstimateBuilder({
   const { data: services } = useListServices();
   const { data: packages } = useListPackages();
   const { data: chargePresets } = useListChargePresets();
+  const { data: documents } = useListDocumentTemplates();
+  const coverDocuments = (documents ?? []).filter(isCoverDocument);
   const createClient = useCreateClient();
   const createPreset = useCreateChargePreset();
   const createEstimate = useCreateEstimate();
@@ -794,6 +840,7 @@ function EstimateBuilder({
   });
 
   const client = clients?.find(c => String(c.id) === clientId);
+  const propertyData = (client?.propertyData ?? {}) as Record<string, string>;
 
   // Rebuild the builder state from scratch whenever the selected client changes,
   // so one customer's property values can never leak into another customer's
@@ -817,14 +864,14 @@ function EstimateBuilder({
   useEffect(() => {
     if (!editEstimate || !fieldsLoaded || !servicesLoaded) return;
     const nextFields: SelectionState = {};
-    const nextServices: SelectionState = {};
+    const nextServices: ServiceLineDraft[] = [];
     const carried: EstimateLine[] = [];
     const custom: CustomLineDraft[] = [];
     for (const line of editEstimate.lines) {
       if (line.fieldId != null && fields.some(f => f.id === line.fieldId)) {
         nextFields[line.fieldId] = { selected: true, value: line.value };
       } else if (line.serviceId != null && services.some(s => s.id === line.serviceId)) {
-        nextServices[line.serviceId] = { selected: true, value: line.value };
+        nextServices.push(serviceLineFromSaved(line));
       } else if (line.fieldId == null && line.serviceId == null) {
         // A custom one-off charge — editable, unlike a line whose definition is gone.
         custom.push({
@@ -850,6 +897,9 @@ function EstimateBuilder({
       custom,
       editEstimate.coverNote ?? '',
       editEstimate.includeServiceDescriptions ?? false,
+      emptyProspect(),
+      true,
+      editEstimate.coverTemplateId ?? null,
     );
     prefillRef.current = baselineRef.current;
     if (pendingRestoredEditRef.current) {
@@ -857,7 +907,7 @@ function EstimateBuilder({
       return;
     }
     setFieldValues(nextFields);
-    setServiceValues(nextServices);
+    setServiceLines(nextServices);
     setCustomLines(custom);
   }, [editEstimate, fieldsLoaded, servicesLoaded]);
 
@@ -872,8 +922,8 @@ function EstimateBuilder({
     pendingRestoredClientRef.current = null;
     if (!clientId) {
       setFieldValues({});
-      setServiceValues({});
-      prefillRef.current = builderSnapshot('', '', {}, {}, []);
+      setServiceLines([]);
+      prefillRef.current = builderSnapshot('', '', {}, [], []);
       return;
     }
     if (!clientsLoaded || !fieldsLoaded || !servicesLoaded) return;
@@ -884,23 +934,14 @@ function EstimateBuilder({
       next[f.id] = { selected: saved != null, value: saved ?? '' };
     }
     setFieldValues(next);
-    // A service priced from a property detail (pricingFieldId) starts filled with
-    // that detail's saved value, so the admin isn't retyping (e.g.) the zone count
-    // he already entered under Property Fields. Left unselected either way — unlike
-    // property fields, which service is wanted on this particular estimate is
-    // never implied by what is on file for the property.
-    const nextServices: SelectionState = {};
-    for (const s of services) {
-      if (s.pricingFieldId == null) continue;
-      const pricingField = fields.find(f => f.id === s.pricingFieldId);
-      const saved = pricingField ? property[pricingField.label] : undefined;
-      if (saved != null) nextServices[s.id] = { selected: false, value: saved };
-    }
-    setServiceValues(nextServices);
+    // Which services are wanted on this particular estimate is never implied by
+    // what is on file, so the services start empty; the customer's saved
+    // measurements are read when a service is added instead.
+    setServiceLines([]);
     // A brand new estimate is never "saved", so the baseline stays empty and the
     // chosen client counts as unsaved work. The prefill snapshot is separate:
     // replacing an untouched prefill costs the admin nothing.
-    prefillRef.current = builderSnapshot(clientId, notes, next, nextServices, customLines);
+    prefillRef.current = builderSnapshot(clientId, notes, next, [], customLines);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId, clientsLoaded, fieldsLoaded, servicesLoaded]);
 
@@ -908,12 +949,13 @@ function EstimateBuilder({
     clientId,
     notes,
     fieldValues,
-    serviceValues,
+    serviceLines,
     customLines,
     coverNote,
     includeServiceDescriptions,
     prospect,
     savePropertyData,
+    coverTemplateId,
   );
   const dirty = current !== baselineRef.current;
   // Values the admin typed on top of the current client's prefill.
@@ -937,7 +979,7 @@ function EstimateBuilder({
       notes,
       savePropertyData,
       fields: selectionToStored(fieldValues),
-      services: selectionToStored(serviceValues),
+      services: serviceLines.map(storedServiceLine),
       customLines: customLines.map(({ label, value, price }) => ({ label, value, price })),
       savedAt: new Date().toISOString(),
     });
@@ -946,6 +988,7 @@ function EstimateBuilder({
       clientId,
       coverNote,
       includeServiceDescriptions,
+      coverTemplateId,
       prospect,
       createdProspectId,
     });
@@ -955,17 +998,15 @@ function EstimateBuilder({
 
   // Changing the client rebuilds the whole form from the new client's saved
   // property values, so confirm first if that would throw away typing.
-  const handleClientChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const nextClientId = event.target.value;
+  const handleClientChange = (nextClientId: string) => {
     if (nextClientId === clientId) return;
     // Picking the first client discards nothing, so it never prompts.
     const replacingAClient = clientId !== '';
     if (
       replacingAClient &&
       hasTypedValues &&
-      !confirm('Switching clients clears the values, custom lines, and notes entered for the current client. Discard them?')
+      !confirm('Switching clients clears the values, services, custom lines, and notes entered for the current client. Discard them?')
     ) {
-      event.target.value = clientId; // keep the select in sync with the unchanged state
       return;
     }
     if (replacingAClient) {
@@ -974,13 +1015,27 @@ function EstimateBuilder({
       setIncludeServiceDescriptions(false);
       setProspect(emptyProspect());
       setCustomLines([]);
+      setServiceLines([]);
     }
     setCreatedProspectId(null);
     setClientId(nextClientId);
   };
 
+  /**
+   * The measurement a new service line starts with: the number typed on this
+   * estimate's property fields first (he may have just corrected the sqft),
+   * else what the customer's file says. Blank when neither knows.
+   */
+  const valueFor = (service: Service): string => {
+    const field = pricingFieldFor(service, fields);
+    if (!field) return '';
+    const typed = fieldValues[field.id];
+    if (typed && typed.value.trim() !== '') return typed.value;
+    return propertyData[field.label] ?? '';
+  };
+
   const lines = useMemo(() => {
-    const result: { fieldId?: number | null; serviceId?: number | null; label: string; value: string; calculatedPrice: number | null }[] = [];
+    const result: EstimateLine[] = [];
     for (const carried of carriedLines) {
       result.push({ ...carried, calculatedPrice: carried.calculatedPrice ?? null });
     }
@@ -989,10 +1044,21 @@ function EstimateBuilder({
       if (!state?.selected) continue;
       result.push({ fieldId: f.id, label: f.label, value: state.value, calculatedPrice: fieldLinePrice(f, state.value) });
     }
-    for (const s of services ?? []) {
-      const state = serviceValues[s.id];
-      if (!state?.selected) continue;
-      result.push({ serviceId: s.id, label: s.name, value: state.value, calculatedPrice: serviceLinePrice(s, state.value) });
+    for (const line of serviceLines) {
+      const service = services?.find(s => s.id === line.serviceId);
+      const math = service ? serviceLineMath(service, line) : null;
+      result.push({
+        serviceId: line.serviceId,
+        label: line.label,
+        value: line.value,
+        quantity: line.quantity.trim() === '' ? null : lineCount(line.quantity, 1),
+        visits: line.visits.trim() === '' ? null : lineCount(line.visits, 1),
+        unitPrice: math?.rate ?? null,
+        packageId: line.packageId,
+        packageKey: line.packageKey,
+        packageName: line.packageName,
+        calculatedPrice: math?.total ?? null,
+      });
     }
     for (const c of customLines) {
       result.push({
@@ -1004,7 +1070,7 @@ function EstimateBuilder({
       });
     }
     return result;
-  }, [fields, services, fieldValues, serviceValues, carriedLines, customLines]);
+  }, [fields, services, fieldValues, serviceLines, carriedLines, customLines]);
 
   const total = lines.reduce((sum, l) => sum + (l.calculatedPrice ?? 0), 0);
   const invalidCalculable = (fields ?? []).some(f => {
@@ -1012,6 +1078,10 @@ function EstimateBuilder({
     return state?.selected && f.fieldType === 'calculable' && (state.value.trim() === '' || !Number.isFinite(Number(state.value)));
   });
   const invalidCustom = customLines.some(c => c.label.trim() === '' || customLinePrice(c.price) == null);
+  const invalidService = serviceLines.some(line => {
+    const service = services?.find(s => s.id === line.serviceId);
+    return !service || !serviceLineMath(service, line).valid;
+  });
   // A discount larger than the rest of the estimate would owe the customer
   // money; the server rejects it, so flag it here before the save round-trip.
   const negativeTotal = lines.length > 0 && !invalidCustom && !invalidCalculable && Math.round(total * 100) / 100 < 0;
@@ -1029,13 +1099,14 @@ function EstimateBuilder({
     setNotes(fresh.notes ?? '');
     setCoverNote(fresh.coverNote ?? '');
     setIncludeServiceDescriptions(fresh.includeServiceDescriptions ?? false);
+    setCoverTemplateId(fresh.coverTemplateId ?? null);
     setConflict(null);
     onReloadEdit(fresh);
   };
 
   const handleSave = () => {
     setSaveError('');
-    const payload = lines.map(({ calculatedPrice, ...line }) => ({ ...line, calculatedPrice }));
+    const payload = lines;
     const onError = (error: unknown) =>
       setSaveError(error instanceof Error ? error.message : 'Could not save estimate');
 
@@ -1048,6 +1119,7 @@ function EstimateBuilder({
           notes: notes.trim() || null,
           coverNote: coverNote.trim() || null,
           includeServiceDescriptions,
+          coverTemplateId,
           lines: payload,
         },
       }, {
@@ -1075,6 +1147,7 @@ function EstimateBuilder({
           notes: notes.trim() || undefined,
           coverNote: coverNote.trim() || null,
           includeServiceDescriptions,
+          coverTemplateId,
           savePropertyData,
           lines: payload,
         }
@@ -1094,9 +1167,10 @@ function EstimateBuilder({
         setNotes('');
         setCoverNote('');
         setIncludeServiceDescriptions(false);
+        setCoverTemplateId(null);
         setProspect(emptyProspect());
         setFieldValues({});
-        setServiceValues({});
+        setServiceLines([]);
         setCustomLines([]);
         alert(updated.length
           ? `Estimate created — property details updated: ${updated.join(', ')}`
@@ -1184,6 +1258,11 @@ function EstimateBuilder({
     );
   };
 
+  const selectedCover = coverDocuments.find(d => d.id === coverTemplateId) ?? null;
+  // A document deleted since this draft was saved: say so instead of quietly
+  // sending the plain greeting.
+  const coverMissing = coverTemplateId != null && documents != null && !selectedCover;
+
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_320px] items-start">
       <div className="bg-card p-6 border rounded-lg shadow-sm space-y-5">
@@ -1200,21 +1279,11 @@ function EstimateBuilder({
         </div>
         <div>
           <label className="text-sm font-medium mb-1 block">Client</label>
-          <select
-            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-70"
-            value={clientId}
-            disabled={!!editEstimate}
-            onChange={handleClientChange}
-          >
-            <option value="">Select client...</option>
-            <option value={NEW_PROSPECT}>New prospect...</option>
-            {clients?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          <ClientPicker clients={clients} value={clientId} onChange={handleClientChange} disabled={!!editEstimate} />
           {editEstimate ? (
             <p className="text-xs text-muted-foreground mt-1">The client cannot be changed on an existing estimate.</p>
-          ) : client && Object.keys(client.propertyData ?? {}).length > 0 ? (
-            <p className="text-xs text-muted-foreground mt-1">Values prefilled from {client.name}'s saved property details.</p>
           ) : null}
+          {client && <ClientCard client={client} />}
         </div>
         {!editEstimate && clientId === NEW_PROSPECT && (
           <div className="rounded-md border bg-muted/40 p-4 space-y-3">
@@ -1282,75 +1351,20 @@ function EstimateBuilder({
         </div>
 
         <div>
-          <h3 className="text-sm font-semibold mb-2">Services</h3>
-          {!!packages?.length && (
-            <div className="flex items-center gap-3 rounded-md border bg-muted/40 p-3 mb-3">
-              <label className="text-sm font-medium shrink-0">Add package</label>
-              <select
-                className="flex h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm"
-                defaultValue=""
-                onChange={event => {
-                  const packageId = Number(event.target.value);
-                  const selectedPackage = packages.find(pkg => pkg.id === packageId);
-                  if (selectedPackage) {
-                    const packageServices = selectedPackage.services?.length
-                      ? selectedPackage.services
-                      : (services ?? []).filter(service => selectedPackage.serviceIds.includes(service.id));
-                    setServiceValues(previous => {
-                      const next = { ...previous };
-                      for (const service of packageServices) {
-                        next[service.id] = { selected: true, value: previous[service.id]?.value ?? '' };
-                      }
-                      return next;
-                    });
-                  }
-                  event.target.value = '';
-                }}
-              >
-                <option value="">Choose a package...</option>
-                {packages.map(pkg => <option key={pkg.id} value={pkg.id}>{pkg.name}</option>)}
-              </select>
-            </div>
-          )}
-          {!services?.length ? (
-            <p className="text-sm text-muted-foreground">No services configured.</p>
-          ) : (
-            <div className="space-y-2">
-              {services.map(s => {
-                const state = serviceValues[s.id] ?? { selected: false, value: '' };
-                const set = (patch: Partial<typeof state>) => setServiceValues(prev => ({ ...prev, [s.id]: { ...state, ...patch } }));
-                const hasEquations = (s.pricingEquations ?? []).length > 0;
-                // Null pricingFieldId means turf square footage (today's default);
-                // otherwise price from whichever property detail the service names.
-                const pricingField = s.pricingFieldId != null ? fields?.find(f => f.id === s.pricingFieldId) : undefined;
-                const pricingFieldLabel = pricingField?.label ?? 'Sqft';
-                return (
-                  <div key={s.id} className={`flex items-center gap-3 p-3 rounded-md border ${state.selected ? 'bg-background' : 'bg-muted/40'}`}>
-                    <input type="checkbox" className="w-4 h-4" checked={state.selected} onChange={e => set({ selected: e.target.checked })} />
-                    <div className="w-56">
-                      <div className="text-sm font-medium">{s.name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {hasEquations ? `Priced from ${pricingFieldLabel} equations` : `Flat ${money(s.rate * s.quantity)}`}
-                      </div>
-                    </div>
-                    {hasEquations && (
-                      <Input
-                        type="number"
-                        className="w-40"
-                        disabled={!state.selected}
-                        value={state.value}
-                        onChange={e => set({ value: e.target.value })}
-                        placeholder={pricingFieldLabel}
-                      />
-                    )}
-                    <span className="ml-auto text-sm font-semibold tabular-nums">
-                      {state.selected ? money(serviceLinePrice(s, state.value)) : ''}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <div className="mb-2">
+            <h3 className="text-sm font-semibold">Services and packages</h3>
+            <p className="text-xs text-muted-foreground">
+              Price = the matrix rate for this property × quantity × visits. The customer sees all three, so they can divide the total by the visits.
+            </p>
+          </div>
+          <ServiceLinesEditor
+            services={services}
+            packages={packages}
+            fields={fields}
+            lines={serviceLines}
+            onChange={setServiceLines}
+            valueFor={valueFor}
+          />
         </div>
 
         <div>
@@ -1457,14 +1471,40 @@ function EstimateBuilder({
           )}
         </div>
 
-        <div>
-          <label className="text-sm font-medium mb-1 block">Cover note</label>
-          <textarea
-            className="flex min-h-28 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            value={coverNote}
-            onChange={e => setCoverNote(e.target.value)}
-            placeholder="Optional letter shown above the quoted work"
-          />
+        <div className="rounded-md border p-4 space-y-3">
+          <div className="flex items-start gap-3">
+            <FileText className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <h3 className="text-sm font-semibold">Cover document</h3>
+              <p className="text-xs text-muted-foreground">
+                One of your estimate documents, with the customer's name and address filled in, printed above the quote in the PDF and the email. Write them under Settings → Documents, category “estimate”.
+              </p>
+            </div>
+          </div>
+          <select
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            value={coverTemplateId ?? ''}
+            onChange={e => setCoverTemplateId(e.target.value === '' ? null : Number(e.target.value))}
+          >
+            <option value="">No cover document — plain “Dear {client ? (client.name.split(' ')[0] || 'customer') : 'customer'},” greeting</option>
+            {coverDocuments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+            {coverMissing && <option value={coverTemplateId!}>Document #{coverTemplateId} (deleted)</option>}
+          </select>
+          {coverMissing && (
+            <p className="text-xs text-destructive">That document has been deleted. Pick another one, or none.</p>
+          )}
+          {!coverDocuments.length && documents && (
+            <p className="text-xs text-muted-foreground">No estimate documents yet. Add one under Settings → Documents and file it under “estimate”.</p>
+          )}
+          <div>
+            <label className="text-sm font-medium mb-1 block">Personal note</label>
+            <textarea
+              className="flex min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={coverNote}
+              onChange={e => setCoverNote(e.target.value)}
+              placeholder={selectedCover ? 'Optional — a line or two above your document' : 'Optional letter shown above the quoted work'}
+            />
+          </div>
         </div>
 
         <label className="flex items-start gap-3 rounded-md border bg-muted/40 p-3 cursor-pointer">
@@ -1513,15 +1553,36 @@ function EstimateBuilder({
       <div className="bg-card p-6 border rounded-lg shadow-sm space-y-3 sticky top-4">
         <h3 className="text-sm font-semibold">Summary</h3>
         {!lines.length ? (
-          <p className="text-sm text-muted-foreground">Select fields or services to build the estimate.</p>
+          <p className="text-sm text-muted-foreground">Pick a customer, then add services or a package.</p>
         ) : (
           <div className="space-y-1">
-            {lines.map((l, i) => (
-              <div key={i} className="flex justify-between text-sm gap-2">
-                <span className="truncate">{l.label}{l.value ? ` — ${l.value}` : ''}</span>
-                <span className="tabular-nums shrink-0">{l.calculatedPrice == null ? '—' : money(l.calculatedPrice)}</span>
-              </div>
-            ))}
+            {lines.map((l, i) => {
+              const startsPackage = l.packageKey != null && (i === 0 || lines[i - 1].packageKey !== l.packageKey);
+              const packageTotal = l.packageKey
+                ? lines.filter(x => x.packageKey === l.packageKey).reduce((s, x) => s + (x.calculatedPrice ?? 0), 0)
+                : 0;
+              const math =
+                l.serviceId != null && l.unitPrice != null && ((l.quantity ?? 1) !== 1 || (l.visits ?? 1) !== 1)
+                  ? `${l.quantity ?? 1} × ${l.visits ?? 1} × ${money(l.unitPrice)}`
+                  : null;
+              return (
+                <div key={i}>
+                  {startsPackage && (
+                    <div className="flex justify-between text-sm gap-2 font-semibold text-primary">
+                      <span className="truncate">{l.packageName ?? 'Package'}</span>
+                      <span className="tabular-nums shrink-0">{money(packageTotal)}</span>
+                    </div>
+                  )}
+                  <div className={cn('flex justify-between text-sm gap-2', l.packageKey && 'pl-3 text-muted-foreground')}>
+                    <span className="truncate">
+                      {l.label}{l.value && l.serviceId == null ? ` — ${l.value}` : ''}
+                      {math && <span className="block text-xs text-muted-foreground">{math}</span>}
+                    </span>
+                    <span className="tabular-nums shrink-0">{l.calculatedPrice == null ? '—' : money(l.calculatedPrice)}</span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
         {carriedLines.length > 0 && (
@@ -1533,6 +1594,11 @@ function EstimateBuilder({
           <span>Total</span>
           <span className="tabular-nums">{money(total)}</span>
         </div>
+        {selectedCover && (
+          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+            <FileText className="w-3.5 h-3.5" /> Leads with “{selectedCover.name}”
+          </p>
+        )}
         {conflict && (
           <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
             <div className="flex gap-2">
@@ -1554,7 +1620,9 @@ function EstimateBuilder({
           </div>
         )}
         {invalidCalculable && <p className="text-xs text-destructive">Enter numeric values for all selected calculable fields.</p>}
+        {invalidService && <p className="text-xs text-destructive">Every service needs a quantity and a number of visits of zero or more.</p>}
         {invalidCustom && <p className="text-xs text-destructive">Give every custom line a label and a numeric price.</p>}
+        {coverMissing && <p className="text-xs text-destructive">Pick a cover document that still exists, or none.</p>}
         {negativeTotal && (
           <p className="text-xs text-destructive">
             This total would owe the customer money. Check the discount amount — the total must be zero or more.
@@ -1573,7 +1641,9 @@ function EstimateBuilder({
             (clientId === NEW_PROSPECT && !prospect.name.trim()) ||
             !lines.length ||
             invalidCalculable ||
+            invalidService ||
             invalidCustom ||
+            coverMissing ||
             negativeTotal ||
             saving
           }
@@ -1585,6 +1655,38 @@ function EstimateBuilder({
           <Button variant="outline" className="w-full" disabled={saving} onClick={onCancelEdit}>Cancel</Button>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The customer at a glance once picked — where they are, how to reach them,
+ * and the custom fields on their file (Turf Sqft, zones, gate code) that the
+ * matrix prices from. Feedback 46: the numbers the estimate uses are on screen,
+ * not something to go look up.
+ */
+function ClientCard({ client }: { client: Client }) {
+  const details = Object.entries((client.propertyData ?? {}) as Record<string, string>).filter(([, v]) => String(v).trim() !== '');
+  return (
+    <div className="mt-2 rounded-md border bg-muted/30 p-3 text-sm space-y-2">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
+        {clientCaption(client) && <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{clientCaption(client)}</span>}
+        {client.phone && <span className="flex items-center gap-1"><Phone className="w-3.5 h-3.5" />{client.phone}</span>}
+        {client.email && <span className="flex items-center gap-1"><Mail className="w-3.5 h-3.5" />{client.email}</span>}
+        {client.status !== 'client' && <span className="uppercase text-[10px] tracking-wide self-center">{client.status === 'lead' ? 'lead' : 'former client'}</span>}
+      </div>
+      {details.length ? (
+        <div className="flex flex-wrap gap-1.5">
+          {details.map(([label, value]) => (
+            <span key={label} className="inline-flex items-baseline gap-1 rounded bg-background border px-2 py-0.5 text-xs">
+              <span className="text-muted-foreground">{label}</span>
+              <span className="font-medium tabular-nums">{value}</span>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">No custom fields on file yet — type the Turf Sqft below and it is saved with the estimate.</p>
+      )}
     </div>
   );
 }

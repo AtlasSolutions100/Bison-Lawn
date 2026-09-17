@@ -14,6 +14,7 @@ import {
   getGetCompanyProfileQueryKey,
   type DocumentTemplate,
   type DocumentTemplateKind,
+  type DocumentTemplateCategory,
   type DocumentPreview,
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -27,6 +28,8 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
+import { SmsStatusCard } from '@/components/sms-status-card';
+import ProductPresets from '@/components/products/product-presets';
 
 const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Something went wrong. Please try again.';
@@ -42,6 +45,8 @@ export default function Settings() {
       </div>
 
       <CompanyDetails />
+      <SmsStatusCard />
+      <ProductPresets />
       <DocumentTemplates />
     </div>
   );
@@ -228,20 +233,35 @@ const KIND_HELP: Record<DocumentTemplateKind, string> = {
   contract: 'Terms appended below a quote.',
 };
 
+/** His three folders, the way his old system sorted documents. */
+const CATEGORY_LABELS: Record<DocumentTemplateCategory, string> = {
+  client: 'Client',
+  marketing: 'Marketing',
+  estimate: 'Estimate',
+};
+
+const CATEGORY_HELP: Record<DocumentTemplateCategory, string> = {
+  client: 'Letters to one customer about their account: bills, past due, blow-out day, welcome.',
+  marketing: 'Letters that go to everybody: spring letter, turn up your sprinklers, fall notice.',
+  estimate: 'Anything that wraps or chases a quote: proposals, the contract, follow-ups.',
+};
+
 type TemplateDraft = {
   name: string;
   kind: DocumentTemplateKind;
+  category: DocumentTemplateCategory;
   /** '' means "not tied to a service"; the API stores that as null. */
   serviceId: string;
   subject: string;
   body: string;
 };
 
-const EMPTY_TEMPLATE: TemplateDraft = { name: '', kind: 'notice', serviceId: '', subject: '', body: '' };
+const EMPTY_TEMPLATE: TemplateDraft = { name: '', kind: 'notice', category: 'client', serviceId: '', subject: '', body: '' };
 
 const draftFrom = (template: DocumentTemplate): TemplateDraft => ({
   name: template.name,
   kind: template.kind,
+  category: template.category,
   serviceId: template.serviceId != null ? String(template.serviceId) : '',
   subject: template.subject ?? '',
   body: template.body,
@@ -268,8 +288,14 @@ function DocumentTemplates() {
   const [draft, setDraft] = useState<TemplateDraft>(EMPTY_TEMPLATE);
   const [preview, setPreview] = useState<DocumentPreview | null>(null);
   const [previewClientId, setPreviewClientId] = useState<string>('');
+  const [previewMode, setPreviewMode] = useState<'email' | 'text'>('email');
+  const [categoryTab, setCategoryTab] = useState<'all' | DocumentTemplateCategory>('all');
 
   const templates = templatesQuery.data;
+  const visibleTemplates = useMemo(
+    () => (templates ?? []).filter((t) => categoryTab === 'all' || t.category === categoryTab),
+    [templates, categoryTab],
+  );
   const selected = typeof selectedId === 'number' ? templates?.find((t) => t.id === selectedId) : undefined;
 
   const choose = (template: DocumentTemplate) => {
@@ -280,7 +306,8 @@ function DocumentTemplates() {
 
   const startNew = () => {
     setSelectedId('new');
-    setDraft(EMPTY_TEMPLATE);
+    // A new letter lands in the folder he is looking at.
+    setDraft({ ...EMPTY_TEMPLATE, category: categoryTab === 'all' ? 'client' : categoryTab });
     setPreview(null);
   };
 
@@ -323,7 +350,7 @@ function DocumentTemplates() {
     const serviceId = draft.serviceId ? Number(draft.serviceId) : null;
     if (selectedId === 'new') {
       createTemplate.mutate(
-        { data: { name: draft.name.trim(), kind: draft.kind, serviceId, subject: draft.subject.trim() || null, body: draft.body } },
+        { data: { name: draft.name.trim(), kind: draft.kind, category: draft.category, serviceId, subject: draft.subject.trim() || null, body: draft.body } },
         {
           onSuccess: async (created) => {
             await invalidateTemplates();
@@ -338,7 +365,7 @@ function DocumentTemplates() {
     }
     if (typeof selectedId !== 'number') return;
     updateTemplate.mutate(
-      { id: selectedId, data: { name: draft.name.trim(), kind: draft.kind, serviceId, subject: draft.subject.trim() || null, body: draft.body } },
+      { id: selectedId, data: { name: draft.name.trim(), kind: draft.kind, category: draft.category, serviceId, subject: draft.subject.trim() || null, body: draft.body } },
       {
         onSuccess: async (saved) => {
           await invalidateTemplates();
@@ -418,12 +445,35 @@ function DocumentTemplates() {
         ) : (
           <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
             <div className="space-y-2">
+              {/* His folders. "All" first so nothing is ever hidden from him. */}
+              <div className="flex flex-wrap gap-1 rounded-lg border bg-muted/40 p-1">
+                {(['all', 'client', 'marketing', 'estimate'] as const).map((tab) => {
+                  const count = tab === 'all' ? templates?.length ?? 0 : (templates ?? []).filter((t) => t.category === tab).length;
+                  return (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setCategoryTab(tab)}
+                      className={`flex-1 rounded-md px-2 py-1 text-xs font-semibold ${
+                        categoryTab === tab ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {tab === 'all' ? 'All' : CATEGORY_LABELS[tab]} <span className="font-normal text-muted-foreground">{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
               {!templates?.length && (
                 <p className="rounded-lg border p-6 text-center text-sm text-muted-foreground">
                   No templates yet. Start one with “New template”.
                 </p>
               )}
-              {templates?.map((template) => (
+              {templates?.length && !visibleTemplates.length ? (
+                <p className="rounded-lg border p-6 text-center text-sm text-muted-foreground">
+                  Nothing in this folder yet. Pick a letter and set its folder to {categoryTab === 'all' ? '' : CATEGORY_LABELS[categoryTab]}.
+                </p>
+              ) : null}
+              {visibleTemplates.map((template) => (
                 <button
                   key={template.id}
                   type="button"
@@ -441,7 +491,8 @@ function DocumentTemplates() {
                     ) : null}
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    <span>{KIND_LABELS[template.kind]}</span>
+                    <span>{CATEGORY_LABELS[template.category] ?? template.category}</span>
+                    <span>· {KIND_LABELS[template.kind]}</span>
                     {template.serviceName && <span>· {template.serviceName}</span>}
                     {template.isSeeded && <span>· built in</span>}
                   </div>
@@ -486,6 +537,22 @@ function DocumentTemplates() {
                         ))}
                       </select>
                       <p className="mt-1 text-xs text-muted-foreground">{KIND_HELP[draft.kind]}</p>
+                    </div>
+                    <div>
+                      <Label htmlFor="template-category">Folder</Label>
+                      <select
+                        id="template-category"
+                        className="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={draft.category}
+                        onChange={(event) =>
+                          setDraft((current) => ({ ...current, category: event.target.value as DocumentTemplateCategory }))
+                        }
+                      >
+                        {(Object.keys(CATEGORY_LABELS) as DocumentTemplateCategory[]).map((category) => (
+                          <option key={category} value={category}>{CATEGORY_LABELS[category]}</option>
+                        ))}
+                      </select>
+                      <p className="mt-1 text-xs text-muted-foreground">{CATEGORY_HELP[draft.category]}</p>
                     </div>
                     <div>
                       <Label htmlFor="template-service">Service</Label>
@@ -646,7 +713,15 @@ function DocumentTemplates() {
                             <span className="text-xs uppercase text-muted-foreground">Subject</span>
                             <p className="font-semibold">{preview.subject || <span className="text-muted-foreground">(no subject)</span>}</p>
                           </div>
-                          {preview.clientName && <Badge variant="secondary">As {preview.clientName} sees it</Badge>}
+                          <div className="flex items-center gap-2">
+                            {preview.clientName && <Badge variant="secondary">As {preview.clientName} sees it</Badge>}
+                            {preview.html && (
+                              <div className="flex rounded-md border p-0.5 text-xs">
+                                <button type="button" onClick={() => setPreviewMode('email')} className={`rounded px-2 py-0.5 ${previewMode === 'email' ? 'bg-muted font-semibold' : 'text-muted-foreground'}`}>Email</button>
+                                <button type="button" onClick={() => setPreviewMode('text')} className={`rounded px-2 py-0.5 ${previewMode === 'text' ? 'bg-muted font-semibold' : 'text-muted-foreground'}`}>Plain text</button>
+                              </div>
+                            )}
+                          </div>
                         </div>
                         {preview.unknownTokens.length > 0 && (
                           <Alert variant="destructive" className="mb-3">
@@ -657,7 +732,17 @@ function DocumentTemplates() {
                             </AlertDescription>
                           </Alert>
                         )}
-                        <pre className="whitespace-pre-wrap font-sans text-sm leading-6">{preview.body}</pre>
+                        {preview.html && previewMode === 'email' ? (
+                          // Sandboxed: the shell is ours, but the body is whatever he typed.
+                          <iframe
+                            title="Email preview"
+                            sandbox=""
+                            srcDoc={preview.html}
+                            className="h-[42rem] w-full rounded-md border bg-[#f7f5f1]"
+                          />
+                        ) : (
+                          <pre className="whitespace-pre-wrap font-sans text-sm leading-6">{preview.body}</pre>
+                        )}
                       </div>
                     ) : null}
                   </div>

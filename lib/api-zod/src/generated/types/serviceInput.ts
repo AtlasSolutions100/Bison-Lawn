@@ -6,11 +6,22 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { PricingEquation } from './pricingEquation';
+import type { ServiceInputBillingMode } from './serviceInputBillingMode';
 
 export interface ServiceInput {
   /** @minLength 1 */
   name: string;
   description?: string;
+  /** @nullable */
+  code?: string | null;
+  /** @nullable */
+  invoiceDescription?: string | null;
+  billingMode?: ServiceInputBillingMode;
+  /**
+     * @minimum 1
+     * @nullable
+     */
+  visitsPerSeason?: number | null;
   quantity?: number;
   rate?: number;
   /** @nullable */

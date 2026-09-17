@@ -10,10 +10,23 @@
  * version of the app (or hand-edited) is dropped rather than half-applied.
  */
 
-const STORAGE_PREFIX = 'bison-crm:estimate-draft:v1';
+// v2: service lines carry quantity, visits and the package they came from
+// (2026-09-15 walkthrough); a v1 draft is simply not offered back.
+const STORAGE_PREFIX = 'bison-crm:estimate-draft:v2';
 
 export type StoredSelection = { id: number; selected: boolean; value: string };
 export type StoredCustomLine = { label: string; value: string; price: string };
+/** One quoted service, in the shape the builder edits it. */
+export type StoredServiceLine = {
+  serviceId: number;
+  label: string;
+  value: string;
+  quantity: string;
+  visits: string;
+  packageId: number | null;
+  packageKey: string | null;
+  packageName: string | null;
+};
 
 export type EstimateDraft = {
   /** `null` for a brand new estimate, otherwise the draft estimate being edited. */
@@ -22,7 +35,7 @@ export type EstimateDraft = {
   notes: string;
   savePropertyData: boolean;
   fields: StoredSelection[];
-  services: StoredSelection[];
+  services: StoredServiceLine[];
   customLines: StoredCustomLine[];
   /** ISO timestamp of the last local save, shown in the restore prompt. */
   savedAt: string;
@@ -55,6 +68,24 @@ function parseSelections(raw: unknown): StoredSelection[] | null {
   return result;
 }
 
+const isNullableNumber = (value: unknown): value is number | null =>
+  value === null || (typeof value === 'number' && Number.isFinite(value));
+const isNullableString = (value: unknown): value is string | null => value === null || isString(value);
+
+function parseServiceLines(raw: unknown): StoredServiceLine[] | null {
+  if (!Array.isArray(raw)) return null;
+  const result: StoredServiceLine[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') return null;
+    const { serviceId, label, value, quantity, visits, packageId, packageKey, packageName } = entry as Record<string, unknown>;
+    if (typeof serviceId !== 'number' || !Number.isFinite(serviceId)) return null;
+    if (!isString(label) || !isString(value) || !isString(quantity) || !isString(visits)) return null;
+    if (!isNullableNumber(packageId) || !isNullableString(packageKey) || !isNullableString(packageName)) return null;
+    result.push({ serviceId, label, value, quantity, visits, packageId, packageKey, packageName });
+  }
+  return result;
+}
+
 function parseCustomLines(raw: unknown): StoredCustomLine[] | null {
   if (!Array.isArray(raw)) return null;
   const result: StoredCustomLine[] = [];
@@ -75,7 +106,7 @@ export function parseEstimateDraft(raw: unknown): EstimateDraft | null {
   if (!isString(clientId) || !isString(notes) || !isString(savedAt)) return null;
   if (typeof savePropertyData !== 'boolean') return null;
   const fields = parseSelections(draft.fields);
-  const services = parseSelections(draft.services);
+  const services = parseServiceLines(draft.services);
   const customLines = parseCustomLines(draft.customLines);
   if (!fields || !services || !customLines) return null;
   return { estimateId, clientId, notes, savePropertyData, fields, services, customLines, savedAt };

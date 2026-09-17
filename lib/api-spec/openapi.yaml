@@ -22,6 +22,7 @@ tags:
   - name: dashboard
   - name: fieldNotes
   - name: automation
+  - name: sms
 paths:
   /healthz:
     get:
@@ -51,7 +52,11 @@ paths:
     get:
       operationId: listUsers
       tags: [team]
-      summary: List team members (admins and contractors)
+      summary: List team members (admins and contractors); active people only unless includeInactive is set
+      parameters:
+        - name: includeInactive
+          in: query
+          schema: { type: boolean }
       responses:
         "200":
           description: Users
@@ -65,7 +70,7 @@ paths:
     patch:
       operationId: updateUser
       tags: [team]
-      summary: Update a user's role, name, or base location
+      summary: Update a user's access level, permissions, details, or active flag
       parameters:
         - $ref: "#/components/parameters/IdParam"
       requestBody:
@@ -81,6 +86,15 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AppUser"
+    delete:
+      operationId: deleteUser
+      tags: [team]
+      summary: Remove a person who has never had a job; otherwise deactivate them instead
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "204":
+          description: Deleted
   /invitations:
     get:
       operationId: listInvitations
@@ -299,6 +313,11 @@ paths:
       operationId: listDocumentTemplates
       tags: [settings]
       summary: The letters and proposals the office sends
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema: { type: string, enum: [client, marketing, estimate] }
       responses:
         "200":
           description: Templates
@@ -374,6 +393,64 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DocumentPreview"
+  /document-templates/{id}/send:
+    post:
+      operationId: sendDocumentTemplate
+      tags: [settings]
+      summary: Email a template to a list of customers, filled in per customer
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DocumentSendInput"
+      responses:
+        "200":
+          description: Who was sent to and who was skipped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentSendResult"
+  /email-activity/batches:
+    get:
+      operationId: listEmailBatches
+      tags: [settings]
+      summary: Every bulk email send, newest first, with sent / failed / skipped / opened counts
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 500 }
+      responses:
+        "200":
+          description: Batches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EmailBatch"
+  /email-activity/batches/{batchId}:
+    get:
+      operationId: getEmailBatch
+      tags: [settings]
+      summary: Who was in one bulk send and whether each of them opened it
+      parameters:
+        - name: batchId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Recipients
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EmailBatchRecipient"
   /services/bulk-price-adjust:
     post:
       operationId: bulkAdjustServicePrices
@@ -491,6 +568,81 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Client"
+  /clients/export:
+    get:
+      operationId: exportClients
+      tags: [clients]
+      summary: Download clients as a CSV file
+      description: >-
+        The same rows the list shows, as a spreadsheet. `ids` is what the office
+        selected or filtered on screen; without it the status/search filters
+        apply, and with neither every customer comes out. Opens in Excel with
+        the UTF-8 marker so names with accents survive.
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [lead, client, former_client] }
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: ids
+          in: query
+          description: Comma-separated client ids. Omit to export the whole filtered list.
+          schema: { type: string }
+      responses:
+        "200":
+          description: CSV file
+          content:
+            text/csv:
+              schema: { type: string }
+  /clients/bulk-update:
+    post:
+      operationId: bulkUpdateClients
+      tags: [clients]
+      summary: Change the same field on several clients at once
+      description: >-
+        The Actions menu on the client list. Fields left out are left alone —
+        setting a route zone on forty customers must not blank their billing
+        terms — so send only what the office touched, and null to clear it.
+        Tags are added or removed on top of what each customer already has.
+        One transaction, one audit line per customer so the change shows on
+        each customer's own history.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BulkClientUpdateInput" }
+      responses:
+        "200":
+          description: What changed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BulkClientResult" }
+        "400":
+          description: No client ids, or nothing to change
+  /clients/bulk-delete:
+    post:
+      operationId: bulkDeleteClients
+      tags: [clients]
+      summary: Delete several clients, with everything attached to them
+      description: >-
+        POST rather than DELETE because it carries a body. Deleting a customer
+        takes their invoices, payments, jobs, notes and history with them, so
+        the office is shown the counts first: `preview: true` only counts,
+        `preview: false` (the default) deletes. One transaction.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BulkClientDeleteInput" }
+      responses:
+        "200":
+          description: Counts of what went, or would go
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BulkClientDeleteResult" }
+        "400":
+          description: No client ids
   /clients/{id}:
     get:
       operationId: getClient
@@ -579,6 +731,103 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/AuditEvent"
+  /client-activity:
+    get:
+      operationId: listClientActivity
+      tags: [clients]
+      summary: One timeline for a customer, newest first
+      description: >-
+        Visits, invoices, payments, emails (with opened / unopened), estimates,
+        tickets, notes and audit events in one list, so the office can answer
+        "what has happened with this customer" without opening five cards.
+        Defaults to the last 90 days when no range is given; a long-standing
+        customer has thousands of rows. Capped at 500 items. A query parameter
+        rather than /clients/{id}/activity because the generator cannot name
+        an operation that has both a path id and query parameters.
+      parameters:
+        - name: clientId
+          in: query
+          required: true
+          schema: { type: integer }
+        - name: from
+          in: query
+          description: yyyy-mm-dd, inclusive
+          schema: { type: string }
+        - name: to
+          in: query
+          description: yyyy-mm-dd, inclusive
+          schema: { type: string }
+        - name: kinds
+          in: query
+          description: Comma-separated subset of visit,invoice,payment,email,estimate,ticket,note,event
+          schema: { type: string }
+      responses:
+        "200":
+          description: Activity items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityItem"
+        "400":
+          description: Bad date
+  /clients/{id}/jobs:
+    get:
+      operationId: listClientJobs
+      tags: [jobs]
+      summary: Every job on this customer, dispatched or still waiting, newest first
+      description: >-
+        The client page's All / Upcoming / History tabs. Unlike GET /jobs this
+        includes waiting-list jobs (not yet dispatched) so the office sees the
+        whole account, not just what is on the board.
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Job"
+  /client-notes/{id}:
+    patch:
+      operationId: updateClientNote
+      tags: [clients]
+      summary: Open or close a note
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientNoteUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientNote"
+        "404":
+          description: Note not found
+  /notes/open:
+    get:
+      operationId: listOpenNotes
+      tags: [clients]
+      summary: Every open note across all customers, oldest first, for the dashboard
+      responses:
+        "200":
+          description: Open notes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ClientNote"
   /clients/{id}/email:
     post:
       operationId: emailClient
@@ -599,6 +848,99 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ClientEmailResult"
+  /clients/sources:
+    get:
+      operationId: listClientSources
+      tags: [clients]
+      summary: Every "where they came from" answer already on file
+      description: >-
+        Comes from the customers themselves, not a settings list: typing a new
+        source on a customer is what adds it here, the way map codes work.
+      responses:
+        "200":
+          description: Sources, A to Z
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: string }
+  /clients/{id}/related:
+    get:
+      operationId: listRelatedClients
+      tags: [clients]
+      summary: The properties under a master account, each with its own balance
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Properties, A to Z
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Client"
+  /clients/{id}/contacts:
+    get:
+      operationId: listClientContacts
+      tags: [clients]
+      summary: Extra people on the account (the CPA, the HOA contact, a spouse)
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Contacts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ClientContact"
+    post:
+      operationId: createClientContact
+      tags: [clients]
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientContactInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientContact"
+  /client-contacts/{id}:
+    patch:
+      operationId: updateClientContact
+      tags: [clients]
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientContactUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientContact"
+    delete:
+      operationId: deleteClientContact
+      tags: [clients]
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "204":
+          description: Deleted
   /clients/{id}/client-services:
     get:
       operationId: listClientServices
@@ -663,6 +1005,100 @@ paths:
       responses:
         "204":
           description: Deleted
+  /clients/{id}/service-price:
+    post:
+      operationId: previewClientServicePrice
+      tags: [clients]
+      summary: What a service would cost this customer, priced from their own property field via the matrix
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientServicePriceInput"
+      responses:
+        "200":
+          description: The price and where it came from
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientServicePrice"
+  /client-services/{id}/jobs:
+    get:
+      operationId: listClientServiceJobs
+      tags: [clients]
+      summary: One assigned service's upcoming visits and its history
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Upcoming and past visits
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientServiceJobs"
+  /client-services/{id}/pause:
+    post:
+      operationId: pauseClientService
+      tags: [clients]
+      summary: Pause an assigned service (or its whole package) until a date or until the account is paid
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PauseClientServiceInput"
+      responses:
+        "200":
+          description: Paused
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientService"
+  /client-services/{id}/resume:
+    post:
+      operationId: resumeClientService
+      tags: [clients]
+      summary: Put a paused service back on the board
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Resumed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientService"
+  /client-services/{id}/renew:
+    post:
+      operationId: renewClientService
+      tags: [clients]
+      summary: Roll an assigned service into next season by hand
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Renewed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientService"
+  /client-services/run-daily:
+    post:
+      operationId: runClientServiceDailyTasks
+      tags: [clients]
+      summary: Run the nightly assigned-services check now (resume paused services that are due, auto-renew)
+      responses:
+        "200":
+          description: What the run did
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientServiceDailyRun"
   /services:
     get:
       operationId: listServices
@@ -751,6 +1187,44 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PriceResult"
+  /services/{id}/copy-matrix:
+    post:
+      operationId: copyServiceMatrix
+      tags: [services]
+      summary: Copy this service's rate matrix onto other services, scaled — preview first, then apply
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CopyMatrixInput"
+      responses:
+        "200":
+          description: The bands each target would get (apply=false) or now has (apply=true)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CopyMatrixResult"
+  /services/matrix-from-rule:
+    post:
+      operationId: buildMatrixFromRule
+      tags: [services]
+      summary: Turn a pricing rule ($X per N sqft up to Y) into matrix bands
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MatrixRuleInput"
+      responses:
+        "200":
+          description: Generated bands, ready to edit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MatrixRuleResult"
   /packages:
     get:
       operationId: listPackages
@@ -858,6 +1332,63 @@ paths:
     delete:
       operationId: deleteEstimateField
       tags: [estimates]
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "204":
+          description: Deleted
+  /product-presets:
+    get:
+      operationId: listProductPresets
+      tags: [jobs]
+      summary: The parts and fees list (bag fee, sprinkler parts) a contractor picks from on a job
+      responses:
+        "200":
+          description: Product presets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProductPreset"
+    post:
+      operationId: createProductPreset
+      tags: [jobs]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductPresetInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductPreset"
+  /product-presets/{id}:
+    patch:
+      operationId: updateProductPreset
+      tags: [jobs]
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductPresetUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductPreset"
+    delete:
+      operationId: deleteProductPreset
+      tags: [jobs]
       parameters:
         - $ref: "#/components/parameters/IdParam"
       responses:
@@ -1053,6 +1584,12 @@ paths:
       operationId: listWaitingList
       tags: [jobs]
       summary: Jobs with date windows not yet dispatched; filter by date range
+      description: >-
+        A waiting-list job only shows when the chosen `date` sits inside its
+        window. `window=past` lists the ones whose window has already closed
+        so they can be cancelled in bulk; `window=all` shows everything still
+        waiting. Cancelled and completed jobs stay out unless `status` asks
+        for them.
       parameters:
         - name: date
           in: query
@@ -1063,6 +1600,38 @@ paths:
         - name: to
           in: query
           schema: { type: string }
+        - name: window
+          in: query
+          schema: { type: string, enum: [open, past, all] }
+        - name: serviceId
+          in: query
+          schema: { type: integer }
+        - name: assignedTo
+          in: query
+          schema: { type: integer }
+        - name: mapCode
+          in: query
+          schema: { type: string }
+        - name: city
+          in: query
+          schema: { type: string }
+        - name: branch
+          in: query
+          description: "The client's state: ID or WA."
+          schema: { type: string }
+        - name: tag
+          in: query
+          schema: { type: string }
+        - name: hasNotes
+          in: query
+          schema: { type: boolean }
+        - name: search
+          in: query
+          description: Matches the client name or service address, any part of it.
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string, enum: [scheduled, on_the_way, in_progress, completed, skipped, cancelled] }
       responses:
         "200":
           description: Waiting list jobs
@@ -1092,7 +1661,7 @@ paths:
           schema: { type: integer }
         - name: status
           in: query
-          schema: { type: string, enum: [scheduled, on_the_way, in_progress, completed, skipped] }
+          schema: { type: string, enum: [scheduled, on_the_way, in_progress, completed, skipped, cancelled] }
         - name: city
           in: query
           schema: { type: string }
@@ -1102,6 +1671,23 @@ paths:
         - name: clientId
           in: query
           schema: { type: integer }
+        - name: mapCode
+          in: query
+          schema: { type: string }
+        - name: branch
+          in: query
+          description: "The client's state: ID or WA."
+          schema: { type: string }
+        - name: tag
+          in: query
+          schema: { type: string }
+        - name: search
+          in: query
+          description: Matches the client name or service address, any part of it.
+          schema: { type: string }
+        - name: hasNotes
+          in: query
+          schema: { type: boolean }
       responses:
         "200":
           description: Jobs
@@ -1289,6 +1875,54 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/JobProduct"
+  /my/products:
+    get:
+      operationId: listMyProducts
+      tags: [jobs]
+      summary: Parts and fees (bag fee, sprinkler parts) the office lets the crew add on site
+      responses:
+        "200":
+          description: Parts the contractor may add
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MyProduct"
+  /my/jobs/{id}/products:
+    post:
+      operationId: addMyJobProduct
+      tags: [jobs]
+      summary: Add a preset part or fee with a quantity to an assigned job from the field
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MyJobProductInput"
+      responses:
+        "201":
+          description: Part added as a job line item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobProduct"
+  /my/jobs/{id}/note-read:
+    post:
+      operationId: acknowledgeJobNote
+      tags: [jobs]
+      summary: The contractor opened the must-read note on this job; Start unlocks
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: The job with the note marked read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
   /my/jobs/{id}/payments:
     post:
       operationId: recordOnSitePayment
@@ -1365,7 +1999,19 @@ paths:
           schema: { type: integer }
         - name: status
           in: query
-          schema: { type: string, enum: [open, paid, partial, void] }
+          schema: { type: string, enum: [pending, open, paid, partial, void] }
+        - name: queue
+          in: query
+          description: >-
+            His invoice tabs. pending = completed jobs waiting for him to verify;
+            to_email / to_print = verified and not yet sent by that method;
+            open = anything still owed; past_due = open and past its due date
+            (invoice date when the terms are due on receipt).
+          schema: { type: string, enum: [pending, to_email, to_print, open, past_due, paid, void] }
+        - name: search
+          in: query
+          description: Customer name, address or invoice number
+          schema: { type: string }
       responses:
         "200":
           description: Invoices
@@ -1391,6 +2037,44 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Invoice"
+  /invoices/email:
+    post:
+      operationId: emailInvoices
+      tags: [invoices]
+      summary: >-
+        Email every listed invoice to its customer, one Gmail send each, with
+        the Bison bill template as the body and the PDF attached. Customers
+        marked do-not-email or with no email are skipped, not failed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvoiceBatchEmailInput"
+      responses:
+        "200":
+          description: Per-invoice outcome
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvoiceBatchEmailResult"
+  /invoices/print.pdf:
+    get:
+      operationId: printInvoices
+      tags: [invoices]
+      summary: One PDF holding every listed invoice, and each is stamped printed
+      parameters:
+        - name: ids
+          in: query
+          required: true
+          description: Comma-separated invoice ids
+          schema: { type: string }
+      responses:
+        "200":
+          description: PDF
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
   /invoices/{id}:
     get:
       operationId: getInvoice
@@ -1404,6 +2088,26 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Invoice"
+    delete:
+      operationId: deleteInvoice
+      tags: [invoices]
+      summary: >-
+        Delete an invoice outright. Refused once it has been sent or paid unless
+        force=true, in which case any money paid stays on the account as credit.
+        The job it billed goes back to completed-but-not-invoiced.
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteInvoiceInput"
+      responses:
+        "204":
+          description: Deleted
+        "409":
+          description: Sent or paid; void it instead, or pass force=true
     patch:
       operationId: updateInvoice
       tags: [invoices]
@@ -1457,6 +2161,92 @@ paths:
                 $ref: "#/components/schemas/SendInvoiceResult"
         "400":
           description: No email address on file, or the invoice is void
+  /invoices/{id}/verify:
+    post:
+      operationId: verifyInvoice
+      tags: [invoices]
+      summary: >-
+        He has checked the invoice. Stamps verifiedAt, snapshots the customer's
+        delivery preference (email / print / both) and moves it from pending to
+        open, so it shows up in the to-email or to-print queue. The due date is
+        worked out again from the day it is verified (the invoice date stays the
+        day of the work), so a bill sent at month end is not already past due.
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invoice"
+        "400":
+          description: Void, or already verified
+  /invoices/{id}/attach-job:
+    post:
+      operationId: attachJobToInvoice
+      tags: [invoices]
+      summary: >-
+        Add a completed job that was missed (never invoiced) to this invoice as
+        its own lines, and mark the job invoiced.
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AttachJobInput"
+      responses:
+        "200":
+          description: Updated invoice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invoice"
+        "400":
+          description: Job is not completed, belongs to another customer, or is already invoiced
+  /invoices/{id}/audit:
+    get:
+      operationId: listInvoiceAudit
+      tags: [invoices]
+      summary: Everything that happened to this invoice and its payments, newest first
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditEvent"
+  /jobs/{id}/uncomplete:
+    post:
+      operationId: uncompleteJob
+      tags: [jobs]
+      summary: >-
+        Undo a completion. The job goes back to scheduled (on the board, or on
+        the waiting list), its lines come off the invoice, and the invoice is
+        voided if nothing is left on it.
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UncompleteJobInput"
+      responses:
+        "200":
+          description: What happened
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UncompleteJobResult"
+        "400":
+          description: The job is not completed
   /payments:
     get:
       operationId: listPayments
@@ -1469,6 +2259,21 @@ paths:
           in: query
           description: Only payments not attached to an invoice (credit on account)
           schema: { type: boolean }
+        - name: search
+          in: query
+          description: Customer name, reference / check number, amount or invoice number
+          schema: { type: string }
+        - name: from
+          in: query
+          description: Payment date from (YYYY-MM-DD)
+          schema: { type: string }
+        - name: to
+          in: query
+          description: Payment date to (YYYY-MM-DD)
+          schema: { type: string }
+        - name: method
+          in: query
+          schema: { type: string, enum: [check, venmo, zelle, credit_card, cash, other] }
       responses:
         "200":
           description: Payments
@@ -1806,6 +2611,101 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SuggestedAction"
+  /automation-rules:
+    get:
+      operationId: listAutomationRules
+      tags: [automation]
+      summary: The "N days after X, send Y" email rules
+      responses:
+        "200":
+          description: Rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AutomationRule"
+    post:
+      operationId: createAutomationRule
+      tags: [automation]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AutomationRuleInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationRule"
+  /automation-rules/status:
+    get:
+      operationId: getEmailAutomationStatus
+      tags: [automation]
+      summary: When the daily email run fires, plus the recent run log
+      responses:
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailAutomationStatus"
+  /automation-rules/run-now:
+    post:
+      operationId: runAutomationRulesNow
+      tags: [automation]
+      summary: Run every switched-on rule right now instead of waiting for the daily run
+      responses:
+        "200":
+          description: What each rule did
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailAutomationRunResult"
+  /automation-rules/{id}:
+    patch:
+      operationId: updateAutomationRule
+      tags: [automation]
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AutomationRuleUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationRule"
+    delete:
+      operationId: deleteAutomationRule
+      tags: [automation]
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "204":
+          description: Deleted
+  /automation-rules/{id}/preview:
+    post:
+      operationId: previewAutomationRule
+      tags: [automation]
+      summary: Dry run — who this rule would email today, without sending anything
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationRulePreview"
   /dashboard/summary:
     get:
       operationId: getDashboardSummary
@@ -1851,6 +2751,17 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ContractorEarnings"
+  /dashboard/alerts:
+    get:
+      operationId: getDashboardAlerts
+      tags: [dashboard]
+      summary: What needs a look today - estimates accepted, invoices sent today, new web requests, failed emails
+      responses:
+        "200":
+          description: Alerts, each with a count and the latest few rows
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DashboardAlerts" }
   /vendor-runs:
     get:
       operationId: listVendorRuns
@@ -2167,7 +3078,49 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/JobPhoto" }
+    post:
+      operationId: uploadClientPhoto
+      tags: [photos]
+      summary: Attach a photo or PDF straight to the customer, with no job
+      description: >-
+        The office's "save it to the customer profile" — a photo from the
+        field forwarded by text, a backflow test form, a photo of the gate.
+        Same limits as a job photo; stored with no job behind it.
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PhotoUploadInput" }
+      responses:
+        "201":
+          description: Stored
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobPhoto" }
+        "400":
+          description: Unsupported type, empty, or over the size limit
+        "404":
+          description: Client not found
   /photos/{id}:
+    patch:
+      operationId: updatePhoto
+      tags: [photos]
+      summary: Relabel a photo (before / after / other) or change its caption
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PhotoUpdate" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobPhoto" }
     delete:
       operationId: deletePhoto
       tags: [photos]
@@ -2252,8 +3205,54 @@ paths:
               schema: { $ref: "#/components/schemas/ReportAnswer" }
         "400":
           description: Missing or malformed question or range
-        "503":
-          description: No assistant is configured on this server
+        "502":
+          description: The assistant could not answer
+  /reports/catalogue:
+    get:
+      operationId: getReportCatalogue
+      tags: [reports]
+      summary: Every report the page can open, with the sentences the picker shows
+      responses:
+        "200":
+          description: Catalogue
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReportCatalogue" }
+  /reports/run:
+    get:
+      operationId: getReport
+      tags: [reports]
+      summary: One curated report over a date range (format=csv returns a file)
+      parameters:
+        - { name: key, in: query, required: true, schema: { type: string } }
+        - { name: from, in: query, required: true, schema: { type: string } }
+        - { name: to, in: query, required: true, schema: { type: string } }
+        - { name: format, in: query, required: false, schema: { type: string, enum: [json, csv] } }
+      responses:
+        "200":
+          description: The report
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReportResult" }
+        "400":
+          description: Invalid date range
+        "404":
+          description: No such report
+  /search:
+    get:
+      operationId: globalSearch
+      tags: [search]
+      summary: One box across clients (including former), tickets, invoices, payments and jobs by address
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 2 } }
+      responses:
+        "200":
+          description: Hits, grouped and capped per group
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SearchResults" }
+        "400":
+          description: Fewer than two characters
 
   /jobs/bulk-assign:
     post:
@@ -2279,6 +3278,198 @@ paths:
               schema: { $ref: "#/components/schemas/BulkAssignResult" }
         "400":
           description: No job ids, or an invalid date
+  /jobs/bulk-action:
+    post:
+      operationId: bulkJobAction
+      tags: [jobs]
+      summary: Do one thing to every selected job on the board or the waiting list
+      description: >-
+        The bulk actions bar. Tick some rows (or select all), pick what to do,
+        and it happens to every one of them in one transaction. A job that
+        cannot take the action — a completed job cannot be cancelled, sent
+        back to the waiting list or deleted, because its invoice already
+        exists — is left alone and reported in `skippedIds` rather than
+        failing the whole batch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BulkJobActionInput" }
+      responses:
+        "200":
+          description: What changed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BulkJobActionResult" }
+        "400":
+          description: No job ids, or the action is missing what it needs
+
+  # ---- GPS: where the crew is (track GPS-SMS) ----
+  /my/location:
+    post:
+      operationId: reportMyLocation
+      tags: [team]
+      summary: A contractor's phone says where it is, while they are on a job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LocationReport" }
+      responses:
+        "204":
+          description: Recorded
+  /team/locations:
+    get:
+      operationId: listTeamLocations
+      tags: [team]
+      summary: Where each contractor last was, and whether they are at a job, on the way, or idle
+      parameters:
+        - name: date
+          in: query
+          description: The dispatch day to judge "at a job" against; today when omitted
+          schema: { type: string }
+      responses:
+        "200":
+          description: Latest position per person
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/TeamLocation" }
+  # ---- Texting (track GPS-SMS) ----
+  /sms/status:
+    get:
+      operationId: getSmsStatus
+      tags: [sms]
+      summary: Whether texting is switched on, which numbers it uses, and what it takes to turn on
+      responses:
+        "200":
+          description: Texting status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SmsStatus" }
+  /clients/{id}/sms:
+    get:
+      operationId: listClientSms
+      tags: [sms]
+      summary: Every text to or from this customer, newest last
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: The thread
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SmsMessage" }
+    post:
+      operationId: sendClientSms
+      tags: [sms]
+      summary: Office texts a customer, from the office number or a contractor's masked number
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SendSmsInput" }
+      responses:
+        "200":
+          description: Sent (or failed, with the provider's reason)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SendSmsResult" }
+        "400":
+          description: No mobile number to send to, or no number to send from
+        "503":
+          description: Texting is not switched on for this server
+  /jobs/{id}/sms:
+    post:
+      operationId: sendJobSms
+      tags: [sms]
+      summary: The contractor on a job texts its customer from their masked number
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/JobSmsInput" }
+      responses:
+        "200":
+          description: Sent (or failed, with the provider's reason)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SendSmsResult" }
+        "400":
+          description: The customer has no mobile number, or this person has no texting number
+        "503":
+          description: Texting is not switched on for this server
+  /users/{id}/sms-number:
+    put:
+      operationId: setUserSmsNumber
+      tags: [sms]
+      summary: Give a person the masked texting number customers will see, or take it away
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SmsNumberInput" }
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AppUser" }
+        "400":
+          description: Not a phone number, or another person already has it
+  /public/sms/inbound:
+    post:
+      operationId: receiveInboundSms
+      tags: [sms]
+      summary: Public webhook the texting provider posts customer replies to; authenticated by the provider's request signature
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/InboundSmsInput" }
+      responses:
+        "200":
+          description: Acknowledged (TwiML)
+          content:
+            text/xml:
+              schema: { type: string }
+        "403":
+          description: The request was not signed by the provider
+  # ---- "Crew is on their way" (feedback 49, track GPS-SMS) ----
+  /my/jobs/{id}/on-the-way-notice:
+    get:
+      operationId: getOnTheWayNotice
+      tags: [jobs]
+      summary: Whether the customer of this job can be emailed that the crew is on the way
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Can it be sent, and was it already
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OnTheWayNotice" }
+    post:
+      operationId: sendOnTheWayNotice
+      tags: [jobs]
+      summary: Email the customer the "on the way" document for this job
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: Sent, or why not
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OnTheWayNoticeResult" }
 
 components:
   parameters:
@@ -2311,6 +3502,12 @@ components:
           description: >-
             Number the selection sequentially from here, in the order the ids
             were given, so the dispatcher's own ordering is what gets written.
+        clearRouteOrder:
+          type: boolean
+          description: >-
+            Wipe the route numbers off these jobs. This is the first half of
+            "set route order": clear, then click the stops in the order they
+            should be driven.
     BulkAssignResult:
       type: object
       required: [updated]
@@ -2319,6 +3516,121 @@ components:
         jobIds:
           type: array
           items: { type: integer }
+    BulkJobActionInput:
+      type: object
+      required: [jobIds, action]
+      properties:
+        jobIds:
+          type: array
+          items: { type: integer }
+          minItems: 1
+        action:
+          type: string
+          enum: [move, assign, dispatch, waiting_list, cancel, skip, delete, add_note]
+          description: >-
+            move = change the date; assign = change the contractor (null
+            unassigns); dispatch = waiting list onto the board for a date;
+            waiting_list = off the board, back to waiting; cancel / skip =
+            terminal statuses with a reason; delete = gone; add_note = append
+            a note to each job, e.g. "NO EMAIL - call or text".
+        scheduledDate:
+          type: ["string", "null"]
+          description: "yyyy-mm-dd. Needed by move and dispatch."
+        assignedToId:
+          type: ["integer", "null"]
+          description: "Needed by assign (null = unassign); optional on dispatch."
+        reason:
+          type: ["string", "null"]
+          description: Why, for cancel and skip. Shown on the row.
+        note:
+          type: ["string", "null"]
+          description: The text add_note appends to each job's notes.
+        notesImportant:
+          type: boolean
+          description: "With add_note: flag the note so it shows red on the board."
+    BulkJobActionResult:
+      type: object
+      required: [action, updated, jobIds, skippedIds]
+      properties:
+        action: { type: string }
+        updated: { type: integer }
+        jobIds:
+          type: array
+          items: { type: integer }
+          description: The jobs the action was applied to.
+        skippedIds:
+          type: array
+          items: { type: integer }
+          description: Jobs left alone because the action does not apply to them (completed jobs, mostly).
+        skipNotices:
+          type: array
+          items: { type: string }
+          description: "For skip: the free-or-chargeable verdict per job, in plain words."
+    BulkClientUpdateInput:
+      type: object
+      required: [clientIds]
+      properties:
+        clientIds:
+          type: array
+          items: { type: integer }
+          minItems: 1
+        status:
+          type: string
+          enum: [lead, client, former_client]
+          description: "Activate = client, deactivate = former_client. Omit to leave alone."
+        mapCode:
+          type: ["string", "null"]
+          description: "Route zone, e.g. PF. Omit to leave alone; null to clear."
+        waterDistrict: { type: ["string", "null"] }
+        state:
+          type: ["string", "null"]
+          description: "His branch: ID or WA. Omit to leave alone; null to clear."
+        accountType:
+          type: ["string", "null"]
+          enum: [commercial, residential, null]
+        billingTerms: { type: ["string", "null"], description: "Payment window, e.g. Net 15" }
+        invoiceFrequency: { type: ["string", "null"] }
+        invoiceDelivery:
+          type: ["string", "null"]
+          enum: [email, print, both, null]
+        doNotEmail:
+          type: ["boolean", "null"]
+          description: "Omit to leave alone."
+        addTags:
+          type: array
+          items: { type: string }
+          description: Added to each customer's existing tags (stored lowercase).
+        removeTags:
+          type: array
+          items: { type: string }
+    BulkClientResult:
+      type: object
+      required: [updated, clientIds]
+      properties:
+        updated: { type: integer }
+        clientIds:
+          type: array
+          items: { type: integer }
+    BulkClientDeleteInput:
+      type: object
+      required: [clientIds]
+      properties:
+        clientIds:
+          type: array
+          items: { type: integer }
+          minItems: 1
+        preview:
+          type: boolean
+          description: "True only counts what would go, so the confirm can say so. Default false."
+    BulkClientDeleteResult:
+      type: object
+      required: [preview, clients, invoices, payments, jobs]
+      properties:
+        preview: { type: boolean }
+        clients: { type: integer, description: Clients matched (or deleted). }
+        invoices: { type: integer }
+        payments: { type: integer }
+        jobs: { type: integer }
     CostingRow:
       type: object
       required: [key, label, jobs, measuredJobs, revenue]
@@ -2377,17 +3689,161 @@ components:
         question: { type: string, maxLength: 500 }
         from: { type: string }
         to: { type: string }
+    ReportColumn:
+      type: object
+      required: [key, label, kind]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        kind: { type: string, enum: [text, money, number, hours, date, sqft, link] }
+    ReportRow:
+      type: object
+      description: One row of a curated report; the keys are the report's column keys
+      additionalProperties: true
+    ReportTotals:
+      type: object
+      description: Totals for the columns the report marks summable
+      additionalProperties: { type: number }
     ReportAnswer:
       type: object
-      required: [question, answer, rows]
+      required: [question, answer, columns, rows, assistantUsed]
       properties:
         question: { type: string }
         reportKey: { type: ["string", "null"] }
         reportTitle: { type: ["string", "null"] }
         answer: { type: string }
+        columns:
+          type: array
+          items: { $ref: "#/components/schemas/ReportColumn" }
         rows:
           type: array
-          items: { $ref: "#/components/schemas/CostingRow" }
+          items: { $ref: "#/components/schemas/ReportRow" }
+        totals:
+          oneOf:
+            - $ref: "#/components/schemas/ReportTotals"
+            - type: "null"
+        assistantUsed:
+          type: boolean
+          description: "False when the question was routed on its words alone, with no model summary"
+    ReportCatalogueEntry:
+      type: object
+      required: [key, title, describes, asks, columns]
+      properties:
+        key: { type: string }
+        title: { type: string }
+        describes: { type: string }
+        asks:
+          type: array
+          items: { type: string }
+        columns:
+          type: array
+          items: { $ref: "#/components/schemas/ReportColumn" }
+    ReportCatalogue:
+      type: object
+      required: [assistantAvailable, reports]
+      properties:
+        assistantAvailable: { type: boolean }
+        reports:
+          type: array
+          items: { $ref: "#/components/schemas/ReportCatalogueEntry" }
+    ReportResult:
+      type: object
+      required: [key, title, from, to, columns, rows]
+      properties:
+        key: { type: string }
+        title: { type: string }
+        from: { type: string }
+        to: { type: string }
+        columns:
+          type: array
+          items: { $ref: "#/components/schemas/ReportColumn" }
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/ReportRow" }
+        totals:
+          oneOf:
+            - $ref: "#/components/schemas/ReportTotals"
+            - type: "null"
+    SearchClientHit:
+      type: object
+      required: [id, name, status]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        status: { type: string, enum: [lead, client, former_client] }
+        serviceAddress: { type: ["string", "null"] }
+        city: { type: ["string", "null"] }
+        phone: { type: ["string", "null"] }
+        email: { type: ["string", "null"] }
+        mapCode: { type: ["string", "null"] }
+    SearchTicketHit:
+      type: object
+      required: [id, title, status]
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        status: { type: string }
+        dueDate: { type: ["string", "null"] }
+        clientId: { type: ["integer", "null"] }
+        clientName: { type: ["string", "null"] }
+    SearchInvoiceHit:
+      type: object
+      required: [id, number, status, total, balance, clientId, clientName]
+      properties:
+        id: { type: integer }
+        number: { type: integer }
+        status: { type: string }
+        total: { type: number }
+        balance: { type: number }
+        invoiceDate: { type: ["string", "null"] }
+        poNumber: { type: ["string", "null"] }
+        clientId: { type: integer }
+        clientName: { type: string }
+    SearchPaymentHit:
+      type: object
+      required: [id, amount, method, createdAt, clientId, clientName]
+      properties:
+        id: { type: integer }
+        amount: { type: number }
+        method: { type: string }
+        reference: { type: ["string", "null"] }
+        invoiceId: { type: ["integer", "null"] }
+        createdAt: { type: string }
+        clientId: { type: integer }
+        clientName: { type: string }
+    SearchJobHit:
+      type: object
+      required: [id, status, amount, clientId, clientName]
+      properties:
+        id: { type: integer }
+        status: { type: string }
+        scheduledDate: { type: ["string", "null"] }
+        amount: { type: number }
+        clientId: { type: integer }
+        clientName: { type: string }
+        address: { type: ["string", "null"] }
+        city: { type: ["string", "null"] }
+        serviceName: { type: ["string", "null"] }
+    SearchResults:
+      type: object
+      required: [q, clients, tickets, invoices, payments, jobs]
+      properties:
+        q: { type: string }
+        clients:
+          type: array
+          items: { $ref: "#/components/schemas/SearchClientHit" }
+        tickets:
+          type: array
+          items: { $ref: "#/components/schemas/SearchTicketHit" }
+        invoices:
+          type: array
+          items: { $ref: "#/components/schemas/SearchInvoiceHit" }
+        payments:
+          type: array
+          items: { $ref: "#/components/schemas/SearchPaymentHit" }
+        jobs:
+          type: array
+          items: { $ref: "#/components/schemas/SearchJobHit" }
     ClockInput:
       type: object
       properties:
@@ -2436,6 +3892,25 @@ components:
         caption: { type: ["string", "null"] }
         takenAt: { type: string }
         url: { type: string, description: "Authenticated path to the bytes" }
+    PhotoUpdate:
+      type: object
+      properties:
+        kind: { type: string, enum: [before, after, other] }
+        caption: { type: ["string", "null"] }
+    ActivityItem:
+      type: object
+      required: [kind, date, title, refKind, refId]
+      properties:
+        kind: { type: string, enum: [visit, invoice, payment, email, estimate, ticket, note, event] }
+        date: { type: string, description: "yyyy-mm-dd the item belongs to on the office's calendar (Pacific), used for the range filter" }
+        at: { type: ["string", "null"], description: "Exact instant when known, ISO" }
+        title: { type: string }
+        detail: { type: ["string", "null"], description: "Second line: who did it, the address it went to, the note body" }
+        amount: { type: ["number", "null"], description: "For a visit, what it bills at after the discount on the assigned service" }
+        status: { type: ["string", "null"], description: "The row's own status word: completed, paid, opened, unopened, open, closed..." }
+        actorName: { type: ["string", "null"] }
+        refKind: { type: string, enum: [job, invoice, payment, email, estimate, ticket, note, audit] }
+        refId: { type: integer }
     RouteBuildInput:
       type: object
       required: [scheduledDate]
@@ -2486,35 +3961,78 @@ components:
       properties:
         status: { type: string }
       required: [status]
+    AccessArea:
+      type: string
+      description: A part of the office app a person can be let into or kept out of
+      enum: [dispatch, clients, invoices, quickbooks, reports, settings, team, documents]
+    AccessLevel:
+      type: string
+      description: full = every office screen; office = day-to-day screens plus whatever is granted; mobile = the phone app only
+      enum: [full, office, mobile]
     AppUser:
       type: object
-      required: [id, clerkId, name, role]
+      required: [id, clerkId, name, role, active, accessLevel, permissions, areas]
       properties:
         id: { type: integer }
         clerkId: { type: string }
+        # The name to show everywhere: the display name if Adam set one, else the sign-in name
         name: { type: string }
+        # The name the sign-in gave us, kept so the Team page can show both
+        fullName: { type: string }
+        displayName: { type: ["string", "null"] }
         email: { type: ["string", "null"] }
         role: { type: string, enum: [admin, contractor] }
+        roleSource: { type: string, enum: [provisioned, owner, owner_assigned] }
+        accessLevel: { $ref: "#/components/schemas/AccessLevel" }
+        # Grants ("quickbooks") and denials ("!quickbooks") on top of the level
+        permissions:
+          type: array
+          items: { type: string }
+        # Every area this person can open, worked out on the server so the sidebar and the guards agree
+        areas:
+          type: array
+          items: { $ref: "#/components/schemas/AccessArea" }
+        active: { type: boolean }
         phone: { type: ["string", "null"] }
+        birthday: { type: ["string", "null"] }
+        hireDate: { type: ["string", "null"] }
         baseAddress: { type: ["string", "null"] }
         baseLat: { type: ["number", "null"] }
         baseLng: { type: ["number", "null"] }
+        jobCount: { type: integer }
+        # Everything the database still holds against this person (jobs plus notes, tickets and reviewed
+        # suggestions). Anything above zero means they can only be turned off, never deleted.
+        historyCount: { type: integer }
+        # The masked texting number customers see for this person (E.164), set on the Team page
+        smsProxyNumber: { type: ["string", "null"] }
     AppUserUpdate:
       type: object
       properties:
         name: { type: string }
+        displayName: { type: ["string", "null"] }
         role: { type: string, enum: [admin, contractor] }
+        accessLevel: { $ref: "#/components/schemas/AccessLevel" }
+        permissions:
+          type: array
+          items: { type: string }
+        active: { type: boolean }
         phone: { type: ["string", "null"] }
+        birthday: { type: ["string", "null"] }
+        hireDate: { type: ["string", "null"] }
         baseAddress: { type: ["string", "null"] }
         baseLat: { type: ["number", "null"] }
         baseLng: { type: ["number", "null"] }
     Invitation:
       type: object
-      required: [id, email, role, createdAt]
+      required: [id, email, role, accessLevel, permissions, createdAt]
       properties:
         id: { type: integer }
         email: { type: string }
         role: { type: string, enum: [admin, contractor] }
+        accessLevel: { $ref: "#/components/schemas/AccessLevel" }
+        permissions:
+          type: array
+          items: { type: string }
         invitedById: { type: ["integer", "null"] }
         invitedByName: { type: ["string", "null"] }
         note: { type: ["string", "null"] }
@@ -2529,6 +4047,10 @@ components:
       properties:
         email: { type: string, minLength: 3 }
         role: { type: string, enum: [admin, contractor] }
+        accessLevel: { $ref: "#/components/schemas/AccessLevel" }
+        permissions:
+          type: array
+          items: { type: string }
         note: { type: ["string", "null"] }
     SchedulingRule:
       type: object
@@ -2631,14 +4153,18 @@ components:
         email: { type: ["string", "null"] }
         website: { type: ["string", "null"] }
         signatureLine: { type: string }
+    DocumentTemplateCategory:
+      type: string
+      enum: [client, marketing, estimate]
     DocumentTemplate:
       type: object
-      required: [id, key, name, kind, body]
+      required: [id, key, name, kind, category, body]
       properties:
         id: { type: integer }
         key: { type: string }
         name: { type: string }
         kind: { type: string, enum: [notice, estimate_cover, contract] }
+        category: { $ref: "#/components/schemas/DocumentTemplateCategory" }
         serviceId: { type: ["integer", "null"] }
         serviceName: { type: ["string", "null"] }
         subject: { type: ["string", "null"] }
@@ -2656,6 +4182,7 @@ components:
         key: { type: string }
         name: { type: string, minLength: 1 }
         kind: { type: string, enum: [notice, estimate_cover, contract] }
+        category: { $ref: "#/components/schemas/DocumentTemplateCategory" }
         serviceId: { type: ["integer", "null"] }
         subject: { type: ["string", "null"] }
         body: { type: string, minLength: 1 }
@@ -2664,9 +4191,211 @@ components:
       properties:
         name: { type: string, minLength: 1 }
         kind: { type: string, enum: [notice, estimate_cover, contract] }
+        category: { $ref: "#/components/schemas/DocumentTemplateCategory" }
         serviceId: { type: ["integer", "null"] }
         subject: { type: ["string", "null"] }
         body: { type: string, minLength: 1 }
+    DocumentSendInput:
+      type: object
+      required: [clientIds, source]
+      properties:
+        clientIds:
+          type: array
+          minItems: 1
+          items: { type: integer }
+        jobIds:
+          type: array
+          items: { type: integer }
+          description: "Jobs the letter is about; fills [servicedate] and [servicename] and adds their customers"
+        tokens:
+          type: object
+          additionalProperties: { type: string }
+          description: "Extra merge values typed by the sender, e.g. { servicedate: 'October 3, 2026' }"
+        source:
+          type: string
+          enum: [dispatch, waiting_list, client_page, automation, invoice]
+    DocumentSendSkip:
+      type: object
+      required: [clientId, clientName, reason]
+      properties:
+        clientId: { type: integer }
+        clientName: { type: string }
+        reason: { type: string, enum: [no_email, do_not_email, failed] }
+    DocumentSendResult:
+      type: object
+      required: [batchId, sent, skipped]
+      properties:
+        batchId: { type: string }
+        sent: { type: integer }
+        skipped:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocumentSendSkip"
+    EmailBatch:
+      type: object
+      required: [batchId, createdAt, source, sourceLabel, total, sent, failed, skipped, opened]
+      properties:
+        batchId: { type: string }
+        createdAt: { type: string }
+        source: { type: string }
+        sourceLabel: { type: string }
+        templateId: { type: ["integer", "null"] }
+        templateName: { type: ["string", "null"] }
+        ruleName: { type: ["string", "null"] }
+        subject: { type: ["string", "null"] }
+        sentByName: { type: ["string", "null"] }
+        total: { type: integer }
+        sent: { type: integer }
+        failed: { type: integer }
+        skipped: { type: integer }
+        opened: { type: integer }
+    EmailBatchRecipient:
+      type: object
+      required: [id, clientName, status, openCount, createdAt]
+      properties:
+        id: { type: integer }
+        clientId: { type: ["integer", "null"] }
+        clientName: { type: string }
+        toEmail: { type: ["string", "null"] }
+        subject: { type: ["string", "null"] }
+        status: { type: string, enum: [sent, failed, skipped] }
+        skipReason: { type: ["string", "null"] }
+        error: { type: ["string", "null"] }
+        openedAt: { type: ["string", "null"] }
+        openCount: { type: integer }
+        sentAt: { type: ["string", "null"] }
+        createdAt: { type: string }
+    AutomationRuleTrigger:
+      type: string
+      enum: [invoice_past_due, invoice_sent, estimate_sent, job_completed, client_added, fixed_date, after_rule]
+    AutomationRuleConditions:
+      type: object
+      properties:
+        stillUnpaid: { type: boolean }
+        noResponse: { type: boolean }
+        serviceId: { type: ["integer", "null"] }
+        afterRuleId: { type: ["integer", "null"] }
+        lookbackDays: { type: integer, minimum: 0, maximum: 3650 }
+    AutomationRule:
+      type: object
+      required: [id, name, enabled, trigger, offsetDays, conditions, sentTotal, createdAt]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        enabled: { type: boolean }
+        trigger: { $ref: "#/components/schemas/AutomationRuleTrigger" }
+        offsetDays: { type: integer }
+        monthDay: { type: ["string", "null"] }
+        templateId: { type: ["integer", "null"] }
+        templateName: { type: ["string", "null"] }
+        afterRuleName: { type: ["string", "null"] }
+        serviceName: { type: ["string", "null"] }
+        conditions: { $ref: "#/components/schemas/AutomationRuleConditions" }
+        sentTotal: { type: integer }
+        lastRunAt: { type: ["string", "null"] }
+        createdAt: { type: string }
+    AutomationRuleInput:
+      type: object
+      required: [name, trigger]
+      properties:
+        name: { type: string, minLength: 1 }
+        enabled: { type: boolean }
+        trigger: { $ref: "#/components/schemas/AutomationRuleTrigger" }
+        offsetDays: { type: integer, minimum: 0, maximum: 3650 }
+        monthDay: { type: ["string", "null"], pattern: "^\\d{2}-\\d{2}$" }
+        templateId: { type: ["integer", "null"] }
+        conditions: { $ref: "#/components/schemas/AutomationRuleConditions" }
+    AutomationRuleUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        enabled: { type: boolean }
+        trigger: { $ref: "#/components/schemas/AutomationRuleTrigger" }
+        offsetDays: { type: integer, minimum: 0, maximum: 3650 }
+        monthDay: { type: ["string", "null"], pattern: "^\\d{2}-\\d{2}$" }
+        templateId: { type: ["integer", "null"] }
+        conditions: { $ref: "#/components/schemas/AutomationRuleConditions" }
+    AutomationRulePreviewRecipient:
+      type: object
+      required: [clientId, clientName, subjectLabel]
+      properties:
+        clientId: { type: integer }
+        clientName: { type: string }
+        email: { type: ["string", "null"] }
+        subjectLabel: { type: string }
+        wouldSkip: { type: ["string", "null"], enum: [no_email, do_not_email, null] }
+    AutomationRulePreview:
+      type: object
+      required: [ruleId, ruleName, today, count, recipients]
+      properties:
+        ruleId: { type: integer }
+        ruleName: { type: string }
+        templateName: { type: ["string", "null"] }
+        today: { type: string }
+        count: { type: integer, description: "How many would actually be emailed" }
+        recipients:
+          type: array
+          items:
+            $ref: "#/components/schemas/AutomationRulePreviewRecipient"
+        sample:
+          oneOf:
+            - type: object
+              required: [clientName, body]
+              properties:
+                clientName: { type: string }
+                subject: { type: ["string", "null"] }
+                body: { type: string }
+            - type: "null"
+        problem: { type: ["string", "null"] }
+    EmailAutomationRun:
+      type: object
+      required: [id, trigger, status, considered, sent, startedAt]
+      properties:
+        id: { type: integer }
+        trigger: { type: string, enum: [scheduled, manual] }
+        status: { type: string, enum: [running, succeeded, failed] }
+        day: { type: ["string", "null"] }
+        considered: { type: integer }
+        sent: { type: integer }
+        summary: { type: ["string", "null"] }
+        error: { type: ["string", "null"] }
+        triggeredBy: { type: ["string", "null"] }
+        startedAt: { type: string }
+        finishedAt: { type: ["string", "null"] }
+    EmailAutomationStatus:
+      type: object
+      required: [enabled, runAtLocalTime, timeZone, today, runs]
+      properties:
+        enabled: { type: boolean }
+        runAtLocalTime: { type: string }
+        timeZone: { type: string }
+        today: { type: string }
+        runs:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmailAutomationRun"
+    EmailAutomationRuleOutcome:
+      type: object
+      required: [ruleId, ruleName, considered, sent, skipped, failed]
+      properties:
+        ruleId: { type: integer }
+        ruleName: { type: string }
+        considered: { type: integer }
+        sent: { type: integer }
+        skipped: { type: integer }
+        failed: { type: integer }
+        batchId: { type: ["string", "null"] }
+        problem: { type: ["string", "null"] }
+    EmailAutomationRunResult:
+      type: object
+      required: [runId, summary, outcomes]
+      properties:
+        runId: { type: integer }
+        summary: { type: string }
+        outcomes:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmailAutomationRuleOutcome"
     DocumentPreviewInput:
       type: object
       properties:
@@ -2677,6 +4406,7 @@ components:
       properties:
         subject: { type: ["string", "null"] }
         body: { type: string }
+        html: { type: string, description: "The letter inside the branded email shell, as the customer sees it" }
         clientName: { type: ["string", "null"] }
         unknownTokens:
           type: array
@@ -2790,6 +4520,28 @@ components:
           description: >-
             Money received from this client that is not attached to any invoice
             (typically an overpayment). Available to apply to an open invoice.
+        # ---- 2026-09-15 walkthrough: master account, do-not-email, sales, how they pay ----
+        parentClientId:
+          type: ["integer", "null"]
+          description: The master account (property manager) this property sits under, one level only
+        parentClientName: { type: ["string", "null"] }
+        relatedPropertyCount:
+          type: integer
+          description: How many properties sit under this account (0 unless it is a master)
+        relatedBalanceTotal:
+          type: number
+          description: >-
+            This account's balance plus every property under it. Equals accountBalance
+            for an ordinary customer; on a master it is what the property manager owes in all.
+        doNotEmail:
+          type: boolean
+          description: "Stops every bulk email (board, waiting list, automations). Invoices still go out."
+        source: { type: ["string", "null"], description: "Where they came from, e.g. Door Hanger" }
+        referredByClientId: { type: ["integer", "null"] }
+        referredByClientName: { type: ["string", "null"] }
+        preferredPaymentMethod:
+          type: ["string", "null"]
+          enum: [check, venmo, zelle, credit_card, cash, ach, other, null]
         createdAt: { type: string }
     ClientInput:
       type: object
@@ -2827,6 +4579,13 @@ components:
         propertyData:
           type: object
           additionalProperties: { type: string }
+        parentClientId: { type: ["integer", "null"] }
+        doNotEmail: { type: boolean }
+        source: { type: ["string", "null"] }
+        referredByClientId: { type: ["integer", "null"] }
+        preferredPaymentMethod:
+          type: ["string", "null"]
+          enum: [check, venmo, zelle, credit_card, cash, ach, other, null]
     ClientUpdate:
       type: object
       properties:
@@ -2862,20 +4621,70 @@ components:
         propertyData:
           type: object
           additionalProperties: { type: string }
-    ClientNote:
+        parentClientId:
+          type: ["integer", "null"]
+          description: Put this property under a master account; null takes it out again
+        doNotEmail: { type: boolean }
+        source: { type: ["string", "null"] }
+        referredByClientId: { type: ["integer", "null"] }
+        preferredPaymentMethod:
+          type: ["string", "null"]
+          enum: [check, venmo, zelle, credit_card, cash, ach, other, null]
+    ClientContact:
       type: object
-      required: [id, clientId, body, createdAt]
+      required: [id, clientId, name, createdAt]
       properties:
         id: { type: integer }
         clientId: { type: integer }
+        name: { type: string }
+        role: { type: ["string", "null"], description: "Who they are to the account: CPA, spouse, HOA president" }
+        phone: { type: ["string", "null"] }
+        email: { type: ["string", "null"] }
+        birthday: { type: ["string", "null"], description: "yyyy-mm-dd, or mm-dd when the year is not known" }
+        notes: { type: ["string", "null"] }
+        createdAt: { type: string }
+    ClientContactInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1 }
+        role: { type: ["string", "null"] }
+        phone: { type: ["string", "null"] }
+        email: { type: ["string", "null"] }
+        birthday: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+    ClientContactUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        role: { type: ["string", "null"] }
+        phone: { type: ["string", "null"] }
+        email: { type: ["string", "null"] }
+        birthday: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+    ClientNote:
+      type: object
+      required: [id, clientId, body, status, createdAt]
+      properties:
+        id: { type: integer }
+        clientId: { type: integer }
+        clientName: { type: ["string", "null"], description: "Filled on the cross-customer open-notes list" }
         body: { type: string }
         authorName: { type: ["string", "null"] }
+        status: { type: string, enum: [open, closed], description: "Open notes wait on the office and show on the dashboard until closed" }
+        closedAt: { type: ["string", "null"] }
         createdAt: { type: string }
     ClientNoteInput:
       type: object
       required: [body]
       properties:
         body: { type: string, minLength: 1 }
+        status: { type: string, enum: [open, closed], default: closed }
+    ClientNoteUpdate:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [open, closed] }
     AuditEvent:
       type: object
       required: [id, action, description, createdAt]
@@ -2886,6 +4695,10 @@ components:
         actorName: { type: ["string", "null"] }
         action: { type: string }
         description: { type: string }
+        entityType:
+          type: ["string", "null"]
+          description: Which record the event is about (invoice, payment, job); null on older rows
+        entityId: { type: ["integer", "null"] }
         createdAt: { type: string }
     PricingEquation:
       type: object
@@ -2915,6 +4728,19 @@ components:
         id: { type: integer }
         name: { type: string }
         description: { type: ["string", "null"] }
+        code:
+          type: ["string", "null"]
+          description: "Short code shown on the waiting list, e.g. BA7 or MOWIN"
+        invoiceDescription:
+          type: ["string", "null"]
+          description: "What prints on the invoice line; blank falls back to the name"
+        billingMode:
+          type: string
+          enum: [fixed, time]
+          description: "fixed = set price; time = billed on the job's start/stop time and adjusted afterwards"
+        visitsPerSeason:
+          type: ["integer", "null"]
+          description: "Default number of visits an estimate multiplies the band rate by (28 mows a season). Null means one."
         quantity: { type: number }
         rate: { type: number }
         billableHours: { type: ["number", "null"] }
@@ -2941,6 +4767,10 @@ components:
       properties:
         name: { type: string, minLength: 1 }
         description: { type: string }
+        code: { type: ["string", "null"] }
+        invoiceDescription: { type: ["string", "null"] }
+        billingMode: { type: string, enum: [fixed, time] }
+        visitsPerSeason: { type: ["integer", "null"], minimum: 1 }
         quantity: { type: number }
         rate: { type: number }
         billableHours: { type: ["number", "null"] }
@@ -2964,6 +4794,10 @@ components:
       properties:
         name: { type: string, minLength: 1 }
         description: { type: ["string", "null"] }
+        code: { type: ["string", "null"] }
+        invoiceDescription: { type: ["string", "null"] }
+        billingMode: { type: string, enum: [fixed, time] }
+        visitsPerSeason: { type: ["integer", "null"], minimum: 1 }
         quantity: { type: number }
         rate: { type: number }
         billableHours: { type: ["number", "null"] }
@@ -2994,13 +4828,105 @@ components:
         price: { type: number }
         sqft: { type: number }
         equationIndex: { type: ["integer", "null"] }
+    CopyMatrixInput:
+      type: object
+      required: [targetServiceIds]
+      properties:
+        targetServiceIds:
+          type: array
+          minItems: 1
+          items: { type: integer }
+        mode:
+          type: string
+          enum: [multiply, add, percent]
+          description: "multiply = rate x value (1.5 for a one-time mow); add = rate + $value; percent = rate + value%. Default multiply."
+        value:
+          type: number
+          description: "The multiplier, the dollars or the percent, depending on mode. Default 1 (multiply) or 0."
+        roundTo:
+          type: ["number", "null"]
+          description: "Round every scaled price to this increment, e.g. 0.5 or 1. Null keeps cents."
+        copyPricingField:
+          type: boolean
+          description: "Point each target at the source's Price By field too (default true) — the bands are measured in it."
+        apply:
+          type: boolean
+          description: "false (the default) only previews what each target would get; true writes it."
+        overwrite:
+          type: boolean
+          description: "Must be true to replace a target that already has priced bands."
+    CopyMatrixTarget:
+      type: object
+      required: [serviceId, serviceName, existingBands, equations, pricingFieldChanged]
+      properties:
+        serviceId: { type: integer }
+        serviceName: { type: string }
+        existingBands:
+          type: integer
+          description: "Priced bands the target has today — the copy replaces them"
+        equations:
+          type: array
+          items:
+            $ref: "#/components/schemas/PricingEquation"
+        pricingFieldChanged: { type: boolean }
+    CopyMatrixResult:
+      type: object
+      required: [applied, sourceServiceId, sourceServiceName, targets]
+      properties:
+        applied: { type: boolean }
+        sourceServiceId: { type: integer }
+        sourceServiceName: { type: string }
+        targets:
+          type: array
+          items:
+            $ref: "#/components/schemas/CopyMatrixTarget"
+    MatrixRuleTier:
+      type: object
+      required: [pricePerStep, stepSize]
+      properties:
+        pricePerStep: { type: number, minimum: 0, description: "Dollars added for every step" }
+        stepSize: { type: number, exclusiveMinimum: 0, description: "One step in the pricing unit, e.g. 1000 sqft or 500 sqft" }
+        upTo:
+          type: ["number", "null"]
+          description: "Where this tier stops. Null makes one final and-up band that keeps adding pricePerStep per stepSize."
+    MatrixRuleInput:
+      type: object
+      required: [startPrice, firstTier]
+      properties:
+        startPrice: { type: number, minimum: 0, description: "Price of the first band, which covers the first step" }
+        firstTier: { $ref: "#/components/schemas/MatrixRuleTier" }
+        secondTier: { $ref: "#/components/schemas/MatrixRuleTier" }
+        costPercent:
+          type: ["number", "null"]
+          description: "Fill budgeted cost as this percent of each band's rate; null leaves cost blank"
+    MatrixRuleResult:
+      type: object
+      required: [equations]
+      properties:
+        equations:
+          type: array
+          items:
+            $ref: "#/components/schemas/PricingEquation"
+    PackageItem:
+      type: object
+      description: >-
+        One entry in a package. The same service may appear several times
+        (Sprinkler timer adjustment x4, Aeration x2); the label tells the
+        entries apart on the account and the window, when set, beats the
+        package-wide start/end for that entry only.
+      required: [serviceId]
+      properties:
+        serviceId: { type: integer }
+        label: { type: ["string", "null"] }
+        windowStart: { type: ["string", "null"], description: "yyyy-mm-dd" }
+        windowEnd: { type: ["string", "null"], description: "yyyy-mm-dd" }
     ServicePackage:
       type: object
       description: >-
         A collection of services plus the scheduling defaults its members inherit.
         Assigning the package copies these onto each client service by value, so
         editing the package later never rewrites work already scheduled.
-      required: [id, name, serviceIds]
+      required: [id, name, serviceIds, items]
       properties:
         id: { type: integer }
         name: { type: string }
@@ -3008,6 +4934,11 @@ components:
         serviceIds:
           type: array
           items: { type: integer }
+          description: "One id per entry, repeats included — always the same order as items"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PackageItem"
         scheduleType: { type: ["string", "null"], enum: [window, recurring, one_time, null] }
         startDate: { type: ["string", "null"] }
         endDate: { type: ["string", "null"] }
@@ -3018,15 +4949,21 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Service"
+          description: "The service behind each entry, in entry order, so a repeated service appears as many times as it is listed"
     ServicePackageInput:
       type: object
-      required: [name, serviceIds]
+      required: [name]
       properties:
         name: { type: string, minLength: 1 }
         description: { type: string }
         serviceIds:
           type: array
           items: { type: integer }
+          description: "Older callers send only ids; ignored when items is given"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PackageItem"
         scheduleType: { type: ["string", "null"], enum: [window, recurring, one_time, null] }
         startDate: { type: ["string", "null"] }
         endDate: { type: ["string", "null"] }
@@ -3041,6 +4978,10 @@ components:
         serviceIds:
           type: array
           items: { type: integer }
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PackageItem"
         scheduleType: { type: ["string", "null"], enum: [window, recurring, one_time, null] }
         startDate: { type: ["string", "null"] }
         endDate: { type: ["string", "null"] }
@@ -3049,17 +4990,24 @@ components:
         renewDate: { type: ["string", "null"] }
     ClientService:
       type: object
-      required: [id, clientId, serviceId, quantity, amount, scheduleType]
+      description: >-
+        A service on a customer's account (2026-09-15 walkthrough): the contractor it always goes to,
+        the cadence in words, the price and where the matrix got it, a discount that prints as its own
+        invoice line, the must-read crew note with its dates, pause state, and what is ahead / behind.
+      required: [id, clientId, serviceId, quantity, amount, scheduleType, active, autoRenew, resumeWhenPaid, retailAmount, discountAmount, netAmount, upcomingCount, upcomingTotal, completedCount, cadenceLabel, billingMode]
       properties:
         id: { type: integer }
         clientId: { type: integer }
         serviceId: { type: integer }
         serviceName: { type: ["string", "null"] }
+        serviceCode: { type: ["string", "null"] }
+        billingMode: { type: string, enum: [fixed, time], description: "From the service. On a time service `amount` is the hourly rate." }
         packageId: { type: ["integer", "null"] }
         packageName: { type: ["string", "null"] }
+        label: { type: ["string", "null"], description: "The package entry's label, e.g. Timer adjustment — June" }
         quantity: { type: number }
-        amount: { type: number }
-        scheduleType: { type: string, enum: [window, recurring, one_time] }
+        amount: { type: number, description: "Per visit (or per hour on a time service, or the contract's annual total split is in retailAmount)" }
+        scheduleType: { type: string, enum: [window, recurring, one_time, contract] }
         startDate: { type: ["string", "null"] }
         endDate: { type: ["string", "null"] }
         frequencyWeeks: { type: ["integer", "null"] }
@@ -3067,30 +5015,79 @@ components:
         seasonEndDate: { type: ["string", "null"] }
         renewDate: { type: ["string", "null"] }
         budgetedHours: { type: ["number", "null"] }
+        lastRenewedAt: { type: ["string", "null"] }
+        assignedToId: { type: ["integer", "null"] }
+        assignedToName: { type: ["string", "null"] }
+        frequency: { type: ["string", "null"], enum: [weekly, biweekly, monthly, null] }
+        weekday: { type: ["integer", "null"], description: "0 Sunday to 6 Saturday" }
+        weekParity: { type: ["string", "null"], enum: [odd, even, null], description: "ISO week parity for bi-weekly" }
+        monthlyWeek: { type: ["integer", "null"], description: "1-4, which week of the month for monthly" }
+        cadenceLabel: { type: string, description: "Every other Wednesday (odd weeks)" }
+        discountType: { type: ["string", "null"], enum: [amount, percent, null] }
+        discountValue: { type: ["number", "null"] }
+        discountLabel: { type: ["string", "null"] }
+        contractorNote: { type: ["string", "null"], description: "The note the crew must open before starting the job" }
+        noteStartDate: { type: ["string", "null"] }
+        noteEndDate: { type: ["string", "null"] }
+        noteActiveToday: { type: boolean }
+        pausedAt: { type: ["string", "null"] }
+        pauseUntil: { type: ["string", "null"] }
+        resumeWhenPaid: { type: boolean }
+        pauseReason: { type: ["string", "null"] }
+        active: { type: boolean, description: "Off means no visits are generated; a package entry can be switched off on its own" }
+        autoRenew: { type: boolean }
+        pricedFromLabel: { type: ["string", "null"], description: "The customer field the matrix priced from, e.g. Turf Sqft" }
+        pricedFromValue: { type: ["number", "null"] }
+        contractMonths: { type: ["integer", "null"], description: "8 or 12 for a contract" }
+        contractTotal: { type: ["number", "null"], description: "The contract's annual amount" }
+        retailAmount: { type: number, description: "Per visit before the discount (a time service: hourly rate x budgeted hours; a contract: one monthly line)" }
+        discountAmount: { type: number, description: "Per visit, in dollars" }
+        netAmount: { type: number, description: "retailAmount less discountAmount" }
+        upcomingCount: { type: integer }
+        upcomingTotal: { type: number }
+        nextDate: { type: ["string", "null"] }
+        completedCount: { type: integer }
+        lastCompletedDate: { type: ["string", "null"] }
+        createdAt: { type: string }
     ClientServiceInput:
       type: object
       properties:
         serviceId: { type: ["integer", "null"] }
         packageId: { type: ["integer", "null"], description: "Provide packageId to add every service in the package" }
         quantity: { type: number }
-        amount: { type: ["number", "null"], description: "Override; defaults to engine-calculated or service rate" }
-        sqft: { type: ["number", "null"], description: "Used with pricing equations to compute amount" }
+        amount: { type: ["number", "null"], description: "Override; defaults to the matrix price from the customer's field, else the service rate" }
+        sqft: { type: ["number", "null"], description: "A typed measurement; beats the one on the customer's record" }
         scheduleType:
           type: string
-          enum: [window, recurring, one_time]
+          enum: [window, recurring, one_time, contract]
           description: "Optional only when packageId is given and that package sets its own schedule type; otherwise required."
         startDate: { type: ["string", "null"] }
         endDate: { type: ["string", "null"] }
-        frequencyWeeks: { type: ["integer", "null"] }
+        frequencyWeeks: { type: ["integer", "null"], description: "Older callers; frequency is preferred" }
         firstServiceDate: { type: ["string", "null"] }
         seasonEndDate: { type: ["string", "null"] }
         renewDate: { type: ["string", "null"] }
         budgetedHours: { type: ["number", "null"] }
+        assignedToId: { type: ["integer", "null"] }
+        frequency: { type: ["string", "null"], enum: [weekly, biweekly, monthly, null] }
+        weekday: { type: ["integer", "null"], minimum: 0, maximum: 6 }
+        weekParity: { type: ["string", "null"], enum: [odd, even, null] }
+        monthlyWeek: { type: ["integer", "null"], minimum: 1, maximum: 4 }
+        discountType: { type: ["string", "null"], enum: [amount, percent, null] }
+        discountValue: { type: ["number", "null"] }
+        discountLabel: { type: ["string", "null"] }
+        contractorNote: { type: ["string", "null"] }
+        noteStartDate: { type: ["string", "null"] }
+        noteEndDate: { type: ["string", "null"] }
+        autoRenew: { type: boolean }
+        contractMonths: { type: ["integer", "null"] }
+        contractTotal: { type: ["number", "null"] }
     ClientServiceUpdate:
       type: object
       properties:
         quantity: { type: number }
         amount: { type: number }
+        scheduleType: { type: string, enum: [window, recurring, one_time, contract] }
         startDate: { type: ["string", "null"] }
         endDate: { type: ["string", "null"] }
         frequencyWeeks: { type: ["integer", "null"] }
@@ -3098,6 +5095,69 @@ components:
         seasonEndDate: { type: ["string", "null"] }
         renewDate: { type: ["string", "null"] }
         budgetedHours: { type: ["number", "null"] }
+        assignedToId: { type: ["integer", "null"] }
+        frequency: { type: ["string", "null"], enum: [weekly, biweekly, monthly, null] }
+        weekday: { type: ["integer", "null"], minimum: 0, maximum: 6 }
+        weekParity: { type: ["string", "null"], enum: [odd, even, null] }
+        monthlyWeek: { type: ["integer", "null"], minimum: 1, maximum: 4 }
+        discountType: { type: ["string", "null"], enum: [amount, percent, null] }
+        discountValue: { type: ["number", "null"] }
+        discountLabel: { type: ["string", "null"] }
+        contractorNote: { type: ["string", "null"] }
+        noteStartDate: { type: ["string", "null"] }
+        noteEndDate: { type: ["string", "null"] }
+        autoRenew: { type: boolean }
+        active: { type: boolean }
+        contractMonths: { type: ["integer", "null"] }
+        contractTotal: { type: ["number", "null"] }
+    ClientServicePriceInput:
+      type: object
+      required: [serviceId]
+      properties:
+        serviceId: { type: integer }
+        quantity: { type: ["number", "null"] }
+        sqft: { type: ["number", "null"], description: "A typed measurement to price against instead of the one on file" }
+    ClientServicePrice:
+      type: object
+      required: [amount, billingMode, rate, serviceName]
+      properties:
+        amount: { type: number }
+        budgetedHours: { type: ["number", "null"] }
+        pricedFromLabel: { type: ["string", "null"] }
+        pricedFromValue: { type: ["number", "null"] }
+        missingField: { type: ["string", "null"], description: "Set when the matrix needs a customer field that is blank; amount is then the flat rate" }
+        billingMode: { type: string, enum: [fixed, time] }
+        rate: { type: number }
+        serviceName: { type: string }
+        defaultStartDate: { type: ["string", "null"] }
+        defaultEndDate: { type: ["string", "null"] }
+        renewDate: { type: ["string", "null"] }
+    ClientServiceJobs:
+      type: object
+      required: [upcoming, history]
+      properties:
+        upcoming:
+          type: array
+          items:
+            $ref: "#/components/schemas/Job"
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/Job"
+    PauseClientServiceInput:
+      type: object
+      properties:
+        reason: { type: ["string", "null"] }
+        pauseUntil: { type: ["string", "null"], description: "yyyy-mm-dd; the nightly check resumes it that day" }
+        resumeWhenPaid: { type: boolean, description: "Resume as soon as the account balance is zero or less" }
+        wholePackage: { type: boolean, description: "Pause every service this package put on the account" }
+    ClientServiceDailyRun:
+      type: object
+      required: [resumed, renewed, renewalsRan]
+      properties:
+        resumed: { type: integer }
+        renewed: { type: integer }
+        renewalsRan: { type: boolean, description: "False when today's renewal pass had already been claimed" }
     EstimateField:
       type: object
       required: [id, label, fieldType]
@@ -3146,6 +5206,51 @@ components:
       properties:
         label: { type: string, minLength: 1 }
         defaultPrice: { type: number }
+    ProductPreset:
+      type: object
+      description: >-
+        A part or fee on the office's list (bag fee, sprinkler head, valve). A contractor picks one on
+        the job card and types how many; the job keeps its own copy of the name and price.
+      required: [id, label, defaultPrice, kind, contractorCanAdd]
+      properties:
+        id: { type: integer }
+        label: { type: string }
+        defaultPrice: { type: number }
+        kind: { type: string, enum: [charge, product] }
+        unit: { type: ["string", "null"], description: "bag, each, ft — shown next to the quantity" }
+        contractorCanAdd: { type: boolean, description: "Whether the crew may add it without asking the office" }
+        sortOrder: { type: ["integer", "null"] }
+    ProductPresetInput:
+      type: object
+      required: [label, defaultPrice]
+      properties:
+        label: { type: string, minLength: 1 }
+        defaultPrice: { type: number }
+        unit: { type: ["string", "null"] }
+        contractorCanAdd: { type: boolean }
+        sortOrder: { type: ["integer", "null"] }
+    ProductPresetUpdate:
+      type: object
+      properties:
+        label: { type: string, minLength: 1 }
+        defaultPrice: { type: number }
+        unit: { type: ["string", "null"] }
+        contractorCanAdd: { type: boolean }
+        sortOrder: { type: ["integer", "null"] }
+    MyProduct:
+      type: object
+      required: [id, label, price]
+      properties:
+        id: { type: integer }
+        label: { type: string }
+        price: { type: number }
+        unit: { type: ["string", "null"] }
+    MyJobProductInput:
+      type: object
+      required: [presetId]
+      properties:
+        presetId: { type: integer }
+        quantity: { type: number, minimum: 0.01 }
     EstimateLine:
       type: object
       description: >-
@@ -3161,6 +5266,25 @@ components:
         calculatedPrice:
           type: ["number", "null"]
           description: "Server-computed for field/service lines; required and kept as submitted for custom lines"
+        unitPrice:
+          type: ["number", "null"]
+          description: "Service lines only. The per-visit rate the band (or the flat rate) gave; calculatedPrice = unitPrice x quantity x visits"
+        quantity:
+          type: ["number", "null"]
+          description: "Service lines only. Null means the service's own default quantity"
+        visits:
+          type: ["integer", "null"]
+          description: "Service lines only. Visits per season (28 mows). Null means the service's visitsPerSeason, or one"
+        hours:
+          type: ["number", "null"]
+          description: >-
+            Server-computed, time-billed service lines only: the hours one visit is budgeted for.
+            unitPrice is those hours at the service's hourly rate, so the quote shows what a visit costs.
+        packageId: { type: ["integer", "null"], description: "Set when this line was added as part of a package" }
+        packageKey:
+          type: ["string", "null"]
+          description: "Lines added together from one package share this key; the customer accepts or declines them as one"
+        packageName: { type: ["string", "null"], description: "The package name as it read when the line was added" }
     Estimate:
       type: object
       required: [id, clientId, status, total, lines, createdAt, deliveryAttempts, deliveryState, version]
@@ -3174,6 +5298,10 @@ components:
         notes: { type: ["string", "null"] }
         coverNote: { type: ["string", "null"] }
         includeServiceDescriptions: { type: boolean }
+        coverTemplateId:
+          type: ["integer", "null"]
+          description: "The estimate document (his 'estimate' folder) rendered above the quote in the PDF and email; null keeps the plain greeting"
+        coverTemplateName: { type: ["string", "null"] }
         lines:
           type: array
           items:
@@ -3208,6 +5336,9 @@ components:
         includeServiceDescriptions:
           type: boolean
           description: "Spell out what each quoted service includes, using the service descriptions at send time"
+        coverTemplateId:
+          type: ["integer", "null"]
+          description: "Estimate document to lead the quote with; must be a document_templates id"
         savePropertyData:
           type: boolean
           description: "Write the entered field values back to the client's saved property details, matched by field label"
@@ -3225,6 +5356,7 @@ components:
         notes: { type: ["string", "null"] }
         coverNote: { type: ["string", "null"] }
         includeServiceDescriptions: { type: boolean }
+        coverTemplateId: { type: ["integer", "null"], description: "Omit to leave unchanged; null clears it" }
         lines:
           type: array
           items:
@@ -3270,10 +5402,12 @@ components:
         price: { type: number }
         quantity: { type: number }
         serviceId: { type: ["integer", "null"] }
+        chargePresetId: { type: ["integer", "null"], description: "Set when the line came from the parts list" }
     JobProductInput:
       type: object
-      required: [name, price]
+      description: "Either a preset from the parts list (presetId; name and price are copied from it) or a free-text name and price."
       properties:
+        presetId: { type: ["integer", "null"] }
         name: { type: string, minLength: 1 }
         price: { type: number }
         quantity: { type: number }
@@ -3295,15 +5429,30 @@ components:
         clientServiceId: { type: ["integer", "null"] }
         serviceId: { type: ["integer", "null"] }
         serviceName: { type: ["string", "null"] }
-        status: { type: string, enum: [scheduled, on_the_way, in_progress, completed, skipped] }
+        status: { type: string, enum: [scheduled, on_the_way, in_progress, completed, skipped, cancelled] }
         dispatched: { type: boolean }
         scheduledDate: { type: ["string", "null"] }
         windowStart: { type: ["string", "null"] }
         windowEnd: { type: ["string", "null"] }
         routeOrder: { type: ["integer", "null"] }
         assignedToId: { type: ["integer", "null"] }
-        assignedToName: { type: ["string", "null"] }
+        assignedToName:
+          type: ["string", "null"]
+          description: The contractor's short display name, never an email address.
         mapNote: { type: ["string", "null"] }
+        cancelReason: { type: ["string", "null"] }
+        cancelledAt: { type: ["string", "null"] }
+        clientEmail: { type: ["string", "null"] }
+        clientPhone: { type: ["string", "null"] }
+        clientDoNotEmail: { type: boolean }
+        clientMapCode: { type: ["string", "null"] }
+        clientState: { type: ["string", "null"], description: "His branch: ID or WA." }
+        clientTags:
+          type: array
+          items: { type: string }
+        serviceCode:
+          type: ["string", "null"]
+          description: The service's short code, what the waiting list shows (BA7, BACKF, MOWIN).
         clientPropertyData:
           type: object
           additionalProperties: { type: string }
@@ -3337,6 +5486,21 @@ components:
           description: >-
             Present only on the response to the request that performed the skip.
             Plain-language verdict to show the person who clicked Skip.
+        contractorNote:
+          type: ["string", "null"]
+          description: >-
+            The assigned service's must-read note, when one is in force on this
+            visit's day. The contractor must open it before Start unlocks.
+        noteAcknowledgedAt: { type: ["string", "null"], description: "When the contractor opened the note on this visit" }
+        clockedMinutes: { type: number, description: "Closed time entries on this job, all crew, in minutes" }
+        clockOpen: { type: boolean, description: "Someone is still clocked in" }
+        billingMode: { type: string, enum: [fixed, time] }
+        hourlyRate: { type: ["number", "null"], description: "On a time job: the rate the clock is billed at" }
+        amountOverridden: { type: boolean, description: "The office set the amount by hand; the clock no longer decides it" }
+        discountType: { type: ["string", "null"], enum: [amount, percent, null] }
+        discountValue: { type: ["number", "null"] }
+        discountLabel: { type: ["string", "null"] }
+        discountAmount: { type: number, description: "The discount in dollars against the current amount; its own line on the invoice" }
     JobInput:
       type: object
       required: [clientId, amount]
@@ -3356,10 +5520,13 @@ components:
     JobUpdate:
       type: object
       properties:
-        status: { type: string, enum: [scheduled, on_the_way, in_progress, completed, skipped] }
+        status: { type: string, enum: [scheduled, on_the_way, in_progress, completed, skipped, cancelled] }
         skipReason:
           type: ["string", "null"]
           description: "Why the visit was skipped. Only meaningful with status=skipped."
+        cancelReason:
+          type: ["string", "null"]
+          description: "Why the office called it off. Only meaningful with status=cancelled."
         scheduledDate: { type: ["string", "null"] }
         routeOrder: { type: ["integer", "null"] }
         assignedToId: { type: ["integer", "null"] }
@@ -3405,19 +5572,42 @@ components:
         optimized: { type: boolean }
     Invoice:
       type: object
-      required: [id, clientId, status, total, amountPaid, createdAt, number, balance, lines]
+      required:
+        [id, clientId, status, total, amountPaid, createdAt, number, balance, lines, accountBalance, daysPastDue, needsVerification]
       properties:
         id: { type: integer }
         clientId: { type: integer }
         clientName: { type: ["string", "null"] }
+        clientAddress: { type: ["string", "null"] }
+        clientEmail:
+          type: ["string", "null"]
+          description: Where an emailed invoice goes (billing email, else the contact email)
+        clientDoNotEmail: { type: boolean }
         jobId: { type: ["integer", "null"] }
         serviceName: { type: ["string", "null"] }
-        status: { type: string, enum: [open, paid, partial, void] }
+        status: { type: string, enum: [pending, open, paid, partial, void] }
         total: { type: number }
         amountPaid: { type: number }
         balance:
           type: number
           description: total minus amountPaid, never negative
+        accountBalance:
+          type: number
+          description: >-
+            The customer's account balance on bills that have actually been issued
+            (checked, emailed or printed), so he can see it next to the invoice
+            balance. Bills still waiting to be verified are left out, along with any
+            money taken at the door for them - this is the figure the printed coupon
+            and the emailed bill quote to the customer.
+        unappliedCredit:
+          type: number
+          description: Credit sitting on the customer's account, not yet applied to any invoice
+        daysPastDue:
+          type: integer
+          description: Days past the due date (invoice date when due on receipt); 0 when not past due or nothing owed
+        lastPaymentMethod:
+          type: ["string", "null"]
+          description: How this customer last paid, any invoice — his "how they pay" column
         notes: { type: ["string", "null"] }
         number:
           type: integer
@@ -3427,6 +5617,15 @@ components:
         terms: { type: ["string", "null"] }
         poNumber: { type: ["string", "null"] }
         sentAt: { type: ["string", "null"] }
+        verifiedAt: { type: ["string", "null"] }
+        verifiedById: { type: ["integer", "null"] }
+        needsVerification:
+          type: boolean
+          description: The office has not checked this bill yet (verifiedAt is empty, it is not void, and it has never been emailed or printed). Read this, not the status - a bill paid in full at the door is already "paid" and still needs checking, while one the customer already holds was checked by the act of going out.
+        deliveryMethod:
+          type: ["string", "null"]
+          description: Snapshot of the customer's delivery preference at verify time (email, print, both)
+        printedAt: { type: ["string", "null"] }
         lines:
           type: array
           items:
@@ -3446,6 +5645,9 @@ components:
         unitPrice: { type: number }
         total: { type: number }
         sortOrder: { type: integer }
+        jobId:
+          type: ["integer", "null"]
+          description: The missed job this line was added for; null for the invoice's own job or a typed line
     InvoiceLineItemInput:
       type: object
       required: [description]
@@ -3454,6 +5656,73 @@ components:
         serviceDate: { type: ["string", "null"] }
         quantity: { type: number, default: 1 }
         unitPrice: { type: number, default: 0 }
+        jobId: { type: ["integer", "null"] }
+    InvoiceBatchEmailInput:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items: { type: integer }
+    InvoiceBatchEmailResult:
+      type: object
+      required: [batchId, sent, failed, skipped]
+      properties:
+        batchId: { type: string }
+        sent: { type: integer }
+        failed:
+          type: array
+          items:
+            $ref: "#/components/schemas/InvoiceBatchOutcome"
+        skipped:
+          type: array
+          items:
+            $ref: "#/components/schemas/InvoiceBatchOutcome"
+    InvoiceBatchOutcome:
+      type: object
+      required: [invoiceId, number, clientName, reason]
+      properties:
+        invoiceId: { type: integer }
+        number: { type: integer }
+        clientName: { type: ["string", "null"] }
+        reason:
+          type: string
+          description: >-
+            no_email, not_verified, void, already_sent, or the error text.
+            do_not_email is not one of them: that box stops bulk notices, not a
+            customer's bill.
+    AttachJobInput:
+      type: object
+      required: [jobId]
+      properties:
+        jobId: { type: integer }
+    DeleteInvoiceInput:
+      type: object
+      properties:
+        force:
+          type: boolean
+          default: false
+          description: Delete even though it was sent or paid; any money paid stays on the account as credit
+    UncompleteJobInput:
+      type: object
+      properties:
+        sendTo:
+          type: string
+          enum: [board, waiting_list]
+          default: board
+          description: Back onto the day it was scheduled, or onto the waiting list with no day
+    UncompleteJobResult:
+      type: object
+      required: [jobId, invoiceId, invoiceVoided]
+      properties:
+        jobId: { type: integer }
+        invoiceId: { type: ["integer", "null"] }
+        invoiceNumber: { type: ["integer", "null"] }
+        invoiceVoided:
+          type: boolean
+          description: "true when the job's lines were the whole invoice, so the invoice was voided"
     InvoiceInput:
       type: object
       required: [clientId]
@@ -3479,6 +5748,8 @@ components:
       type: object
       properties:
         status: { type: string, enum: [open, paid, partial, void] }
+        # Lines, notes and dates can all be edited while the invoice is pending;
+        # that is what verifying it means.
         total: { type: number }
         notes: { type: ["string", "null"] }
         invoiceDate: { type: ["string", "null"] }
@@ -3511,6 +5782,9 @@ components:
         clientId: { type: integer }
         clientName: { type: ["string", "null"] }
         invoiceId: { type: ["integer", "null"] }
+        invoiceNumber:
+          type: ["integer", "null"]
+          description: The number of the invoice it is applied to, for the payments list
         jobId: { type: ["integer", "null"] }
         amount: { type: number }
         cardFee: { type: number }
@@ -3528,6 +5802,131 @@ components:
         method: { type: string, enum: [check, venmo, zelle, credit_card, cash, other] }
         reference: { type: string }
         notes: { type: string }
+    # ---- GPS (track GPS-SMS) ----
+    LocationReport:
+      type: object
+      required: [lat, lng]
+      properties:
+        lat: { type: number, minimum: -90, maximum: 90 }
+        lng: { type: number, minimum: -180, maximum: 180 }
+        accuracyM: { type: ["number", "null"] }
+        heading: { type: ["number", "null"] }
+        speedMps: { type: ["number", "null"] }
+        jobId:
+          type: ["integer", "null"]
+          description: "The job the phone thinks it is working; ignored unless that job is assigned to the sender"
+        recordedAt:
+          type: ["string", "null"]
+          description: "When the phone took the fix (ISO); server time when omitted"
+    TeamLocation:
+      type: object
+      required: [userId, userName, lat, lng, recordedAt, ageSeconds, source, status]
+      properties:
+        userId: { type: integer }
+        userName: { type: string }
+        lat: { type: ["number", "null"] }
+        lng: { type: ["number", "null"] }
+        accuracyM: { type: ["number", "null"] }
+        recordedAt: { type: ["string", "null"] }
+        ageSeconds: { type: ["integer", "null"] }
+        # live = the phone reported while on a job; clock = the last clock-in/out fix; none = nothing yet
+        source: { type: string, enum: [live, clock, none] }
+        # at_job = within 150 m of one of their jobs; en_route = has a job going but is not there;
+        # idle = no job going; stale = last word is over 10 minutes old; unknown = never reported
+        status: { type: string, enum: [at_job, en_route, idle, stale, unknown] }
+        jobId: { type: ["integer", "null"] }
+        jobStatus: { type: ["string", "null"] }
+        jobClientName: { type: ["string", "null"] }
+        jobAddress: { type: ["string", "null"] }
+    # ---- Texting (track GPS-SMS) ----
+    SmsStatus:
+      type: object
+      required: [configured, provider, officeNumber, myNumber, numbersAssigned, webhookUrl, envKeys]
+      properties:
+        configured: { type: boolean }
+        provider: { type: string, enum: [none, twilio] }
+        officeNumber: { type: ["string", "null"] }
+        # The caller's own masked number, so a contractor's screen can say where their texts come from
+        myNumber: { type: ["string", "null"] }
+        numbersAssigned: { type: integer }
+        webhookUrl: { type: string }
+        envKeys:
+          type: array
+          items:
+            type: object
+            required: [key, set, note]
+            properties:
+              key: { type: string }
+              set: { type: boolean }
+              note: { type: string }
+    SmsMessage:
+      type: object
+      required: [id, direction, clientId, userId, jobId, fromNumber, toNumber, body, status, createdAt]
+      properties:
+        id: { type: integer }
+        direction: { type: string, enum: [outbound, inbound] }
+        clientId: { type: ["integer", "null"] }
+        userId: { type: ["integer", "null"] }
+        userName: { type: ["string", "null"] }
+        jobId: { type: ["integer", "null"] }
+        fromNumber: { type: string }
+        toNumber: { type: string }
+        body: { type: string }
+        status: { type: string, enum: [queued, sent, delivered, failed, received, forwarded] }
+        error: { type: ["string", "null"] }
+        createdAt: { type: string }
+    SendSmsInput:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1, maxLength: 1000 }
+        # Omit to use the customer's own number
+        toPhone: { type: ["string", "null"], maxLength: 40 }
+        # Send from this person's masked number instead of the office number, so their reply reaches that person
+        fromUserId: { type: ["integer", "null"] }
+    JobSmsInput:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1, maxLength: 1000 }
+    SendSmsResult:
+      type: object
+      required: [sent, to, from, messageId]
+      properties:
+        sent: { type: boolean }
+        to: { type: string }
+        from: { type: string }
+        messageId: { type: integer }
+        error: { type: ["string", "null"] }
+    SmsNumberInput:
+      type: object
+      required: [smsProxyNumber]
+      properties:
+        smsProxyNumber: { type: ["string", "null"], maxLength: 40 }
+    InboundSmsInput:
+      type: object
+      required: [From, To]
+      properties:
+        From: { type: string }
+        To: { type: string }
+        Body: { type: string }
+        MessageSid: { type: string }
+        NumMedia: { type: string }
+    # ---- "Crew is on their way" (feedback 49) ----
+    OnTheWayNotice:
+      type: object
+      required: [canSend, reason, sentAt, templateName]
+      properties:
+        canSend: { type: boolean }
+        reason: { type: ["string", "null"], enum: [no_email, do_not_email, already_sent, not_on_the_way, null] }
+        sentAt: { type: ["string", "null"] }
+        templateName: { type: string }
+    OnTheWayNoticeResult:
+      type: object
+      required: [sent, reason]
+      properties:
+        sent: { type: boolean }
+        reason: { type: ["string", "null"] }
     ClientEmailInput:
       type: object
       required: [subject, body]
@@ -3998,6 +6397,81 @@ components:
         # Approved customer messages whose delivery was interrupted and never
         # reported an outcome — the customer may never have been contacted.
         interruptedMessageCount: { type: integer }
+    DashboardAlertEstimate:
+      type: object
+      required: [id, clientId, clientName, total]
+      properties:
+        id: { type: integer }
+        clientId: { type: integer }
+        clientName: { type: string }
+        total: { type: number }
+        at: { type: ["string", "null"] }
+    DashboardAlertInvoice:
+      type: object
+      required: [id, number, clientId, clientName, total]
+      properties:
+        id: { type: integer }
+        number: { type: integer }
+        clientId: { type: integer }
+        clientName: { type: string }
+        total: { type: number }
+        at: { type: ["string", "null"] }
+    DashboardAlertWebRequest:
+      type: object
+      required: [id]
+      properties:
+        id: { type: integer }
+        name: { type: ["string", "null"] }
+        address: { type: ["string", "null"] }
+        message: { type: ["string", "null"] }
+        at: { type: ["string", "null"] }
+    DashboardAlertFailedEmail:
+      type: object
+      required: [id]
+      properties:
+        id: { type: integer }
+        clientId: { type: ["integer", "null"] }
+        clientName: { type: ["string", "null"] }
+        toEmail: { type: ["string", "null"] }
+        subject: { type: ["string", "null"] }
+        error: { type: ["string", "null"] }
+        at: { type: ["string", "null"] }
+    DashboardAlerts:
+      type: object
+      required: [estimatesAccepted, invoicesSentToday, webRequests, failedEmails]
+      properties:
+        estimatesAccepted:
+          type: object
+          required: [count, items]
+          properties:
+            count: { type: integer }
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/DashboardAlertEstimate" }
+        invoicesSentToday:
+          type: object
+          required: [count, items]
+          properties:
+            count: { type: integer }
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/DashboardAlertInvoice" }
+        webRequests:
+          type: object
+          required: [count, items]
+          properties:
+            count: { type: integer }
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/DashboardAlertWebRequest" }
+        failedEmails:
+          type: object
+          required: [count, items]
+          properties:
+            count: { type: integer }
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/DashboardAlertFailedEmail" }
     ContractorEarnings:
       type: object
       required: [contractorId, contractorName, jobCount, totalAmount]

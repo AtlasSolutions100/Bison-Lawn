@@ -1,0 +1,859 @@
+[04:51] I'm a face to the name, man.
+[04:54] Yeah, yeah. There we go. Yeah,
+[04:56] let me see if I can fix my.
+[04:59] Sir, let me see. I'm having a
+[05:01] little bit of headset issues
+[05:02] here. Let me see if I can. Alright,
+[05:04] this should be better. Alright.
+[05:06] Can you hear me okay? Yes, sir.
+[05:09] Alright, awesome. Whoa. You're
+[05:11] in a spaceship. I like it. Yeah,
+[05:13] yeah. You know, they had to take
+[05:15] me off of her with the.
+[05:18] Yes, sir. Alrighty, so the main goal for today would mainly just kind of be to have you kind
+[05:26] of go through it, share your screen preferably, and then just kind of tell me what's bothering
+[05:33] you, what like small things you want to fix, tell me how the workflow works for you and
+[05:37] if there's anything that you kind of want to simplify. And then this would be kind of
+[05:41] a faster way to get those small fixes and bugs kind of out of the way.
+[05:45] Yeah, so on top of this, you can go into the Google Drive and me and Adam number two, we made a note for the CRM.
+[05:57] Okay.
+[05:58] So some of this stuff that I go through is going to be in there.
+[06:03] But I'm going to first, they're in part of the top one and the other it says CRM walk through, I'm going to walk through kind of like how I operate.
+[06:12] and I'm going to try to go through as much stuff
+[06:15] so you can have some visual context to it.
+[06:18] And then on top of that, we also made folders of screenshots
+[06:23] so you can kind of have some reference points
+[06:25] back to kind of what we were looking at today.
+[06:28] And so it'll make hopefully a little easier on things.
+[06:33] And I try to categorize things to hopefully make sense of this stuff.
+[06:38] Because building the CRM system,
+[06:40] I'm realizing that it's quite, the system that I'm currently using with Service Autopilot
+[06:47] is actually quite extensive, comparative to a lot of my counterparts in the industry.
+[06:54] And I'm realizing that I do actually have a really good CRM system.
+[06:59] There's just some quirks and things that I think would be beneficial not only to
+[07:05] to myself, but also to the other contractors.
+[07:08] And then being able to have guys like you on the team
+[07:11] that can actually put things into place
+[07:14] where my current CRM system, they either refuse
+[07:16] or they don't want to, or I can't chat with the guy
+[07:19] that's making the stuff.
+[07:20] So I don't know what's possible, what's not.
+[07:22] And my rep keeps changing,
+[07:27] so I can never have any consistency,
+[07:29] which is really frustrating because I tell one
+[07:32] And then the last one I had is just was a ding-bap.
+[07:35] Like she had zero idea of how things are going.
+[07:39] What the hell?
+[07:40] Let me talk to, anyway, I digress.
+[07:44] So let me, I'm gonna share a screen.
+[07:49] Let's go, Meego wants to enter pictures.
+[08:05] Not sure.
+[08:06] Oh, I think, there we go.
+[08:09] Okay.
+[08:10] So this is my, my day. I'm just gonna, yeah, like I said, I'm just gonna kind of walk through everything.
+[08:17] My day, I really don't use, but it does have options for calendars. It shows all my tickets, like out front.
+[08:25] My CRM option right here, I have clients. When I click on clients, it has everything horizontal or vertical, I'm sorry.
+[08:39] So this gives me my filter options based on all kinds of different stuff.
+[08:45] It contains start or equal to and then whatever you type in there with the search or add a filter
+[08:52] option so I can add different filters to really kind of hone in on what I'm searching for within
+[08:59] those clients. Then I got clients, former clients, which we already have kind of built into that
+[09:06] that CRM system that we currently have.
+[09:10] From here, I like this button on a lot of the options
+[09:14] that I have, multiple customers or multiple services
+[09:18] or the dispatch board having the ability
+[09:20] to kind of select all.
+[09:23] From here, I can add clients, delete clients,
+[09:26] activate all that kind of stuff, exports, bulk edit
+[09:30] that and whatnot.
+[09:32] Okay.
+[09:36] I don't really use the leads or the estimates in this particular field.
+[09:44] I use them in other ways over here, but we'll get to that.
+[09:49] Okay.
+[09:50] Scheduling, the two options that I really use here are the dispatch jobs and the waiting list.
+[09:57] Okay.
+[09:58] So I'm going to skip real quick to the settings option.
+[10:03] I'm going to show you kind of where some stuff comes from, so some of this stuff makes sense.
+[10:09] Okay, so in the settings option, I have the ability to look up services right here.
+[10:17] Okay.
+[10:18] These are the jobs or the services and you've already entered those fields in.
+[10:24] I'm going to go to mowing and then I'm going to go to my spring, but I have
+[10:32] details.
+[10:34] This is what shows up on my service for my board.
+[10:38] and then this code here under codes shows up in the waiting list,
+[10:43] and then the invoice description shows up when it gets billed out,
+[10:49] and I can change that.
+[10:50] This estimate field is kind of nice because I have the ability.
+[10:56] What I've been doing is I've entered in my data into chat with GPT,
+[11:00] and then it highlights, and I can kind of customize this estimate field,
+[11:07] This is what the customers see when they see the mowing estimate.
+[11:14] And I like the way it looks, and we made it uniform amongst all my other services,
+[11:20] which was nice.
+[11:21] As you can see, I don't use really anything else down here.
+[11:27] My rate matrix, I like your guys' rate matrix way better because on
+[11:33] the right-hand side, it has the ability to give me the feedback
+[11:38] of the expense based on the rate, which is kind of cool.
+[11:44] But the calculator, what this is,
+[11:46] is when I go and enter in a custom field as turf is,
+[11:51] so my custom field is turf,
+[11:54] and what the customer gets,
+[11:59] what they see is the quantity based on the rate,
+[12:03] based on the visits.
+[12:04] So I type in typically 28 mows and it gives me a rate and then it pops out a total number,
+[12:14] but it gives them the quantity so they can take the full number divided by the quantity
+[12:19] and that's what they're going to be charged per visit.
+[12:23] Okay.
+[12:25] All this stuff I don't really use.
+[12:29] There's a target hour, but we haven't got that far into our business.
+[12:34] Then I'm going to go back to,
+[12:37] this is a package,
+[12:44] and we'll get into that, but these are the services that are within.
+[12:47] I'm going to talk about the spray package.
+[12:50] Really good. Bison application one is set up very similar,
+[12:56] as you see as the mowing is.
+[12:59] Everything, you have the same options, same details.
+[13:03] but when I go into the packages and I go into my aid application.
+[13:14] So I have this is what shows up in my waiting list right here is Bison Application 1.
+[13:25] This is the service that shows up on the dispatch board.
+[13:30] These are the dates,
+[13:32] ranges for that particular service.
+[13:36] Okay.
+[13:37] And as you can see, then we made a package for Bison Application 1, Bison Application 2, and so on.
+[13:43] And all of these ones in this particular one are the same price.
+[13:49] So when we go into the...
+[13:53] Let's go back.
+[14:01] So when we go back into the service,
+[14:06] down at the bottom here, I can copy this matrix,
+[14:10] And I can move it over to Bison application 2, 3, 4, 5, 6, or 7, or 8.
+[14:18] Or whatever I want to. I can put it into mowing if I want to.
+[14:22] I can put it into one-time mows if I want to.
+[14:26] I can use the same sequence of numbers in other matrices.
+[14:32] Right. Okay.
+[14:33] That make sense?
+[14:34] Yes, it does.
+[14:37] Okay.
+[14:41] Now, oh, let's see here.
+[14:47] Oh, wait, sorry, let me go back.
+[14:56] Now, mowing, one-time mows are similar to mowing,
+[15:04] but they're like 1.5 times the rate.
+[15:08] So if there was an option for this rate to be like,
+[15:12] I want to copy that matrix,
+[15:14] but I want to increase these numbers here by 1.5.
+[15:20] That would be very useful instead of me
+[15:22] and have to make a whole separate matrix
+[15:25] because how I had to do it here is I had to add
+[15:28] each one of these numbers in here individually,
+[15:32] but they're all based on the moe matrix.
+[15:38] Okay.
+[15:39] Yeah, that's doable.
+[15:41] Okay.
+[15:41] Yeah.
+[15:42] Okay.
+[15:43] So let's go back to then I'm gonna show the waiting list.
+[15:52] So outside of mowing, anything that's in a package
+[15:57] or a like a waiting job that I've created,
+[16:01] their waiting jobs are like a one-time job,
+[16:04] but they have a date range of which I specified.
+[16:08] So as you can see, here's the service, right?
+[16:12] That was designated in the job or the service.
+[16:18] This is kind of my code of what it is.
+[16:20] So this is Bison application 7,
+[16:22] backflow, and I specified what these terms mean for me.
+[16:29] Right.
+[16:31] Okay. But here I can select,
+[16:34] I can go through the resources and I can go like Bison application 1.
+[16:44] As you notice, no Bison application 1 show up because of
+[16:50] the date range that it's set for.
+[16:54] Oh, okay.
+[16:55] Because when we made that service,
+[16:57] we set that date range from March 1st to April,
+[17:02] end of April, or whatever it is, right?
+[17:06] So if I'm not within that date range,
+[17:08] so let's say Bison application seven,
+[17:20] Oh, it says Bison organic, is that the same thing?
+[17:23] Oh, whoops, no, you're right.
+[17:25] Thank you for sharing, yeah, good call.
+[17:31] There we go.
+[17:32] So now I'm within the date range,
+[17:34] as you can see the date range is from,
+[17:41] I don't know why they show up.
+[17:43] Because I'm in October, they shouldn't show up.
+[17:47] But to the point that, whoa, let's see here.
+[17:58] I don't know.
+[17:59] Really, they shouldn't show up here either,
+[18:02] but if I clicked on a different date
+[18:04] within the date range that was set
+[18:06] for that particular service,
+[18:08] they'll show up on the waiting list.
+[18:11] Gotcha.
+[18:13] From the waiting list,
+[18:14] I can select certain jobs based on a map.
+[18:18] So if I wanna go in here,
+[18:20] and this is what I did for my sprinkler blowout,
+[18:22] I can set, like I wanna go in this direction here.
+[18:31] Oops.
+[18:36] And those 26 jobs will show up.
+[18:39] they'll be highlighted so I can see them.
+[18:42] And then I can edit them for a specific date
+[18:45] that I wanna dispatch them on.
+[18:48] And I can put them on the contractor
+[18:51] or the employee that I choose.
+[18:54] Okay.
+[18:56] Makes sense?
+[18:57] Yes, it does.
+[18:59] Okay.
+[19:00] And then from here, it can be nice sometimes
+[19:02] I can send an email because what happens
+[19:05] like in the sprinkler blowouts,
+[19:07] I don't have the routes made yet,
+[19:09] but I wanna send them out a notification saying,
+[19:11] hey, just let you know,
+[19:13] we have you on schedule for the service, don't sweat it.
+[19:17] We'll get you another emails in a few weeks
+[19:21] or whatever the document says saying,
+[19:23] hey, this is the date.
+[19:24] So it is nice to be able to email
+[19:27] those particular customers that.
+[19:30] Gotcha.
+[19:31] So there's some options there.
+[19:33] Okay.
+[19:34] Then from there, from the waiting list, they go on to the dispatch board.
+[19:44] So as you notice, this dispatch board then has, they've been dispatched.
+[19:49] So if they're not dispatched, cancel dispatch,
+[19:54] they show up with a calendar, as these then do.
+[19:59] Once they get dispatched, obviously they show up there.
+[20:02] I can complete this job right from the dispatch board.
+[20:05] I can cancel this job from the dispatch board or skip it.
+[20:09] If I complete it, it goes into the customer's account
+[20:14] for billing.
+[20:17] Okay.
+[20:25] This dispatch board allows me to change the date
+[20:29] of which they're dispatched.
+[20:30] So I can move this to a different date
+[20:33] or the whole selection.
+[20:36] And I can change contractors on it.
+[20:40] Okay.
+[20:42] I can also show them on a map for routing purposes,
+[20:45] which I've already routed these ones.
+[20:49] Each contractor, if they're designated
+[20:52] under a different contractor, as you see right here,
+[20:54] there's Mickey and myself under assigned to.
+[20:59] It will show up in a different color
+[21:02] that I've designated for that contractor.
+[21:06] So I can see whose jobs are whose.
+[21:09] So let's say for instance, today's a big day.
+[21:14] There's going to be lots of contractors out there, lots of different routes.
+[21:20] So here's one route, here's the second route, here's a different route.
+[21:25] And then we can also, let's see, I can date range this.
+[21:37] So these are going to be the jobs between the 15th and the 17th.
+[21:42] and they show up here with the date of the color coding with me so far?
+[21:53] Yeah, yeah, I'm with you.
+[21:55] Okay. I just want to make sure, because I can't see you.
+[22:00] I also have the ability to search branch, sources, services, map codes, addresses, and all that kind of stuff
+[22:08] that is on the particular date that I'm searching.
+[22:12] I have this show, show route order.
+[22:17] So then it number, then it shows me the numbers
+[22:20] of which they're in the order.
+[22:22] If I push this set route order, it will reset all of them.
+[22:28] And then I get, I have to go back in and click on them
+[22:31] and number them again.
+[22:33] Gotcha. Okay.
+[22:35] Okay. So those are the things that I use there.
+[22:37] I don't really use these options at all.
+[22:52] I think that's all on here.
+[22:57] Oh, this gives me the ability to put special notes on the job
+[23:03] because they have no email.
+[23:04] So when I'm in the dispatch board,
+[23:07] I can, instead of selecting them all, to send out an email.
+[23:11] So from here, this is where I send out emails
+[23:15] that I created documents for.
+[23:18] So the big one that I'm using right now is I created a document for Sprinkler blowout day.
+[23:25] So I have this where then I can change the date in this document right from here. And I can send
+[23:32] this entire list or whatever is selected to those customers emails and have them know that
+[23:41] they're going to be blown out on a certain date. Okay. And up here, it shows emails sent to 42
+[23:47] people out of 44. That means there's probably two emails in here that don't have or two customers
+[23:53] that don't have emails. And this is what that and now I go back and I look for this note.
+[24:00] And I end up calling or sending the customer a text message instead, because not all these
+[24:06] old people sometimes don't have emails. I gotcha. Okay. So yeah, that makes sense. But
+[24:12] But while we're here, would you like to add in the ability
+[24:14] to add in SMS messaging?
+[24:19] Yeah, no, you add it, but I don't find the value yet
+[24:25] to pay for like a subscription for it.
+[24:29] Okay. Because what ends up happening in this?
+[24:32] Go ahead.
+[24:33] Oh, I was just gonna say if it's free,
+[24:37] like if it doesn't cost you anything,
+[24:38] would you wanna do that or no?
+[24:39] It's just, it's completely up to you.
+[24:42] Yeah, if it's free, like my contractors would love to be able to send out a text message.
+[24:48] What ends up happening in Service Autopilot is they have the ability through a subscription
+[24:53] that I'm limited to like 1500 text messages for like 20 bucks a month.
+[24:59] And when it gets sent out from here or a contractor, those messages go out to the customer, but
+[25:05] they come back to me.
+[25:08] And since I don't hire any employees, those messages need to really go back to the contractor.
+[25:14] Okay, yeah.
+[25:17] So we could essentially just set up like, and you tell me if this would be too much,
+[25:25] because the original thing that I was having, it was still going to lead back to you, it
+[25:29] would just be an automated voice, you know, an automated number.
+[25:32] Like when you sign up for a subscription to like a clothing company, you know, or they
+[25:36] I send you a text like we're having this sale.
+[25:38] It's from like a 880 number.
+[25:40] So I was thinking of having that,
+[25:42] but we could also make it where
+[25:44] whenever your contractors sign up,
+[25:45] they just type in their phone number
+[25:48] and then we could have it to where each message
+[25:50] that they send is forwarded from their phone number.
+[25:53] And it won't be their actual number
+[25:55] that sends to the clients.
+[25:57] So that way clients don't have their actual phone number,
+[26:00] but they can have a, essentially like a Google voice number,
+[26:02] a second number.
+[26:03] and then clients can actually take some back
+[26:06] and it'll be free, won't cost you anything.
+[26:11] That would be super awesome.
+[26:15] Okay, cool. Yeah, we'll do that.
+[26:17] Yeah.
+[26:20] One thing while you were talking,
+[26:22] Yeah, go ahead.
+[26:25] Nah, I mean, we already understand why we've had that.
+[26:27] One thing I know, when you were-
+[26:28] I was just gonna explain it again.
+[26:31] Yeah, that's okay.
+[26:32] Nope, that would be ideal.
+[26:34] That would be awesome.
+[26:35] One of the things that some contractors use is the satellite view, because they can measure properties from here.
+[26:47] I don't do that because it's very inaccurate.
+[26:51] On the last, the data that I entered in to the CRM was able to pull from like a database that the city had based on,
+[27:04] They had to pull a, like a recall, what do you call them?
+[27:11] Like public record.
+[27:12] Oh, so I get, say that again.
+[27:15] Like public record?
+[27:18] Yeah, if there was a public record or something
+[27:20] where we know how many square feet or the houses
+[27:23] or the lawn because they had to pull a permit, I'm sorry.
+[27:27] Yeah, if they were pulling a permit
+[27:30] that already had that square footage in there,
+[27:33] because when I'm measuring from here,
+[27:35] I can't get accurate enough.
+[27:37] My numbers are too far off
+[27:39] and there's things that are hidden in here that I can't see.
+[27:43] Yeah, okay, so technically we can do that.
+[27:49] The thing is it's technically illegal to do
+[27:55] for commercial use unless we buy Google's aerial
+[28:02] commercial license for commercial use.
+[28:05] Okay, nope, don't worry about it. Okay, what we've been doing, and what it does, for me, it does two things. One, I'm more accurate. And two, I am actually out in the field, and I'm meeting people, and sometimes I meet those customers, which I think adds way more value than, than just being able to measure here. But going forward, having that option for, for people like myself, to purchase and add that fee onto your guys's subscription,
+[28:34] I think there are going to be some companies that would want that.
+[28:38] Yeah, 100%. We had a, not a roofing, but it was the people that fixed driveways, and
+[28:45] they had us build that where it automatically calculates the square footage, sends the estimate
+[28:50] to the customers, but they had to pay, I think it was like $1,200 a year for that.
+[28:56] Okay.
+[28:57] Yeah. No, I can see that being very valuable. I mean, even at 1200 bucks, that's actually
+[29:05] cheap by the time you take your time go out there and measure it yeah I think that that's awesome okay
+[29:13] um oh you guys have have done this already I like this columns thing so I can customize my dispatch
+[29:27] board um information right here which is cool so thank you for that that's pretty sweet okay
+[29:37] Okay, I think that's good for here.
+[29:42] Accounting, this gives me kind of the same search options
+[29:48] here, the things that I use.
+[29:51] So once a customer, let's see here, let's go.
+[30:07] Hey, that's me.
+[30:10] What's that?
+[30:11] Oh yeah.
+[30:12] Oh, here. So this is un-invoiced for right now. It's an incomplete invoice, but I can
+[30:24] go in here and I can kind of see like this is their account balance, this is their invoice
+[30:28] balance, or their total balance. So the total balance is previous invoices plus the new
+[30:34] one, which is the invoice balance. So that'll show a different total and then they'll show
+[30:39] totals down at the bottom. But I can also click on here to verify what is actually on there. And I
+[30:46] can change services, I can change the invoice description, which is very handy. I can change
+[30:54] the date in case it got dispatched on the wrong date, or they completed it like the next day and
+[30:59] something didn't get caught or moved on the dispatch board. I can change the rate, and I can change
+[31:05] the quantity. I can add notes into for the customer. I can also add additional jobs or services
+[31:16] that may have got missed because they were out in the job but didn't have the ability to add the
+[31:22] customer and bill them, that kind of stuff. This is very handy is this audit trail. Everything
+[31:31] that we do is tracked in some fashion, but I'll get into that in a few minutes when we go through
+[31:38] customers. When we're in invoices, those all go into the incomplete invoices. Once I designate
+[31:47] that they're complete and I verify them, then they'll go either into invoices to email or
+[31:54] invoices to print. Okay, so if I have to print off invoices or email invoices, ooh, I didn't do that.
+[32:03] So I'll show you right here. I'm going to email. It pops up, automatically puts in the customer's
+[32:10] email addresses, the branch. And then I have a document says, buys a bill. And then I send this
+[32:18] with all the disclosures. Okay, then it goes into open emails. These are then the ones that I'm
+[32:25] waiting on payments and it shows how far past due they are and these ones are just open. It gives,
+[32:35] you know, the invoice balance, the account balance, and the total balances, how they typically pay.
+[32:46] Most of them are all monthly. I can, I can select on the status, I can go past due and these
+[32:53] will just show me the past due invoices. Okay, I think that's all for here. Then I have options
+[33:08] for this will go back and research all the payments, the credits. I don't use the expenses.
+[33:15] I'm sure some people will use time sheets and payroll but I don't do any of that because I
+[33:18] I don't have any employees. Okay. Okay. Marketing, automations, this is, this has been massive.
+[33:30] It's reduced my accounts payable from over 10,000 down to about $2,000 a year. Okay,
+[33:36] my past due automation. What's that? I was just saying it's pretty big. That's huge.
+[33:42] was huge. So it has a waiting period. So after two days after
+[33:52] the bill is being sent, it'll send them hey, we'll just let
+[33:57] you know. I created a document and I added these documents in
+[34:01] here saying hey, two days after it's due, it sends them an email
+[34:05] automatically saying hey, you're past due just let you know. And
+[34:09] And then 17 days or 15 days after that email is sent out, it sends out, hey, this is your
+[34:19] final notice.
+[34:22] You need to get your bill paid or in two weeks we're going to turn you into collections.
+[34:28] So I'm not sure how the automations...
+[34:30] This might be a kind of a work in progress after we get some of the other stuff done.
+[34:37] They did a pretty good job with this stuff.
+[34:40] It's just complicated setting up
+[34:42] automations for me in Surface Autopilot.
+[34:46] So I have them kind of set it up for me.
+[34:51] Okay.
+[34:52] Yeah, we can, yeah, yeah.
+[34:54] And we can set that up.
+[34:55] That's not an issue at all.
+[34:57] And I can try to make it super easy for you
+[34:59] if you ever need to add in more automations.
+[35:03] Yeah, we would like to.
+[35:04] So like in the spring, in the summer
+[35:06] are in the kind of late early summer,
+[35:09] we send out an automatic notice
+[35:11] for people to turn up their sprinklers
+[35:13] cause it's getting hot.
+[35:14] Same thing in the fall.
+[35:15] We'd like that to be like September 1st
+[35:17] just to let everybody know.
+[35:20] Yeah, sure.
+[35:21] Yeah. Okay.
+[35:24] Email activity.
+[35:26] This is huge because they just updated this.
+[35:31] So these are the notifications that I sent out
+[35:33] in the dispatch board that I showed you earlier
+[35:35] where I selected out of the dispatch board
+[35:37] and sent out my sprinkler blowout days,
+[35:41] it gives me results back.
+[35:44] So when the customer like opens the email
+[35:48] or that just the fact that they received the email
+[35:51] is huge for me because out of the 30 emails that were sent,
+[35:56] 30 were delivered and 21 were opened.
+[35:59] That's great.
+[36:00] That's very, very good data for me.
+[36:03] Yeah.
+[36:04] And I can click on those and then I can go in
+[36:08] and even under here delivered,
+[36:12] it'll pull up the customers of who they were delivered to,
+[36:15] their email address, that kind of information.
+[36:18] Okay.
+[36:19] Okay.
+[36:22] Those are the only two here that I use.
+[36:26] They have an option to create a website,
+[36:27] but I already have one.
+[36:28] I just, it'd be nice to see,
+[36:30] Oh, you can't see that.
+[36:33] That's right.
+[36:35] We'll get into that in a second.
+[36:37] Okay. Teams or employees.
+[36:42] Employees is kind of what we use.
+[36:43] These are all my contractors and I have the ability to add new contractors.
+[36:51] I can edit their personal information, employment information, payroll, how they're
+[36:58] set up if they're full user, if I've given them full access or they get partial access,
+[37:04] I've been able to or just mobile only so they can only see things on their phone but they can't
+[37:09] get onto the website. Gotcha. Yeah, most of this. Okay, I just saw something in the mobile settings
+[37:22] for GPS tracking? Is that something that you use? So how this is used is for the purpose that I can
+[37:32] see where the contractors are at. So if I go back to the dispatch board, let's see if somebody...
+[37:42] So right here, this house, they're at the house. Okay, cool. Okay. Or if on that GPS, it'll show
+[37:51] where they're if they're in route or if they're moving.
+[37:56] Okay.
+[37:59] My purpose of this organization is is that I take away the non
+[38:04] payables. Meaning, if a customer calls and says, Hey, where's my
+[38:10] guy at, they don't need to be bothering the contractor with
+[38:14] that information. The contractor is either driving,
+[38:17] they're working, they need to stay driving or working or
+[38:20] being safe, that call needs to come to me. And then from there,
+[38:27] I say, then I can go into my dispatch board and find out kind
+[38:30] of where they're at. Like these jobs have already been
+[38:32] completed. Most of the time, I can kind of guess be like, okay,
+[38:36] you're going to be there probably, you know, by the end
+[38:38] of the day, you're in the afternoon.
+[38:41] Gotcha. Okay, that's something I'll have to add. I don't think
+[38:43] I had GPS implemented in there at the moment.
+[38:47] No worries. I can add employees, work active or inactive. This is going to be useful information
+[39:06] for people that have employees. Okay. They don't use any of this. I have no use for it,
+[39:20] but I can see where down the road somebody would use it. Oh, my work schedule. Look at
+[39:27] that. I can go in there and that's the job that I have on my schedule for today. Interesting.
+[39:32] That's cool. Okay, I think that's it for these reports. We'd like to be able to get all kinds
+[39:46] of information. The only reports that I currently use right now are my accrual and my cash basis
+[39:53] profit and loss, but with you linking me to QuickBooks, that's going to give me a good
+[39:59] oversight on that. There's a bounced email that I use at the end of the year or the unapplied
+[40:07] payments. So if a payment was like prepaid or overpaid, it'll show me what accounts
+[40:15] have those and then I can go into them and apply those payments onto their accounts and clear them
+[40:22] up. There's some that I need to do that too. And I can export these if I need to,
+[40:28] based on a date range. I can custom make reports. So I can
+[40:39] say, hey, I need a report for this, that and the other thing.
+[40:42] And I like the fact that you guys are using the AI. So I
+[40:45] don't have to like manually type things in. I can like, just
+[40:49] kind of give AI like this is the report. And I need to pull
+[40:53] this kind of data like, I need to know how many jobs are
+[40:56] skipped, how much revenue is being lost on those particular
+[41:01] contractor. So this is the contractor that I need and I want to know how many jobs they
+[41:06] skip this year or cancel. How many square foot they do in a week or how much revenue
+[41:15] they do in a week. Okay, those kind of reports. Okay, this search button right here is where
+[41:32] I search all my customers. So I don't use the CRM client field. I just I come over
+[41:40] here to the search button and it searches the whole database. And I can search former clients,
+[41:45] tickets, invoices, payments, all from here, which makes it really easy. The plus button is what I
+[41:55] use for adding clients, leads, estimates, actually just clients and leads is all I use here.
+[42:06] Okay.
+[42:06] When things get done or an estimate gets accepted, it gives me an alert.
+[42:15] So we sent out emails.
+[42:16] So it sent me an alert saying, hey, this is an accounting issue or accounting thing.
+[42:21] Invoices got sent.
+[42:23] I had an email that was an estimate that it was accepted.
+[42:29] And that shows here or that they unsubscribe to my email.
+[42:34] That's kind of nice because then I can just cancel their account.
+[42:37] Okay. Okay. This is that same feedback button that you guys have. This is the settings option.
+[42:47] And I took pictures of all this stuff, just so you have it for visual context. Because
+[42:53] I just took up here, you know, services and it pops up under scheduling. But if I go
+[42:58] down to scheduling, it has a lot more.
+[43:01] Okay.
+[43:02] Okay.
+[43:03] Okay.
+[43:04] From there, let's go second, second street.
+[43:15] This is what when I click on a customer, this is kind of what it looks like.
+[43:19] So up here, we'll get into this edit button.
+[43:23] But this gives me all my contact information right, right here and the client since 2022.
+[43:33] Just saying, if it's a property manager,
+[43:35] you can add additional properties to this account
+[43:40] until they all show up on,
+[43:44] the total balance shows up on the invoice,
+[43:46] but the individual invoices
+[43:48] for that particular property are separate.
+[43:51] Gotcha.
+[43:54] One thing that happens is that this email
+[43:57] is for notifications,
+[44:01] But billing information could be they have a CPA
+[44:04] and they need to be notified.
+[44:07] Gotcha.
+[44:08] This is all their personal information.
+[44:11] Sales detail, this is kind of where if it's a commercial,
+[44:14] like this is a commercial high priority sales.
+[44:21] Since I'm the only salesperson, I don't really use this,
+[44:23] but sources I do where it came from
+[44:26] and I have an option to add additional sources.
+[44:30] Okay.
+[44:31] or if they were referred by somebody, a client.
+[44:37] And if I check this box, that means they don't get
+[44:40] any of the emails that I send out through the dispatch board
+[44:44] or the clients or the waiting list.
+[44:46] So it just stops that from happening.
+[44:49] Billing information, this gives obviously billing email
+[44:53] or if they don't have an email in the billing,
+[44:57] it will not let me send, it'll create an error.
+[45:01] So I have to do print or both,
+[45:04] and then it'll fill up in that accounting
+[45:08] under email bill or print bill or both.
+[45:12] Gotcha.
+[45:14] Okay.
+[45:15] How they pay, this is nice
+[45:17] because then it gives me a reference point
+[45:19] of if they paid a certain way,
+[45:21] I can go back and research.
+[45:23] Like most of the time it's text that I need to research.
+[45:30] Billing terms.
+[45:33] If they, most everybody's on a net 15, so I sent out an invoice, they have 15 days.
+[45:40] Then after that, the link notification goes out.
+[45:44] Commercial properties sometimes like to be billed net 30.
+[45:48] Gotcha.
+[45:50] Okay.
+[45:51] And this gives me when the invoices need to be sent, whether it's daily, well,
+[46:00] I only use monthly as of right now,
+[46:04] but some people have been paying me weekly.
+[46:17] In this particular client,
+[46:19] this gives me the billing address.
+[46:21] So their billing address is the same as service address,
+[46:24] but sometimes that does change.
+[46:26] But when I enter in the service address,
+[46:28] it automatically pops over to billing address.
+[46:33] But then if the billing address is different
+[46:37] because it goes to a bigger company or a property management,
+[46:40] I change this address, which is awesome.
+[46:46] This gives me my map code and I have to select which state
+[46:51] or which branch they come out of.
+[46:55] Let's say I added this job and they become part
+[46:58] of a property management company.
+[47:00] I can add that master account
+[47:04] or that property management account right here.
+[47:08] Okay.
+[47:09] Well, I'm gonna show you one real quick.
+[47:25] So Allied Property Management,
+[47:27] this is the master account and it says master.
+[47:33] I can add additional properties as I have done here.
+[47:36] And these are all the additional properties
+[47:39] underneath that property management account right now.
+[47:44] Okay.
+[47:46] This is additional contacts
+[47:49] outside of these numbers right here.
+[47:53] Okay.
+[47:55] So that's where this master property kind of comes into play.
+[47:59] I can add them right there.
+[48:06] Latitude and longitude.
+[48:07] So we're in a lot of new development.
+[48:11] So sometimes when I go out and do the estimate,
+[48:13] I have to tag that property.
+[48:16] There's an option in my app that I can tag that property
+[48:21] or geocoding.
+[48:24] So then when my contractors go out there,
+[48:26] they're also not trying to search for it
+[48:28] because it's already built in the system.
+[48:30] They just push it on the map
+[48:32] and it maps it to this latitude and longitude.
+[48:36] Okay.
+[48:39] Right?
+[48:40] Okay.
+[48:45] Office notes.
+[48:46] These are notes that show up right here
+[48:50] on the main page of the client account.
+[48:57] And these are the custom fields
+[48:59] for this particular property.
+[49:04] Okay.
+[49:12] Okay, that's edit button.
+[49:14] Send button, I can send this customer an email.
+[49:19] The insert, I have these documents.
+[49:22] I'm gonna go back to the settings real quick
+[49:24] so I can show you.
+[49:32] So these are the documents that I've created.
+[49:35] These are client documents.
+[49:38] These are marketing documents.
+[49:39] These are estimate documents.
+[49:42] Gotcha.
+[49:42] The reason that these are categorized is for automations.
+[49:48] But if I go in and I add this document,
+[49:50] I select if it's a client email or an estimate,
+[49:53] so client email, test, test subject, and I save it,
+[50:03] it gives me a couple of templates to choose from.
+[50:09] Okay.
+[50:10] This one here is the one that I use primarily all the time.
+[50:16] And then I go in here and I can replace that image with,
+[50:31] I don't think this is the image.
+[50:33] I have a thing where I've loaded, no.
+[51:09] Oh, here we go.
+[51:11] No, what happened to it?
+[51:22] And you maybe put the content at the top left.
+[51:33] Oops.
+[51:37] Oh, is it there?
+[51:37] I can scroll down just a little bit.
+[51:41] Okay, where it says image link,
+[51:44] is there a way to just drag and drop or like select it?
+[51:48] Run underneath?
+[51:49] Yeah, there was a place where it had me link into my images
+[51:54] that I have put in service autopilot
+[51:57] where I select that image and essentially
+[51:59] that's where my logo shows up.
+[52:02] Gotcha, okay.
+[52:03] But yeah, so you get the concept essentially.
+[52:05] Yeah.
+[52:06] And then all of this stuff here automatically fills in
+[52:10] based on my account, right?
+[52:14] Or it fills in, or I guess this fills in
+[52:17] based on my account that I've set up.
+[52:19] This is customer information client,
+[52:21] so it automatically pulls it forward.
+[52:24] Then I can edit all of this stuff.
+[52:27] And so I can create a new document.
+[52:32] So like I did the sprinkler blowout date document
+[52:36] that we looked at.
+[52:37] So this is what it looks like.
+[52:39] and I can edit it.
+[52:44] And so this is what my Sprinkler Blowout document looks like.
+[53:01] Let's go back to here.
+[53:07] Okay, so jobs, I can view all the jobs
+[53:13] on this particular count and they'll show up here.
+[53:17] All upcoming jobs, this has already been dispatched.
+[53:21] So it's on my dispatch board, that's why it's upcoming.
+[53:24] Word all history. So back in the day, 2025, this one was canceled.
+[53:29] So it can give me kind of a history report.
+[53:31] I can see where things came from, how much was charged.
+[53:34] I can then click on this and it'll pull me into that job specifically.
+[53:39] So when I'm in the job, this one was attended by who?
+[53:47] These are the job notes that I typed in.
+[53:53] Job comments.
+[53:54] So these were the notes that were preset.
+[53:56] So when they show up on a job, they view these notes.
+[54:00] And then these are the notes while they were on the job
+[54:02] that they entered in for myself.
+[54:05] Gotcha.
+[54:07] They can also add notes to clients saying,
+[54:09] hey, you got an issue or invoice description.
+[54:12] We can change that from here.
+[54:15] We can also add products.
+[54:21] Since this is really becoming a hidden product here.
+[54:25] But let's see.
+[54:27] if I go into an upcoming job,
+[54:33] it gives me an option to add bag fees or sprinkler parts.
+[54:38] Oh, John, okay.
+[54:39] So these small bags are already preset.
+[54:44] They get to enter in the quantity
+[54:46] or the contractor gets to enter in the quantity
+[54:51] and then it pops out the total
+[54:52] and that's what they get invoiced.
+[54:55] Okay.
+[54:57] Okay.
+[55:00] Okay. These are my tags. So if I create a tag, so I can then search based on a specific
+[55:18] tag like above ground sprinkler blowouts, which is nice. So I want to get to those first
+[55:28] before I do underground ones because of freezing. I skipped around a little bit, but going back
+[55:37] to this jobs under accounting, if I click on all, it shows the
+[55:41] payments, the invoices, the dates, that kind of information,
+[55:48] if they if the invoice has been actually completed, it shows up
+[55:53] or what's remaining zero. Or these are the deep, this is all
+[55:57] the same, same invoices that are up here.
+[56:01] Gotcha. Okay.
+[56:03] Okay. Um, I'm gonna go and then open estimates. So this
+[56:09] This one's pink, but sometimes if they've been one,
+[56:11] they show up in here.
+[56:13] So this gives me all the estimates.
+[56:15] So I can go back and see like, okay,
+[56:18] this is what I quoted them.
+[56:21] This is what I was drafted or what was originally
+[56:26] on my templates, essentially.
+[56:30] And I'll show you that here in a few contracts.
+[56:38] We have one apartment complex that is in a contract.
+[56:42] So they, their entire year service gets divided over 12 or over eight months or 12 months,
+[56:48] depending on how they want to do it.
+[56:52] Down here, this is all the activity based on this account.
+[56:55] I got all history, past visits, future visits, events, transactions.
+[57:03] I can have a date range of which I want to see.
+[57:06] I can add notes and I can either have them open or closed.
+[57:10] Open will keep them open where I can go back and search them.
+[57:14] I mean, I can with close, but typically that means they're done.
+[57:17] They'll show up on the my day or my dispatch board.
+[57:22] Okay.
+[57:25] I can click on all these things and get details.
+[57:30] Here's the same billing information that was in the customer account.
+[57:35] Branch information.
+[57:41] Down here, I can see the photos that have been taken on the,
+[57:52] either from the mobile or that we've attached to the account.
+[57:56] So this is huge for liability purposes.
+[58:01] And then these are the details.
+[58:02] And this is if they were added globally or added as attachments.
+[58:06] Okay.
+[58:08] Okay.
+[58:18] Okay.
+[58:19] Under jobs.
+[58:21] This is where I can either add a reoccurring job, so that's a mowing.
+[58:27] Reoccurring jobs, it gives me an option to do bi-weekly or weekly. On the bi-weekly,
+[58:36] it's either odd or even. That's the weeks that it starts on.
+[58:40] Gotcha.
+[58:42] Okay. We would also like to be able to add like once a month reoccurring, like week one, week four
+[58:50] is typically I can assign this mowing job to a specific contractor so that it's always showing
+[58:59] up on their disk porch every week and then I can dispatch them from there. Gives them the rate.
+[59:08] Okay, here's the notes for that particular job. So when the contractor shows up, these are the notes
+[59:16] that shows up. So they can view those before they get on the job. So if a customer needs to be
+[59:24] edged, I'll say hey, customers needs to be edged. So when the contractor shows up, they have to click
+[59:29] on the notes before they can get into the job. Okay. Otherwise, they can't get into the job.
+[59:36] And they see, oh, it needs to be edged today. So this is where we can where I can communicate
+[59:42] with the contractors without bombarding them. Gotcha. Assets, this is going to be on the contractor
+[59:50] but if they have certain mowers and stuff, this could be handy. Okay. Audit trails essentially.
+[60:07] Sprinkler blowout turn on backflow. So this is something, and we'll see in the other document,
+[60:13] that I have, it's a sprinkler turn on backflow package.
+[60:20] So when we went into, that's a reoccurring waiting jobs.
+[60:23] I'm sorry, let me start over here.
+[60:26] When we do, I'm gonna go back into jobs.
+[60:28] So we did reoccurring,
+[60:30] we're gonna go into waiting list jobs.
+[60:33] These are like the one-time jobs.
+[60:36] They're designated to a certain timeframe.
+[60:39] Okay, so when I go back into the waiting list up here,
+[60:43] as long as I put in a date range right here,
+[60:46] this particular job will show up.
+[60:48] Gotcha.
+[60:50] I do not have to add a contractor at the time
+[60:53] because sometimes that can change,
+[60:56] but this will auto fill as long as the client field
+[61:01] client field is filled and where I can add or make changes to the dollar amount.
+[61:11] Gotcha.
+[61:13] Okay. I don't use one-time jobs because I like to use waiting list jobs and then I just dispatch them from the waiting list, which is fine for me.
+[61:23] Because waiting lists or one-time jobs will get lost because there's no way for me to search those.
+[61:30] So I just use waiting lists so then I know I can find them again.
+[61:35] Active jobs. So let's say I want a sprinkler or an aid application.
+[61:43] It's going to auto renew every year.
+[61:50] So here, these are the things that I've designated on those services.
+[61:54] These are the date ranges that we've put on the service.
+[61:59] Because that date range is passed now,
+[62:02] I can reschedule that here if I need to.
+[62:06] These ones are the ones that show up on the dispatch board,
+[62:09] so they don't need to be scheduled.
+[62:12] The rate, I don't know why it doesn't populate,
+[62:15] but here it does give me what's on the matrix.
+[62:19] So I have to go in and click on these every time
+[62:21] create a new one which is kind of annoying. Yeah. Okay. Billable hours, all that kind
+[62:30] of stuff. Here I can set a discount on that one. But I'd like to be able to put it where
+[62:37] this discount shows up as a separate line item on the invoice. Okay. Makes sense. Okay.
+[62:48] This gives me an option to update notes on this particular package and a date range of
+[62:56] which notes like a when you explore you for Clover from September 1st to the end of October.
+[63:02] I can save that.
+[63:08] Okay.
+[63:10] All everything gets tracked right here.
+[63:12] The history of these jobs, the upcoming.
+[63:15] And I'm in a, well, let's just use spin clears on this particular one.
+[63:22] This is the history.
+[63:24] Gotcha.
+[63:26] And this is the upcoming.
+[63:28] Okay.
+[63:29] This is the discount that is added to this particular one.
+[63:34] Okay.
+[63:35] Oh, and you see kind of at the total like this is the retail total, but this is with
+[63:41] the discount.
+[63:42] Okay, okay.
+[63:46] Um, cleanups.
+[63:49] We put in a rate, but these are kind of, um, they're pretty much build on time.
+[63:58] So if they're cleanups or pruning or sprinkler work, it needs to be able to calculate based on a time and not a set rate.
+[64:05] So when they do a start time and a stop time, they need to, then we can adjust the prices later,
+[64:14] based on what was actually part of their contract.
+[64:17] Okay.
+[64:19] But for like aerations, these are set prices, mowing is a set price,
+[64:24] sprinkler turn on, backflow tests and blowouts are set price,
+[64:28] sprinkler timer adjustments are a set price,
+[64:31] but prunings, cleanups, that kind of stuff is adjustable.
+[64:36] Gotcha.
+[64:37] Okay.
+[64:39] All right, I've got about five more minutes
+[64:42] before I have to swap into another meeting.
+[64:45] Yep, no worries.
+[64:46] So then from here, I think we've gone through everything
+[64:49] kind of on a workflow.
+[64:51] OK.
+[64:54] These notes.
+[64:56] Oh, whoops, hold on.
+[65:13] These are the notes, and a lot of this stuff we went through.
+[65:21] So these are kind of the updates and things
+[65:24] to essentially work on.
+[65:26] Okay.
+[65:29] Okay.
+[65:30] And I've tried to categorize them as best as possible
+[65:31] makes sense.
+[65:32] So we can kind of leave it at that and see,
+[65:37] and then we'll probably have to get together
+[65:40] and just kind of dial things in.
+[65:42] Yeah. Okay.
+[65:43] So I'll implement,
+[65:46] I'll try to implement as much as I can this week.
+[65:48] And then we can set up a meet next week.
+[65:52] That same link I sent you a work,
+[65:54] I'll send you another one at the end of this week
+[65:56] and then we can just set up and hopefully,
+[66:01] I'm not gonna guarantee it,
+[66:02] but hopefully I can have everything that we've talked about
+[66:05] and that's on that document implemented by our next meeting.
+[66:10] Okay, yeah, no worries.
+[66:12] Yeah, that's a lot of work.
+[66:14] So, expectations are not that you did that all done
+[66:18] because there's a lot to that.
+[66:20] Yeah, there is quite a bit,
+[66:21] but hopefully we can get it done.
+[66:23] Get a pushover.
+[66:24] All right.
+[66:26] Well, is there anything else that you want to cover real quick while we're here?
+[66:30] No, I think let's start there.
+[66:33] I'll let you get onto your next meeting and we'll connect at the end of the week or so.
+[66:38] All right.
+[66:39] Sounds good.
+[66:40] Awesome.
+[66:41] It was a pleasure meeting you.
+[66:42] You got to put names to the faces.
+[66:43] Yeah, right.
+[66:44] Cool.
+[66:45] Thank you, sir.
+[66:46] Awesome.
+[66:47] I'll talk to you later.
+[66:48] Bye.
+[66:49] Bye.

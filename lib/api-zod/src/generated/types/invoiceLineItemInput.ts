@@ -13,4 +13,6 @@ export interface InvoiceLineItemInput {
   serviceDate?: string | null;
   quantity?: number;
   unitPrice?: number;
+  /** @nullable */
+  jobId?: number | null;
 }

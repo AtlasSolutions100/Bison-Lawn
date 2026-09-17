@@ -499,3 +499,44 @@ The model never writes SQL and never produces a figure. It picks one of the
 curated reports in `lib/analytics.ts` and writes prose around the rows that query
 returned; the rows render beneath the answer so it can be checked. A question no
 report covers is declined rather than answered from the model's own knowledge.
+
+## Texting (SMS)
+
+Off by default (`SMS_PROVIDER=none`). In that state the app is honest about
+it: the Text button on a customer opens the phone's own Messages app and says
+the customer will see the sender's real number, sending endpoints answer 503
+with the same explanation, and Settings > Texting shows exactly what is
+missing.
+
+Masked per-contractor numbers ("the customer never sees Dale's real number,
+and his reply still reaches Dale") need a provider that owns phone numbers.
+There is no free way to do that. The seam is built for Twilio over plain REST
+(no SDK):
+
+1. Create a Twilio account, register the business for A2P 10DLC (brand +
+   campaign; a small one-off fee, a few dollars a month, approval takes days
+   to a few weeks and needs the company EIN and address). Unregistered
+   traffic is filtered by US carriers, so this is not optional.
+2. Buy one local number for the office and one per contractor (about
+   $1/month each; texts are a fraction of a cent per segment).
+3. On every number, set the Messaging webhook (HTTP POST) to
+   `https://<host>/api/public/sms/inbound`. The app checks Twilio's request
+   signature against `TWILIO_AUTH_TOKEN` and the exact public URL, so
+   `APP_PUBLIC_URL` must match what Twilio was given (scheme, host, no
+   trailing slash).
+4. In `.env.deploy` set `SMS_PROVIDER=twilio`, `TWILIO_ACCOUNT_SID`,
+   `TWILIO_AUTH_TOKEN`, `SMS_OFFICE_NUMBER` (E.164), then recreate the
+   container with `up -d` (restart does not re-read env_file).
+5. On the Team page give each contractor their number. A customer's reply to
+   that number is forwarded to the contractor's own phone as
+   `[#123 Sarah Thompson] …`; the contractor answers from their own phone and
+   the app relays it to the customer from the masked number (start the reply
+   with `#123` to pick a specific customer, otherwise it goes to whoever
+   texted most recently). Texts to the office number, or to a contractor with
+   no phone on file, open a ticket instead.
+
+Every text in or out is in the `sms_messages` table and on the customer's
+page. STOP replies are logged; Twilio itself blocks further sends to that
+number. Email-to-SMS carrier gateways were considered and rejected: they are
+unreliable, spam-filtered, need each customer's carrier, and cannot mask a
+number.

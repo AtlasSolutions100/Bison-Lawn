@@ -1,15 +1,17 @@
 import { useState, useRef, useEffect } from 'react';
-import { useListMyJobs, useUpdateJob, useCompleteJob, useCreateFieldNote, useListOfferableServices, useAddExtraWork, useRecordOnSitePayment, useGetBillingSettings, useGetCurrentUser, useClockInToJob, useClockOutOfJob, useListJobTimeEntries, useListJobPhotos, useUploadJobPhoto, useDeletePhoto, getListJobTimeEntriesQueryKey, getListJobPhotosQueryKey, PhotoUploadInputContentType, Job, JobPhoto, JobPhotoKind } from '@workspace/api-client-react';
+import { useListMyJobs, useUpdateJob, useCompleteJob, useCreateFieldNote, useListOfferableServices, useAddExtraWork, useRecordOnSitePayment, useGetBillingSettings, useGetCurrentUser, useClockInToJob, useClockOutOfJob, useListJobTimeEntries, useListJobPhotos, useUploadJobPhoto, useDeletePhoto, useAcknowledgeJobNote, useListMyProducts, useAddMyJobProduct, useDeleteJobProduct, getListJobTimeEntriesQueryKey, getListJobPhotosQueryKey, PhotoUploadInputContentType, Job, JobPhoto, JobPhotoKind } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { format, addDays, subDays, parseISO } from 'date-fns';
 import { Button } from '@/components/ui/button';
-import { MapPin, Navigation, Clock, CheckCircle2, ChevronLeft, ChevronRight, DollarSign, PackageOpen, Mic, MicOff, NotebookPen, Plus, CreditCard, Ban, Camera, Timer, Trash2, LogOut } from 'lucide-react';
+import { MapPin, Navigation, Clock, CheckCircle2, ChevronLeft, ChevronRight, DollarSign, PackageOpen, Mic, MicOff, NotebookPen, Plus, CreditCard, Ban, Camera, Timer, Trash2, LogOut, BookOpen, Wrench, Lock } from 'lucide-react';
+import TextClientButton from '@/components/client/text-client-button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
+import { OnTheWayNotice, TextCustomerButton } from '@/components/crew-customer-contact';
 
 export default function MyJobs() {
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -61,15 +63,25 @@ function JobCard({ job, index }: { job: Job, index: number }) {
       onSuccess: () => {
         // Optimistic-like update for snappy UI
         queryClient.invalidateQueries({ queryKey: ['/api/my/jobs'] });
-      }
+      },
+      // The server refuses Start until the note is opened; say why rather
+      // than leaving a button that does nothing.
+      onError: (e: any) => toast({ title: 'Could not change the job', description: e?.data?.error || e?.message, variant: 'destructive' }),
     });
   };
 
   const handleComplete = () => {
     completeJob.mutate({ id: job.id }, {
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/my/jobs'] })
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/my/jobs'] }),
+      // "Someone is still clocked in" is the one the crew will hit.
+      onError: (e: any) => toast({ title: 'Could not complete the job', description: e?.data?.error || e?.message, variant: 'destructive' }),
     });
   };
+
+  // The office's must-read note: Start stays locked until it has been opened.
+  const noteLocked = !!job.contractorNote && !job.noteAcknowledgedAt;
+  const isTimeBilled = job.billingMode === 'time' && job.hourlyRate != null;
+  const clockedHours = (job.clockedMinutes ?? 0) / 60;
 
   // One tap, then a native prompt for the reason — same low-friction shape as
   // the status buttons, since the crew is doing this standing in the yard.
@@ -131,13 +143,31 @@ function JobCard({ job, index }: { job: Job, index: number }) {
               <div className="text-sm text-muted-foreground">{job.city}</div>
             </div>
           </a>
+          <div className="mt-2">
+            <TextClientButton clientId={job.clientId} phone={job.clientPhone ?? null} />
+          </div>
         </div>
 
         <div className="p-4 space-y-3 bg-muted/10">
           <div className="flex items-center justify-between text-sm">
             <span className="font-semibold text-foreground">{job.serviceName}</span>
-            <span className="font-bold text-foreground flex items-center"><DollarSign className="w-4 h-4 text-primary" />{job.amount}</span>
+            {isTimeBilled ? (
+              <span className="text-right">
+                <span className="font-bold text-foreground flex items-center justify-end"><Timer className="w-4 h-4 text-primary mr-1" />${job.hourlyRate!.toFixed(2)}/hr</span>
+                <span className="block text-xs text-muted-foreground">
+                  {isCompleted
+                    ? `Billed $${job.amount.toFixed(2)}`
+                    : clockedHours > 0
+                      ? `${clockedHours.toFixed(2)} h clocked → $${(clockedHours * job.hourlyRate!).toFixed(2)}`
+                      : 'Billed by time — clock in below'}
+                </span>
+              </span>
+            ) : (
+              <span className="font-bold text-foreground flex items-center"><DollarSign className="w-4 h-4 text-primary" />{job.amount}</span>
+            )}
           </div>
+
+          {job.contractorNote && <MustReadNote job={job} locked={noteLocked} />}
 
           {(job.mapNote || job.notes) && (
             <div className="space-y-2 mt-3 pt-3 border-t">
@@ -158,20 +188,7 @@ function JobCard({ job, index }: { job: Job, index: number }) {
 
           <PropertyDetails data={job.clientPropertyData} />
 
-          {job.products && job.products.length > 0 && (
-            <div className="mt-3 pt-3 border-t">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1 mb-2">
-                <PackageOpen className="w-3 h-3" /> Products Included
-              </span>
-              <ul className="text-sm space-y-1">
-                {job.products.map(p => (
-                  <li key={p.id} className="flex justify-between">
-                    <span className="text-foreground">{p.name}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          {job.products && job.products.length > 0 && <JobParts job={job} editable={!isCompleted} />}
         </div>
 
         <div className="px-3 pt-3 border-t bg-card">
@@ -186,9 +203,19 @@ function JobCard({ job, index }: { job: Job, index: number }) {
           <FieldNoteButton job={job} />
         </div>
 
-        <div className="p-3 bg-card grid grid-cols-2 gap-2">
-          {!isCompleted && <AddWorkDialog job={job} />}
-          <CollectPaymentDialog job={job} wide={isCompleted} />
+        {/* GPS-SMS track: text or call this job's customer */}
+        <div className="px-3 pt-3 bg-card">
+          <TextCustomerButton job={job} />
+        </div>
+
+        {!isCompleted && (
+          <div className="px-3 pt-3 bg-card grid grid-cols-2 gap-2">
+            <AddWorkDialog job={job} />
+            <AddPartDialog job={job} />
+          </div>
+        )}
+        <div className="p-3 bg-card grid grid-cols-1 gap-2">
+          <CollectPaymentDialog job={job} wide />
         </div>
 
         {!isCompleted && !isSkipped && (
@@ -203,9 +230,15 @@ function JobCard({ job, index }: { job: Job, index: number }) {
               {job.status === 'on_the_way' && (
                 <>
                   <Button variant="outline" onClick={() => handleStatus('scheduled')} className="h-12 border-2">Back</Button>
-                  <Button onClick={() => handleStatus('in_progress')} className="col-span-2 bg-blue-600 hover:bg-blue-700 text-white h-12 text-base font-bold shadow-sm">
-                    <Clock className="w-5 h-5 mr-2" /> Start Job
-                  </Button>
+                  {noteLocked ? (
+                    <Button disabled className="col-span-2 h-12 text-base font-bold shadow-sm">
+                      <Lock className="w-5 h-5 mr-2" /> Open the note first
+                    </Button>
+                  ) : (
+                    <Button onClick={() => handleStatus('in_progress')} className="col-span-2 bg-blue-600 hover:bg-blue-700 text-white h-12 text-base font-bold shadow-sm">
+                      <Clock className="w-5 h-5 mr-2" /> Start Job
+                    </Button>
+                  )}
                 </>
               )}
 
@@ -218,6 +251,9 @@ function JobCard({ job, index }: { job: Job, index: number }) {
                 </>
               )}
             </div>
+
+            {/* GPS-SMS track (feedback 49): after On The Way, offer to email the customer the "on the way" document */}
+            <OnTheWayNotice job={job} />
 
             {/* Same one-tap shape as the status buttons above; the reason itself comes from a native prompt */}
             <div className="px-3 pb-3 bg-card">
@@ -233,6 +269,190 @@ function JobCard({ job, index }: { job: Job, index: number }) {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * The note the office attached to the assigned service, and the rule that
+ * goes with it: nobody starts the job until they have opened it. "Bring the
+ * sprinkler key" read after the drive home is no use to anyone. Opening it
+ * is recorded on the visit, so the office can see it was read.
+ */
+function MustReadNote({ job, locked }: { job: Job; locked: boolean }) {
+  const [open, setOpen] = useState(false);
+  const ack = useAcknowledgeJobNote();
+  const queryClient = useQueryClient();
+
+  const gotIt = () => {
+    if (job.noteAcknowledgedAt) { setOpen(false); return; }
+    ack.mutate({ id: job.id }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ['/api/my/jobs'] });
+        setOpen(false);
+      },
+    });
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className={`w-full text-left rounded-md border-2 p-3 ${locked ? 'border-orange-400 bg-orange-50' : 'border-primary/30 bg-primary/5'}`}
+      >
+        <span className={`text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 ${locked ? 'text-orange-800' : 'text-primary'}`}>
+          {locked ? <Lock className="w-3 h-3" /> : <BookOpen className="w-3 h-3" />}
+          {locked ? 'Read this before you start' : 'Note from the office — read'}
+        </span>
+        <p className={`mt-1 text-sm ${locked ? 'font-semibold text-orange-900' : 'text-foreground whitespace-pre-wrap'}`}>
+          {locked ? 'Tap to open the note.' : job.contractorNote}
+        </p>
+      </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Note for {job.clientName}</DialogTitle>
+          </DialogHeader>
+          <p className="text-base font-medium whitespace-pre-wrap py-2">{job.contractorNote}</p>
+          <DialogFooter>
+            <Button onClick={gotIt} disabled={ack.isPending} className="w-full h-12 text-base font-bold">
+              <CheckCircle2 className="w-5 h-5 mr-2" /> {ack.isPending ? 'Saving…' : 'Got it'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+/**
+ * The parts and fees on the job, qty × price, and what they add to the bill.
+ * A line the crew put on by mistake comes off again right here, as long as
+ * the job is not invoiced yet.
+ */
+function JobParts({ job, editable }: { job: Job; editable: boolean }) {
+  const remove = useDeleteJobProduct();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const products = job.products ?? [];
+  const total = products.reduce((s, p) => s + p.price * (p.quantity ?? 1), 0);
+  return (
+    <div className="mt-3 pt-3 border-t">
+      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1 mb-2">
+        <PackageOpen className="w-3 h-3" /> Parts & extras on this job
+      </span>
+      <ul className="text-sm space-y-1">
+        {products.map(p => (
+          <li key={p.id} className="flex items-center justify-between gap-2">
+            <span className="text-foreground min-w-0 truncate">{p.name}</span>
+            <span className="flex items-center gap-2 whitespace-nowrap">
+              <span className="text-muted-foreground text-xs">{p.quantity ?? 1} × ${p.price.toFixed(2)}</span>
+              <span className="font-semibold tabular-nums">${(p.price * (p.quantity ?? 1)).toFixed(2)}</span>
+              {editable && (
+                <button
+                  type="button"
+                  aria-label="Remove"
+                  className="text-muted-foreground hover:text-destructive"
+                  onClick={() => remove.mutate({ id: p.id }, {
+                    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/my/jobs'] }),
+                    onError: (e: any) => toast({ title: 'Could not remove it', description: e?.data?.error || e?.message, variant: 'destructive' }),
+                  })}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-2 flex justify-between text-sm font-semibold border-t pt-2">
+        <span>Added to the invoice</span>
+        <span>${total.toFixed(2)}</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Add a part or fee from the office's list — a bag fee, a sprinkler head —
+ * with how many. Same shape as adding extra work; the price is the office's,
+ * the crew only says how many.
+ */
+function AddPartDialog({ job }: { job: Job }) {
+  const [open, setOpen] = useState(false);
+  const [presetId, setPresetId] = useState('');
+  const [quantity, setQuantity] = useState('1');
+  const [error, setError] = useState<string | null>(null);
+  const { data: parts } = useListMyProducts({ query: { enabled: open, queryKey: ['/api/my/products'] } });
+  const addPart = useAddMyJobProduct();
+  const queryClient = useQueryClient();
+
+  const selected = parts?.find(p => String(p.id) === presetId);
+  const qty = Number(quantity) || 0;
+
+  const submit = () => {
+    if (!selected || qty <= 0) return;
+    setError(null);
+    addPart.mutate({ id: job.id, data: { presetId: selected.id, quantity: qty } }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ['/api/my/jobs'] });
+        setOpen(false);
+        setPresetId('');
+        setQuantity('1');
+      },
+      onError: (e: any) => setError(e?.data?.error || e?.message || 'Could not add the part'),
+    });
+  };
+
+  return (
+    <>
+      <Button variant="outline" onClick={() => setOpen(true)} className="h-11 border-2 font-semibold">
+        <Wrench className="w-4 h-4 mr-1" /> Add Part / Fee
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Add a part or fee</DialogTitle>
+          </DialogHeader>
+          {parts && parts.length === 0 ? (
+            <p className="text-sm text-muted-foreground">The office hasn't put any parts or fees on the list yet.</p>
+          ) : (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Part</Label>
+                <Select value={presetId} onValueChange={setPresetId}>
+                  <SelectTrigger><SelectValue placeholder="Choose a part" /></SelectTrigger>
+                  <SelectContent>
+                    {parts?.map(p => (
+                      <SelectItem key={p.id} value={String(p.id)}>
+                        {p.label} — ${p.price.toFixed(2)}{p.unit ? ` / ${p.unit}` : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>How many{selected?.unit ? ` (${selected.unit})` : ''}</Label>
+                <Input type="number" min="0.01" step="1" inputMode="decimal" value={quantity} onChange={e => setQuantity(e.target.value)} />
+              </div>
+              {selected && qty > 0 && (
+                <div className="text-sm font-semibold flex justify-between border-t pt-3">
+                  <span>Added to invoice</span>
+                  <span>${(selected.price * qty).toFixed(2)}</span>
+                </div>
+              )}
+              {error && <p className="text-sm text-destructive">{error}</p>}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button onClick={submit} disabled={!selected || qty <= 0 || addPart.isPending}>
+              {addPart.isPending ? 'Adding...' : 'Add to Job'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

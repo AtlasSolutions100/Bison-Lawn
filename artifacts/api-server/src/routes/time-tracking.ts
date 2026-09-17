@@ -5,6 +5,7 @@ import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { ClockInToJobBody, ClockOutOfJobBody } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/requireAuth";
 import { logAudit } from "../lib/helpers";
+import { shownName } from "../lib/userAccounts";
 
 const router: IRouter = Router();
 
@@ -53,7 +54,7 @@ async function hydrate(rows: JobTimeEntry[]) {
   if (rows.length === 0) return [];
   const userIds = [...new Set(rows.map((r) => r.userId))];
   const users = await db.select().from(usersTable).where(inArray(usersTable.id, userIds));
-  const uMap = new Map(users.map((u) => [u.id, u.name]));
+  const uMap = new Map(users.map((u) => [u.id, shownName(u)]));
   return rows.map((r) => ({
     id: r.id,
     jobId: r.jobId,

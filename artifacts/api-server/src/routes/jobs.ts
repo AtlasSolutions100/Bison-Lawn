@@ -8,8 +8,12 @@ import {
   usersTable,
   invoicesTable,
   paymentsTable,
+  clientServicesTable,
+  jobTimeEntriesTable,
+  chargePresetsTable,
 } from "@workspace/db";
-import { and, asc, desc, eq, gte, inArray, isNull, lte, ne } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, isNotNull, isNull, lte, ne, or, sql, type SQL } from "drizzle-orm";
+import { contractorNoteFor, discountAmountFor } from "../lib/jobGeneration";
 import {
   CreateJobBody,
   UpdateJobBody,
@@ -29,6 +33,7 @@ import {
   getBillingSettings,
 } from "../lib/helpers";
 import { assessSkip } from "../lib/skipPolicy";
+import { todayISO } from "../lib/invoiceNumbers";
 import { createInvoiceForJob } from "../lib/invoiceFromJob";
 
 const router: IRouter = Router();
@@ -37,14 +42,17 @@ router.use(requireAuth);
 
 type JobRow = typeof jobsTable.$inferSelect;
 
-async function hydrateJobs(rows: JobRow[]) {
+// Exported for routes/client-activity.ts, which lists a customer's jobs
+// (dispatched or not) in the same shape the board reads.
+export async function hydrateJobs(rows: JobRow[]) {
   if (rows.length === 0) return [];
   const clientIds = [...new Set(rows.map((r) => r.clientId))];
   const serviceIds = [...new Set(rows.map((r) => r.serviceId).filter((x): x is number => x != null))];
   const userIds = [...new Set(rows.map((r) => r.assignedToId).filter((x): x is number => x != null))];
   const jobIds = rows.map((r) => r.id);
+  const csIds = [...new Set(rows.map((r) => r.clientServiceId).filter((x): x is number => x != null))];
 
-  const [clients, services, users, products, latestInvoices] = await Promise.all([
+  const [clients, services, users, products, latestInvoices, clientServices, clocked] = await Promise.all([
     db.select().from(clientsTable).where(inArray(clientsTable.id, clientIds)),
     serviceIds.length ? db.select().from(servicesTable).where(inArray(servicesTable.id, serviceIds)) : Promise.resolve([]),
     userIds.length ? db.select().from(usersTable).where(inArray(usersTable.id, userIds)) : Promise.resolve([]),
@@ -69,12 +77,31 @@ async function hydrateJobs(rows: JobRow[]) {
           .where(and(inArray(invoicesTable.clientId, clientIds), ne(invoicesTable.status, "void")))
           .orderBy(invoicesTable.clientId, desc(invoicesTable.id))
       : Promise.resolve([]),
+    // The must-read crew note lives on the assigned service with its date
+    // range, and is looked up here rather than copied onto each visit so an
+    // edit reaches every future visit at once.
+    csIds.length
+      ? db.select().from(clientServicesTable).where(inArray(clientServicesTable.id, csIds))
+      : Promise.resolve([]),
+    // Minutes clocked so far, for the board ("clocked 2.4 h") and for the
+    // history on the account. Open entries are not counted until closed.
+    db
+      .select({
+        jobId: jobTimeEntriesTable.jobId,
+        minutes: sql<number>`coalesce(sum(extract(epoch from (${jobTimeEntriesTable.clockOutAt} - ${jobTimeEntriesTable.clockInAt})) / 60), 0)`,
+        open: sql<number>`count(*) filter (where ${jobTimeEntriesTable.clockOutAt} is null)`,
+      })
+      .from(jobTimeEntriesTable)
+      .where(inArray(jobTimeEntriesTable.jobId, jobIds))
+      .groupBy(jobTimeEntriesTable.jobId),
   ]);
 
   const cMap = new Map(clients.map((c) => [c.id, c]));
   const invMap = new Map(latestInvoices.map((i) => [i.clientId, i]));
   const sMap = new Map(services.map((s) => [s.id, s]));
   const uMap = new Map(users.map((u) => [u.id, u]));
+  const csMap = new Map(clientServices.map((cs) => [cs.id, cs]));
+  const clockMap = new Map(clocked.map((c) => [c.jobId, c]));
 
   return rows.map((r) => {
     const c = cMap.get(r.clientId);
@@ -100,24 +127,97 @@ async function hydrateJobs(rows: JobRow[]) {
       // whole map goes rather than a hand-picked list of labels — a new detail
       // Adam adds tomorrow should reach the crew without a code change.
       clientPropertyData: (c?.propertyData ?? {}) as Record<string, string>,
+      // What the board and waiting list filter and email by. The email is here
+      // so a row can say "no email" before a bulk send, not after it.
+      clientEmail: c?.email ?? null,
+      clientPhone: c?.phone ?? null,
+      clientDoNotEmail: c?.doNotEmail ?? false,
+      clientMapCode: c?.mapCode ?? null,
+      clientState: c?.state ?? null,
+      clientTags: (c?.tags ?? []) as string[],
       serviceName: r.serviceId ? (sMap.get(r.serviceId)?.name ?? null) : null,
-      assignedToName: r.assignedToId ? (uMap.get(r.assignedToId)?.name ?? null) : null,
+      serviceCode: r.serviceId
+        ? (sMap.get(r.serviceId)?.code ?? sMap.get(r.serviceId)?.externalId ?? null)
+        : null,
+      // The short name he set on the person, never the account name — which
+      // for a contractor who signed up by email is the email address.
+      assignedToName: r.assignedToId ? contractorLabel(uMap.get(r.assignedToId)) : null,
       products: products.filter((p) => p.jobId === r.id),
       completedAt: r.completedAt ? r.completedAt.toISOString() : null,
       skippedAt: r.skippedAt ? r.skippedAt.toISOString() : null,
+      cancelledAt: r.cancelledAt ? r.cancelledAt.toISOString() : null,
+      // The crew note in force on this visit's day, if any. Start is locked on
+      // the job card until it has been opened (noteAcknowledgedAt).
+      contractorNote: contractorNoteFor(r.clientServiceId ? csMap.get(r.clientServiceId) : null, r.scheduledDate),
+      noteAcknowledgedAt: r.noteAcknowledgedAt ? r.noteAcknowledgedAt.toISOString() : null,
+      clockedMinutes: Math.round(Number(clockMap.get(r.id)?.minutes ?? 0) * 10) / 10,
+      clockOpen: Number(clockMap.get(r.id)?.open ?? 0) > 0,
+      discountAmount: discountAmountFor(r.amount, r.discountType, r.discountValue),
     };
   });
 }
 
+function contractorLabel(u: { name: string; displayName?: string | null } | undefined) {
+  if (!u) return null;
+  return u.displayName?.trim() || u.name;
+}
+
+/**
+ * The client-side filters the board and the waiting list share: branch (his
+ * word for the client's state), map code, a tag, and a name-or-address search.
+ * Done as a subquery on clients so a board of four hundred jobs is filtered in
+ * Postgres rather than hydrated and thrown away.
+ */
+function clientFilterConds(q: Record<string, string | undefined>): SQL[] {
+  const conds: SQL[] = [];
+  if (q.mapCode?.trim()) conds.push(ilike(clientsTable.mapCode, q.mapCode.trim()));
+  if (q.branch?.trim()) conds.push(ilike(clientsTable.state, q.branch.trim()));
+  if (q.city?.trim()) conds.push(ilike(clientsTable.city, q.city.trim()));
+  if (q.tag?.trim()) {
+    // Tags are stored lowercase (see clients.tags), so the query is too.
+    const tag = q.tag.trim().toLowerCase();
+    conds.push(sql`exists (select 1 from jsonb_array_elements_text(${clientsTable.tags}) t where t = ${tag})`);
+  }
+  if (q.search?.trim()) {
+    const like = `%${q.search.trim()}%`;
+    conds.push(or(ilike(clientsTable.name, like), ilike(clientsTable.serviceAddress, like))!);
+  }
+  if (conds.length === 0) return [];
+  return [inArray(jobsTable.clientId, db.select({ id: clientsTable.id }).from(clientsTable).where(and(...conds)))];
+}
+
+const hasNotesCond = () => and(sql`${jobsTable.notes} is not null`, ne(jobsTable.notes, ""))!;
+
 router.get("/waiting-list", requireAdmin, async (req, res) => {
-  const { date, from, to } = req.query as Record<string, string | undefined>;
-  const conds = [eq(jobsTable.dispatched, false)];
-  if (date) {
+  const q = req.query as Record<string, string | undefined>;
+  const { date, from, to } = q;
+  const conds: SQL[] = [eq(jobsTable.dispatched, false)];
+  // A waiting-list job is only "waiting" while the date being looked at sits
+  // inside its window. `window=past` is the other list he asked for: windows
+  // that closed without the job going out, so the batch can be cancelled.
+  if (q.window === "past") {
+    // Our day, not the server's. On UTC the clock rolls over at five in the
+    // afternoon here, and an evening tidy-up would list — and Cancel would
+    // cancel — every job whose window is still open today.
+    const today = todayISO();
+    conds.push(sql`${jobsTable.windowEnd} is not null`, sql`${jobsTable.windowEnd} < ${today}`);
+  } else if (date) {
     conds.push(lte(jobsTable.windowStart, date), gte(jobsTable.windowEnd, date));
   }
   if (from) conds.push(gte(jobsTable.windowEnd, from));
   if (to) conds.push(lte(jobsTable.windowStart, to));
-  const rows = await db.select().from(jobsTable).where(and(...conds)).orderBy(asc(jobsTable.windowStart));
+  if (q.status) conds.push(eq(jobsTable.status, q.status));
+  // Cancelled and completed jobs are not waiting for anything.
+  else conds.push(sql`${jobsTable.status} not in ('cancelled', 'completed')`);
+  if (q.serviceId) conds.push(eq(jobsTable.serviceId, Number(q.serviceId)));
+  if (q.assignedTo) conds.push(eq(jobsTable.assignedToId, Number(q.assignedTo)));
+  if (q.hasNotes === "true") conds.push(hasNotesCond());
+  conds.push(...clientFilterConds(q));
+  const rows = await db
+    .select()
+    .from(jobsTable)
+    .where(and(...conds))
+    .orderBy(asc(jobsTable.windowStart), asc(jobsTable.id));
   return res.json(await hydrateJobs(rows));
 });
 
@@ -131,22 +231,31 @@ router.get("/jobs", requireAdmin, async (req, res) => {
   if (q.status) conds.push(eq(jobsTable.status, q.status));
   if (q.serviceId) conds.push(eq(jobsTable.serviceId, Number(q.serviceId)));
   if (q.clientId) conds.push(eq(jobsTable.clientId, Number(q.clientId)));
-  let rows = await db
+  if (q.hasNotes === "true") conds.push(hasNotesCond());
+  conds.push(...clientFilterConds(q));
+  // Day first, then route order: the board takes a date range now (the 15th
+  // to the 17th), and a range sorted by route order alone interleaves the days.
+  const rows = await db
     .select()
     .from(jobsTable)
     .where(and(...conds))
-    .orderBy(asc(jobsTable.routeOrder), asc(jobsTable.id));
-  let hydrated = await hydrateJobs(rows);
-  if (q.city) hydrated = hydrated.filter((j) => j.city?.toLowerCase() === q.city!.toLowerCase());
-  return res.json(hydrated);
+    .orderBy(asc(jobsTable.scheduledDate), asc(jobsTable.routeOrder), asc(jobsTable.id));
+  return res.json(await hydrateJobs(rows));
 });
 
 router.post("/jobs", requireAdmin, async (req, res) => {
   const body = CreateJobBody.parse(req.body);
   const dispatched = !!body.scheduledDate;
+  // A one-off job on a time-billed service (a clean-up added straight to the
+  // board) is priced from the clock like any other visit of that service.
+  let billing: { billingMode: string; hourlyRate: number | null } = { billingMode: "fixed", hourlyRate: null };
+  if (body.serviceId != null) {
+    const [svc] = await db.select().from(servicesTable).where(eq(servicesTable.id, body.serviceId));
+    if (svc?.billingMode === "time") billing = { billingMode: "time", hourlyRate: svc.rate };
+  }
   const [job] = await db
     .insert(jobsTable)
-    .values({ ...body, dispatched, notesImportant: body.notesImportant ?? false })
+    .values({ ...body, ...billing, dispatched, notesImportant: body.notesImportant ?? false })
     .returning();
   await logAudit({
     clientId: job.clientId,
@@ -181,6 +290,8 @@ router.get("/my/jobs", async (req, res) => {
     eq(jobsTable.assignedToId, req.appUser!.id),
     eq(jobsTable.dispatched, true),
     eq(jobsTable.visibleToContractor, true),
+    // Called off by the office: not a stop on anybody's route.
+    ne(jobsTable.status, "cancelled"),
   ];
   if (date) conds.push(eq(jobsTable.scheduledDate, date));
   if (from) conds.push(gte(jobsTable.scheduledDate, from));
@@ -450,6 +561,15 @@ router.patch("/jobs/:id", async (req, res) => {
     // Completion must go through POST /jobs/:id/complete so invoicing stays atomic
     return res.status(400).json({ error: "Use the complete endpoint to finish a job" });
   }
+  // A date box hands over a value for every keystroke, and a half-typed year
+  // ("0002-09-16") reads as a perfectly good date. Saved, the job sits in year
+  // 2 where no board and no list will ever show it again.
+  if (
+    body.scheduledDate != null &&
+    !(/^\d{4}-\d{2}-\d{2}$/.test(body.scheduledDate) && body.scheduledDate >= "2000-01-01" && body.scheduledDate <= "2100-12-31")
+  ) {
+    return res.status(400).json({ error: "That date does not look right. Use yyyy-mm-dd, year 2000 or later." });
+  }
   const [existing] = await db.select().from(jobsTable).where(eq(jobsTable.id, Number(req.params.id)));
   if (!existing) return res.status(404).json({ error: "Job not found" });
 
@@ -463,12 +583,32 @@ router.patch("/jobs/:id", async (req, res) => {
     if (keys.some((k) => k !== "status" && k !== "skipReason")) {
       return res.status(403).json({ error: "Contractors can only update job status" });
     }
+    // Calling a visit off is the office's decision. A crew that cannot do the
+    // work skips it, with a reason, and the office decides what happens next.
+    if (body.status === "cancelled") {
+      return res.status(403).json({ error: "Only the office can cancel a job" });
+    }
+    // The must-read note: nobody starts the job until they have opened it.
+    // "Bring the sprinkler key" is no use read after the drive home.
+    if (body.status === "in_progress" && !existing.noteAcknowledgedAt && existing.clientServiceId) {
+      const [cs] = await db.select().from(clientServicesTable).where(eq(clientServicesTable.id, existing.clientServiceId));
+      if (contractorNoteFor(cs, existing.scheduledDate)) {
+        return res.status(400).json({ error: "Open the note on this job before starting it" });
+      }
+    }
   }
 
   const update: typeof body & {
     skippedAt?: Date | null;
     skipBillable?: boolean | null;
+    cancelledAt?: Date | null;
+    amountOverridden?: boolean;
   } = { ...body };
+  // The office typing a price on a time-billed job is the "adjusted
+  // afterwards" step: from here the clock no longer sets the amount.
+  if (body.amount !== undefined && body.amount !== existing.amount && existing.billingMode === "time") {
+    update.amountOverridden = true;
+  }
   let skipAssessment: Awaited<ReturnType<typeof assessSkip>> | null = null;
   if (body.status === "skipped") {
     const skippedAt = new Date();
@@ -483,6 +623,13 @@ router.patch("/jobs/:id", async (req, res) => {
     update.skipReason = null;
     update.skippedAt = null;
     update.skipBillable = null;
+  }
+  if (body.status === "cancelled") {
+    update.cancelledAt = new Date();
+  } else if (body.status && existing.status === "cancelled") {
+    // Same as coming off skipped: a job put back on the board starts clean.
+    update.cancelReason = null;
+    update.cancelledAt = null;
   }
 
   const [job] = await db
@@ -499,7 +646,9 @@ router.patch("/jobs/:id", async (req, res) => {
         body.status === "skipped"
           ? `Job #${job.id} status changed to skipped${body.skipReason ? ` — ${body.skipReason}` : ""}` +
             (skipAssessment ? ` (${skipAssessment.billable ? "chargeable" : "free"} skip)` : "")
-          : `Job #${job.id} status changed to ${body.status.replace(/_/g, " ")}`,
+          : body.status === "cancelled"
+            ? `Cancelled job #${job.id}${body.cancelReason ? ` — ${body.cancelReason}` : ""}`
+            : `Job #${job.id} status changed to ${body.status.replace(/_/g, " ")}`,
     });
   }
   const hydrated = (await hydrateJobs([job]))[0];
@@ -530,6 +679,10 @@ router.post("/jobs/:id/complete", async (req, res) => {
   if (existing.status === "skipped") {
     return res.status(400).json({ error: "This job was skipped and cannot be completed. Reschedule it first." });
   }
+  // Same for a cancelled one: the office called it off, nobody did the work.
+  if (existing.status === "cancelled") {
+    return res.status(400).json({ error: "This job was cancelled and cannot be completed. Put it back on the board first." });
+  }
 
   // Atomic completion: lock the job row, re-check status, and create the
   // invoice inside one transaction so concurrent requests can't double-invoice.
@@ -541,7 +694,9 @@ router.post("/jobs/:id/complete", async (req, res) => {
       .for("update");
     if (!locked) return null;
     if (locked.status === "completed") return { job: locked, invoice: null };
-    if (locked.status === "skipped") return { job: locked, invoice: null, skipped: true as const };
+    if (locked.status === "skipped" || locked.status === "cancelled") {
+      return { job: locked, invoice: null, skipped: true as const };
+    }
 
     const products = await tx.select().from(jobProductsTable).where(eq(jobProductsTable.jobId, id));
     const productTotal = products.reduce((s, p) => s + p.price * p.quantity, 0);
@@ -551,22 +706,57 @@ router.post("/jobs/:id/complete", async (req, res) => {
       .from(paymentsTable)
       .where(and(eq(paymentsTable.jobId, id), isNull(paymentsTable.invoiceId)));
     const pendingFees = pendingPayments.reduce((s, p) => s + p.cardFee, 0);
-    const total = Math.round((locked.amount + productTotal + pendingFees) * 100) / 100;
+
+    // A time-billed job is priced from the clock: every closed entry on the
+    // job, all crew, added up. The office can still set the number by hand
+    // (amountOverridden) — that is his "price adjusted afterwards". Nothing
+    // clocked at all bills the budgeted estimate rather than $0, and says so
+    // on the invoice.
+    let serviceAmount = locked.amount;
+    let billedHours: number | null = null;
+    let noTimeNote: string | null = null;
+    if (locked.billingMode === "time" && locked.hourlyRate != null) {
+      const entries = await tx.select().from(jobTimeEntriesTable).where(eq(jobTimeEntriesTable.jobId, id));
+      if (entries.some((e) => e.clockOutAt == null)) {
+        return { job: locked, invoice: null, stillClocked: true as const };
+      }
+      const minutes = entries.reduce((s, e) => s + (e.clockOutAt!.getTime() - e.clockInAt.getTime()) / 60000, 0);
+      if (!locked.amountOverridden) {
+        if (minutes > 0) {
+          billedHours = Math.round((minutes / 60) * 100) / 100;
+          serviceAmount = Math.round(billedHours * locked.hourlyRate * 100) / 100;
+        } else {
+          noTimeNote = "No time was clocked on this job; billed at the budgeted hours. Adjust before sending.";
+        }
+      }
+    }
+    // The discount is the one on the assigned service, so it comes off the
+    // service and not off the parts and fees: 10% off a $50 mow is $5,
+    // whatever bags went with it. That is the figure the board and the
+    // account page have been showing all along.
+    const discount = discountAmountFor(serviceAmount, locked.discountType, locked.discountValue);
+    const total = Math.round((serviceAmount + productTotal + pendingFees - discount) * 100) / 100;
 
     let serviceName: string | null = null;
+    let invoiceDescription: string | null = null;
     if (locked.serviceId) {
       const [svc] = await tx.select().from(servicesTable).where(eq(servicesTable.id, locked.serviceId));
       serviceName = svc?.name ?? null;
+      invoiceDescription = svc?.invoiceDescription?.trim() || null;
     }
 
     const invoice = await createInvoiceForJob(tx, {
       clientId: locked.clientId,
       jobId: id,
-      serviceAmount: locked.amount,
+      serviceAmount,
       serviceName,
+      invoiceDescription,
       serviceDate: locked.scheduledDate,
       products: products.map((p) => ({ name: p.name, price: p.price, quantity: p.quantity })),
       pendingFees,
+      timeBilled: billedHours != null && locked.hourlyRate != null ? { hours: billedHours, hourlyRate: locked.hourlyRate } : null,
+      discount: discount > 0 ? { label: locked.discountLabel?.trim() || "Discount", amount: discount } : null,
+      note: noTimeNote,
     });
 
     // Attach any on-site payments collected before completion to the new invoice
@@ -578,7 +768,7 @@ router.post("/jobs/:id/complete", async (req, res) => {
     const today = new Date().toISOString().slice(0, 10);
     const [job] = await tx
       .update(jobsTable)
-      .set({ status: "completed", completedAt: new Date(), invoiceId: invoice.id })
+      .set({ status: "completed", completedAt: new Date(), invoiceId: invoice.id, amount: serviceAmount })
       .where(eq(jobsTable.id, id))
       .returning();
 
@@ -597,12 +787,22 @@ router.post("/jobs/:id/complete", async (req, res) => {
     // check but before we took the row lock. Same rule applies — no invoice.
     return res.status(400).json({ error: "This job was skipped and cannot be completed. Reschedule it first." });
   }
+  if ("stillClocked" in result && result.stillClocked) {
+    // Time is money on this one, literally: closing the job with the clock
+    // running would bill the hours so far and lose the rest.
+    return res.status(400).json({ error: "Someone is still clocked in on this job. Clock out first so the hours are billed." });
+  }
   if (result.invoice) {
     await logAudit({
       clientId: result.job.clientId,
       actorName: req.appUser?.name,
       action: "job_completed",
-      description: `Completed job #${id}; invoice #${result.invoice.id} for $${result.invoice.total}`,
+      description:
+        `Completed job #${id}; invoice #${result.invoice.id} for $${result.invoice.total}` +
+        (result.job.billingMode === "time" && !result.job.amountOverridden
+          ? ` (billed from the clock at $${result.job.hourlyRate}/hr)`
+          : "") +
+        (result.job.discountValue ? `, less ${result.job.discountLabel ?? "discount"}` : ""),
     });
   }
   return res.json((await hydrateJobs([result.job]))[0]);
@@ -621,12 +821,36 @@ router.post("/jobs/:id/products", async (req, res) => {
   }
   // Lock the job row and recheck status in the same transaction so a
   // concurrent completion can't invoice while we add a product.
+  // A preset picked from the parts list supplies the name and price; free
+  // text stays open to the office for the one-off part nobody listed.
+  let name = body.name?.trim() ?? "";
+  let price = body.price ?? 0;
+  let chargePresetId: number | null = null;
+  if (body.presetId != null) {
+    const [preset] = await db
+      .select()
+      .from(chargePresetsTable)
+      .where(and(eq(chargePresetsTable.id, body.presetId), eq(chargePresetsTable.kind, "product")));
+    if (!preset) return res.status(400).json({ error: "That part is no longer on the list" });
+    // The crew reaches this route from their own job too, so the office-only
+    // rule has to hold here as well — otherwise a $120 valve lands on the
+    // customer's invoice from a phone.
+    if (req.appUser?.role !== "admin" && !preset.contractorCanAdd) {
+      return res.status(400).json({ error: "That part is not on the list you can add on site" });
+    }
+    name = preset.label;
+    price = preset.defaultPrice;
+    chargePresetId = preset.id;
+  } else if (!name || body.price == null) {
+    return res.status(400).json({ error: "Pick a part from the list, or type a name and a price" });
+  }
+  if (!((body.quantity ?? 1) > 0)) return res.status(400).json({ error: "Quantity must be more than zero" });
   const product = await db.transaction(async (tx) => {
     const [locked] = await tx.select().from(jobsTable).where(eq(jobsTable.id, jobId)).for("update");
     if (!locked || locked.status === "completed") return null;
     const [p] = await tx
       .insert(jobProductsTable)
-      .values({ jobId, name: body.name, price: body.price, quantity: body.quantity ?? 1 })
+      .values({ jobId, name, price, quantity: body.quantity ?? 1, chargePresetId })
       .returning();
     return p;
   });

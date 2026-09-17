@@ -14,4 +14,9 @@ export interface JobProduct {
   quantity?: number;
   /** @nullable */
   serviceId?: number | null;
+  /**
+     * Set when the line came from the parts list
+     * @nullable
+     */
+  chargePresetId?: number | null;
 }

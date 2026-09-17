@@ -6,9 +6,14 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * Either a preset from the parts list (presetId; name and price are copied from it) or a free-text name and price.
+ */
 export interface JobProductInput {
+  /** @nullable */
+  presetId?: number | null;
   /** @minLength 1 */
-  name: string;
-  price: number;
+  name?: string;
+  price?: number;
   quantity?: number;
 }

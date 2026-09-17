@@ -5,10 +5,15 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+import type { ClientServiceUpdateDiscountType } from './clientServiceUpdateDiscountType';
+import type { ClientServiceUpdateFrequency } from './clientServiceUpdateFrequency';
+import type { ClientServiceUpdateScheduleType } from './clientServiceUpdateScheduleType';
+import type { ClientServiceUpdateWeekParity } from './clientServiceUpdateWeekParity';
 
 export interface ClientServiceUpdate {
   quantity?: number;
   amount?: number;
+  scheduleType?: ClientServiceUpdateScheduleType;
   /** @nullable */
   startDate?: string | null;
   /** @nullable */
@@ -23,4 +28,40 @@ export interface ClientServiceUpdate {
   renewDate?: string | null;
   /** @nullable */
   budgetedHours?: number | null;
+  /** @nullable */
+  assignedToId?: number | null;
+  /** @nullable */
+  frequency?: ClientServiceUpdateFrequency;
+  /**
+     * @minimum 0
+     * @maximum 6
+     * @nullable
+     */
+  weekday?: number | null;
+  /** @nullable */
+  weekParity?: ClientServiceUpdateWeekParity;
+  /**
+     * @minimum 1
+     * @maximum 4
+     * @nullable
+     */
+  monthlyWeek?: number | null;
+  /** @nullable */
+  discountType?: ClientServiceUpdateDiscountType;
+  /** @nullable */
+  discountValue?: number | null;
+  /** @nullable */
+  discountLabel?: string | null;
+  /** @nullable */
+  contractorNote?: string | null;
+  /** @nullable */
+  noteStartDate?: string | null;
+  /** @nullable */
+  noteEndDate?: string | null;
+  autoRenew?: boolean;
+  active?: boolean;
+  /** @nullable */
+  contractMonths?: number | null;
+  /** @nullable */
+  contractTotal?: number | null;
 }

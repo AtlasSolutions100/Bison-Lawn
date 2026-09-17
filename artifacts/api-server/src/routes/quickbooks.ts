@@ -4,7 +4,7 @@ import {
   GetQuickbooksExpensesQueryParams,
   GetQuickbooksProfitAndLossQueryParams,
 } from "@workspace/api-zod";
-import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
+import { requireAuth, requireArea } from "../middlewares/requireAuth";
 import {
   IntuitAuthError,
   buildAuthorizeUrl,
@@ -48,7 +48,9 @@ router.use(
     "/quickbooks/expenses",
   ],
   requireAuth,
-  requireAdmin,
+  // The books are the one area Adam named for a second full user who must
+  // never see them, so this is a per-area check rather than "any admin".
+  requireArea("quickbooks"),
 );
 
 /**

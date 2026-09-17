@@ -40,6 +40,7 @@ import { AdminLayout } from '@/components/layout/admin-layout';
 import { ContractorLayout } from '@/components/layout/contractor-layout';
 
 import { useGetCurrentUser } from '@workspace/api-client-react';
+import { AREA_LABELS, canOpen, type Area } from '@/lib/access';
 
 const queryClient = new QueryClient();
 
@@ -241,7 +242,38 @@ function HomeRedirect() {
   );
 }
 
-function AdminRoute({ component: Component }: { component: any }) {
+/**
+ * Shown instead of a page the person is not allowed into. Polite and plain:
+ * they may well be an admin, just not for this part, so it says who to ask
+ * rather than pretending the page does not exist.
+ */
+function NotEnabled({ area }: { area: Area }) {
+  const [, setLocation] = useLocation();
+  return (
+    <div className="p-8 max-w-xl mx-auto">
+      <div className="rounded-lg border bg-card p-8 text-center shadow-sm">
+        <h1 className="text-xl font-semibold text-foreground">{AREA_LABELS[area]} is not turned on for you</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Your account can use the rest of the office, but this part is switched off. Ask Adam if you need it.
+        </p>
+        <button
+          type="button"
+          onClick={() => setLocation('/dashboard')}
+          className="mt-6 rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+        >
+          Back to the dashboard
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * `area` names the part of the app the page belongs to. A mobile-only person
+ * is sent to the phone app; an office person without that area sees the
+ * NotEnabled card inside the normal layout so the sidebar still works.
+ */
+function AdminRoute({ component: Component, area }: { component: any; area?: Area }) {
   const { data: user, isLoading, isError, refetch } = useCurrentAppUser();
   const { signOut } = useClerk();
   const [, setLocation] = useLocation();
@@ -265,7 +297,7 @@ function AdminRoute({ component: Component }: { component: any }) {
 
   return (
     <AdminLayout>
-      <Component />
+      {area && !canOpen(user, area) ? <NotEnabled area={area} /> : <Component />}
     </AdminLayout>
   );
 }
@@ -328,23 +360,23 @@ function ClerkProviderWithRoutes() {
 
               {/* Admin Routes */}
               <Route path="/dashboard"><SignedIn><AdminRoute component={Dashboard} /></SignedIn></Route>
-              <Route path="/clients"><SignedIn><AdminRoute component={Clients} /></SignedIn></Route>
-              <Route path="/clients/:id"><SignedIn><AdminRoute component={ClientDetail} /></SignedIn></Route>
-              <Route path="/services"><SignedIn><AdminRoute component={Services} /></SignedIn></Route>
-              <Route path="/estimates"><SignedIn><AdminRoute component={Estimates} /></SignedIn></Route>
-              <Route path="/waiting-list"><SignedIn><AdminRoute component={WaitingList} /></SignedIn></Route>
-              <Route path="/dispatch"><SignedIn><AdminRoute component={Dispatch} /></SignedIn></Route>
-              <Route path="/invoices"><SignedIn><AdminRoute component={Invoices} /></SignedIn></Route>
-              <Route path="/books"><SignedIn><AdminRoute component={Books} /></SignedIn></Route>
-              <Route path="/tickets"><SignedIn><AdminRoute component={Tickets} /></SignedIn></Route>
-              <Route path="/spray-runs"><SignedIn><AdminRoute component={SprayRuns} /></SignedIn></Route>
-              <Route path="/spring-letters"><SignedIn><AdminRoute component={SpringLetters} /></SignedIn></Route>
-              <Route path="/reports"><SignedIn><AdminRoute component={Reports} /></SignedIn></Route>
-              <Route path="/web-requests"><SignedIn><AdminRoute component={WebRequests} /></SignedIn></Route>
-              <Route path="/automation"><SignedIn><AdminRoute component={Automation} /></SignedIn></Route>
-              <Route path="/team"><SignedIn><AdminRoute component={Team} /></SignedIn></Route>
+              <Route path="/clients"><SignedIn><AdminRoute component={Clients} area="clients" /></SignedIn></Route>
+              <Route path="/clients/:id"><SignedIn><AdminRoute component={ClientDetail} area="clients" /></SignedIn></Route>
+              <Route path="/services"><SignedIn><AdminRoute component={Services} area="settings" /></SignedIn></Route>
+              <Route path="/estimates"><SignedIn><AdminRoute component={Estimates} area="clients" /></SignedIn></Route>
+              <Route path="/waiting-list"><SignedIn><AdminRoute component={WaitingList} area="dispatch" /></SignedIn></Route>
+              <Route path="/dispatch"><SignedIn><AdminRoute component={Dispatch} area="dispatch" /></SignedIn></Route>
+              <Route path="/invoices"><SignedIn><AdminRoute component={Invoices} area="invoices" /></SignedIn></Route>
+              <Route path="/books"><SignedIn><AdminRoute component={Books} area="quickbooks" /></SignedIn></Route>
+              <Route path="/tickets"><SignedIn><AdminRoute component={Tickets} area="dispatch" /></SignedIn></Route>
+              <Route path="/spray-runs"><SignedIn><AdminRoute component={SprayRuns} area="dispatch" /></SignedIn></Route>
+              <Route path="/spring-letters"><SignedIn><AdminRoute component={SpringLetters} area="documents" /></SignedIn></Route>
+              <Route path="/reports"><SignedIn><AdminRoute component={Reports} area="reports" /></SignedIn></Route>
+              <Route path="/web-requests"><SignedIn><AdminRoute component={WebRequests} area="clients" /></SignedIn></Route>
+              <Route path="/automation"><SignedIn><AdminRoute component={Automation} area="settings" /></SignedIn></Route>
+              <Route path="/team"><SignedIn><AdminRoute component={Team} area="team" /></SignedIn></Route>
               <Route path="/feedback"><SignedIn><AdminRoute component={FeedbackPage} /></SignedIn></Route>
-              <Route path="/settings"><SignedIn><AdminRoute component={Settings} /></SignedIn></Route>
+              <Route path="/settings"><SignedIn><AdminRoute component={Settings} area="settings" /></SignedIn></Route>
 
               {/* Contractor Routes */}
               <Route path="/my/jobs"><SignedIn><ContractorRoute component={MyJobs} /></SignedIn></Route>

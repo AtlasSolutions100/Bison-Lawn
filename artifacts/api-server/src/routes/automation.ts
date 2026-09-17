@@ -1,7 +1,10 @@
 import { Router, type IRouter, type Request } from "express";
 import {
   db,
+  automationRulesTable,
   automationRunsTable,
+  automationSendsTable,
+  documentTemplatesTable,
   weatherRulesTable,
   schedulingRulesTable,
   suggestedActionsTable,
@@ -10,7 +13,7 @@ import {
   servicesTable,
   usersTable,
 } from "@workspace/db";
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   CreateWeatherRuleBody,
   UpdateWeatherRuleBody,
@@ -18,9 +21,21 @@ import {
   UpdateSchedulingRuleBody,
   RunWeatherCheckBody,
   UpdateSuggestedActionBody,
+  CreateAutomationRuleBody,
+  UpdateAutomationRuleBody,
 } from "@workspace/api-zod";
+import {
+  RULE_TRIGGERS,
+  conditionsOf,
+  ensureDefaultAutomationRules,
+  getEmailAutomationStatus,
+  previewRule,
+  runEmailAutomations,
+  type RuleTrigger,
+} from "../lib/automationRunner";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
 import { logAudit } from "../lib/helpers";
+import { shownName } from "../lib/userAccounts";
 import { runWeatherCheckForDate } from "../lib/weatherCheck";
 import { ensureDefaultSchedulingRules } from "../lib/schedulingRules";
 import { ensureDailyWeatherCheck, getWeatherCheckStatus } from "../lib/weatherScheduler";
@@ -48,7 +63,17 @@ export function setCustomerMessageGmailProxyForTests(proxy: GmailProxy | null) {
 }
 
 // Every automation endpoint is admin-only: rules, checks, and the review queue.
-router.use(requireAuth, requireAdmin);
+//
+// Scoped to this router's own paths on purpose. All routers share one parent
+// mounted at /api, so a bare `router.use(requireAuth, requireAdmin)` here ran
+// for every request that fell through to a router mounted after this one —
+// which is how a contractor clocking in (time-tracking) or opening job photos
+// got "Admin access required".
+router.use(
+  ["/weather-rules", "/scheduling-rules", "/weather-check", "/suggested-actions", "/automation-rules"],
+  requireAuth,
+  requireAdmin,
+);
 
 // ---------- weather rules ----------
 
@@ -124,7 +149,7 @@ async function hydrateSchedulingRules(rows: SchedulingRuleRow[]) {
     userIds.length ? db.select().from(usersTable).where(inArray(usersTable.id, userIds)) : Promise.resolve([]),
   ]);
   const sMap = new Map(services.map((s) => [s.id, s.name]));
-  const uMap = new Map(users.map((u) => [u.id, u.name]));
+  const uMap = new Map(users.map((u) => [u.id, shownName(u)]));
   return rows.map((r) => ({
     ...r,
     serviceName: r.serviceId ? (sMap.get(r.serviceId) ?? null) : null,
@@ -290,7 +315,7 @@ async function hydrateSuggestions(rows: SuggestionRow[]) {
   ]);
   const cMap = new Map(clients.map((c) => [c.id, c]));
   const rMap = new Map(rules.map((r) => [r.id, r.name]));
-  const uMap = new Map(users.map((u) => [u.id, u.name]));
+  const uMap = new Map(users.map((u) => [u.id, shownName(u)]));
   return rows.map((r) => ({
     ...r,
     clientName: cMap.get(r.clientId)?.name ?? null,
@@ -678,6 +703,178 @@ router.post("/suggested-actions/:id/reject", async (req, res) => {
     description: `Rejected suggested ${suggestion.actionType}${suggestion.jobId ? ` of job #${suggestion.jobId}` : ""} (${suggestion.reason})`,
   });
   return res.json((await hydrateSuggestions([suggestion]))[0]);
+});
+
+// ---------- email automations ("N days after X, send Y") ----------
+
+type AutomationRuleRow = typeof automationRulesTable.$inferSelect;
+
+/** The rule as one readable sentence, for the audit trail. */
+function describeAutomationRule(rule: AutomationRuleRow, templateName: string | null, afterRuleName: string | null) {
+  const cond = conditionsOf(rule);
+  const when: Record<RuleTrigger, string> = {
+    invoice_past_due: `${rule.offsetDays} day(s) after an invoice is due`,
+    invoice_sent: `${rule.offsetDays} day(s) after an invoice is sent`,
+    estimate_sent: `${rule.offsetDays} day(s) after an estimate is sent`,
+    job_completed: `${rule.offsetDays} day(s) after a job is completed`,
+    client_added: `${rule.offsetDays} day(s) after a customer is added`,
+    fixed_date: `every year on ${rule.monthDay ?? "??-??"}${rule.offsetDays ? ` + ${rule.offsetDays} day(s)` : ""}`,
+    after_rule: `${rule.offsetDays} day(s) after "${afterRuleName ?? "another notice"}" went out`,
+  };
+  const unless = [cond.stillUnpaid ? "still unpaid" : null, cond.noResponse ? "no answer yet" : null].filter(Boolean);
+  return `${when[rule.trigger as RuleTrigger] ?? rule.trigger} send "${templateName ?? "(no document)"}"${unless.length ? ` if ${unless.join(" and ")}` : ""}`;
+}
+
+async function hydrateAutomationRules(rows: AutomationRuleRow[]) {
+  if (!rows.length) return [];
+  const templateIds = [...new Set(rows.map((r) => r.templateId).filter((x): x is number => x != null))];
+  const afterIds = [...new Set(rows.map((r) => conditionsOf(r).afterRuleId).filter((x): x is number => x != null))];
+  const serviceIds = [...new Set(rows.map((r) => conditionsOf(r).serviceId).filter((x): x is number => x != null))];
+  const [templates, afterRules, services, sentCounts] = await Promise.all([
+    templateIds.length
+      ? db.select({ id: documentTemplatesTable.id, name: documentTemplatesTable.name }).from(documentTemplatesTable).where(inArray(documentTemplatesTable.id, templateIds))
+      : Promise.resolve([]),
+    afterIds.length
+      ? db.select({ id: automationRulesTable.id, name: automationRulesTable.name }).from(automationRulesTable).where(inArray(automationRulesTable.id, afterIds))
+      : Promise.resolve([]),
+    serviceIds.length
+      ? db.select({ id: servicesTable.id, name: servicesTable.name }).from(servicesTable).where(inArray(servicesTable.id, serviceIds))
+      : Promise.resolve([]),
+    db
+      .select({ ruleId: automationSendsTable.ruleId, count: sql<number>`count(*)` })
+      .from(automationSendsTable)
+      .where(inArray(automationSendsTable.ruleId, rows.map((r) => r.id)))
+      .groupBy(automationSendsTable.ruleId),
+  ]);
+  const tMap = new Map(templates.map((t) => [t.id, t.name]));
+  const aMap = new Map(afterRules.map((r) => [r.id, r.name]));
+  const sMap = new Map(services.map((s) => [s.id, s.name]));
+  const cMap = new Map(sentCounts.map((c) => [c.ruleId, Number(c.count)]));
+  return rows.map((r) => {
+    const cond = conditionsOf(r);
+    return {
+      id: r.id,
+      name: r.name,
+      enabled: r.enabled,
+      trigger: r.trigger,
+      offsetDays: r.offsetDays,
+      monthDay: r.monthDay,
+      templateId: r.templateId,
+      templateName: r.templateId != null ? (tMap.get(r.templateId) ?? null) : null,
+      afterRuleName: cond.afterRuleId != null ? (aMap.get(cond.afterRuleId) ?? null) : null,
+      serviceName: cond.serviceId != null ? (sMap.get(cond.serviceId) ?? null) : null,
+      conditions: cond,
+      sentTotal: cMap.get(r.id) ?? 0,
+      lastRunAt: r.lastRunAt ? r.lastRunAt.toISOString() : null,
+      createdAt: r.createdAt.toISOString(),
+    };
+  });
+}
+
+function validateRuleShape(rule: { trigger: string; monthDay?: string | null; conditions?: Record<string, unknown> | null }) {
+  if (!RULE_TRIGGERS.includes(rule.trigger as RuleTrigger)) return "That trigger is not one this app knows.";
+  if (rule.trigger === "fixed_date" && !/^\d{2}-\d{2}$/.test(rule.monthDay ?? "")) {
+    return "A yearly rule needs a month and day, like 09-01.";
+  }
+  if (rule.trigger === "after_rule" && typeof rule.conditions?.afterRuleId !== "number") {
+    return "Pick which earlier notice this one follows.";
+  }
+  return null;
+}
+
+router.get("/automation-rules", async (_req, res) => {
+  await ensureDefaultAutomationRules();
+  const rows = await db.select().from(automationRulesTable).orderBy(asc(automationRulesTable.id));
+  return res.json(await hydrateAutomationRules(rows));
+});
+
+router.get("/automation-rules/status", async (_req, res) => {
+  return res.json(await getEmailAutomationStatus());
+});
+
+router.post("/automation-rules/run-now", async (req, res) => {
+  const result = await runEmailAutomations({ trigger: "manual", triggeredBy: req.appUser?.name ?? null });
+  if (!result) return res.status(409).json({ error: "A run is already going. Give it a minute and check the log." });
+  return res.json({ runId: result.runId, summary: result.summary, outcomes: result.outcomes });
+});
+
+router.post("/automation-rules", async (req, res) => {
+  const body = CreateAutomationRuleBody.parse(req.body);
+  const problem = validateRuleShape(body);
+  if (problem) return res.status(400).json({ error: problem });
+  const [rule] = await db
+    .insert(automationRulesTable)
+    .values({
+      name: body.name,
+      enabled: body.enabled ?? false,
+      trigger: body.trigger,
+      offsetDays: body.offsetDays ?? 0,
+      monthDay: body.monthDay ?? null,
+      templateId: body.templateId ?? null,
+      conditions: (body.conditions ?? {}) as Record<string, unknown>,
+    })
+    .returning();
+  const [hydrated] = await hydrateAutomationRules([rule]);
+  await logAudit({
+    actorName: req.appUser?.name,
+    action: "email_automation_created",
+    description: `Added email automation "${rule.name}" (#${rule.id}): ${describeAutomationRule(rule, hydrated.templateName, hydrated.afterRuleName)}${rule.enabled ? "" : " — switched off"}`,
+  });
+  return res.status(201).json(hydrated);
+});
+
+router.patch("/automation-rules/:id", async (req, res) => {
+  const body = UpdateAutomationRuleBody.parse(req.body);
+  const [existing] = await db.select().from(automationRulesTable).where(eq(automationRulesTable.id, Number(req.params.id)));
+  if (!existing) return res.status(404).json({ error: "Rule not found" });
+
+  const values: Partial<typeof automationRulesTable.$inferInsert> = {};
+  if (body.name !== undefined) values.name = body.name;
+  if (body.enabled !== undefined) values.enabled = body.enabled;
+  if (body.trigger !== undefined) values.trigger = body.trigger;
+  if (body.offsetDays !== undefined) values.offsetDays = body.offsetDays;
+  if (body.monthDay !== undefined) values.monthDay = body.monthDay ?? null;
+  if (body.templateId !== undefined) values.templateId = body.templateId ?? null;
+  if (body.conditions !== undefined) values.conditions = body.conditions as Record<string, unknown>;
+  const merged = { ...existing, ...values };
+  const problem = validateRuleShape(merged);
+  if (problem) return res.status(400).json({ error: problem });
+  if (merged.trigger === "after_rule" && conditionsOf(merged).afterRuleId === existing.id) {
+    return res.status(400).json({ error: "A notice cannot follow itself." });
+  }
+
+  const [rule] = await db.update(automationRulesTable).set(values).where(eq(automationRulesTable.id, existing.id)).returning();
+  const [hydrated] = await hydrateAutomationRules([rule]);
+  const flipped = body.enabled !== undefined && body.enabled !== existing.enabled;
+  await logAudit({
+    actorName: req.appUser?.name,
+    action: flipped ? (rule.enabled ? "email_automation_enabled" : "email_automation_disabled") : "email_automation_updated",
+    description: flipped
+      ? `${rule.enabled ? "Switched ON" : "Switched OFF"} email automation "${rule.name}" (#${rule.id}): ${describeAutomationRule(rule, hydrated.templateName, hydrated.afterRuleName)}`
+      : `Changed email automation "${existing.name}" (#${rule.id}) to: ${describeAutomationRule(rule, hydrated.templateName, hydrated.afterRuleName)}`,
+  });
+  return res.json(hydrated);
+});
+
+router.delete("/automation-rules/:id", async (req, res) => {
+  const [existing] = await db.select().from(automationRulesTable).where(eq(automationRulesTable.id, Number(req.params.id)));
+  if (existing) {
+    const [hydrated] = await hydrateAutomationRules([existing]);
+    await db.delete(automationRulesTable).where(eq(automationRulesTable.id, existing.id));
+    await logAudit({
+      actorName: req.appUser?.name,
+      action: "email_automation_deleted",
+      description: `Deleted email automation "${existing.name}" (#${existing.id}): ${describeAutomationRule(existing, hydrated.templateName, hydrated.afterRuleName)}`,
+    });
+  }
+  return res.status(204).end();
+});
+
+/** Dry run: who would get this today. Sends nothing. */
+router.post("/automation-rules/:id/preview", async (req, res) => {
+  const [rule] = await db.select().from(automationRulesTable).where(eq(automationRulesTable.id, Number(req.params.id)));
+  if (!rule) return res.status(404).json({ error: "Rule not found" });
+  return res.json(await previewRule(rule));
 });
 
 export default router;

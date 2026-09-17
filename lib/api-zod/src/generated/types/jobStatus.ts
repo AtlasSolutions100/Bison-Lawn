@@ -15,4 +15,5 @@ export const JobStatus = {
   in_progress: 'in_progress',
   completed: 'completed',
   skipped: 'skipped',
+  cancelled: 'cancelled',
 } as const;

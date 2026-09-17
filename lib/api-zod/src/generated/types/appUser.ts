@@ -5,21 +5,40 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+import type { AccessArea } from './accessArea';
+import type { AccessLevel } from './accessLevel';
 import type { AppUserRole } from './appUserRole';
+import type { AppUserRoleSource } from './appUserRoleSource';
 
 export interface AppUser {
   id: number;
   clerkId: string;
   name: string;
+  fullName?: string;
+  /** @nullable */
+  displayName?: string | null;
   /** @nullable */
   email?: string | null;
   role: AppUserRole;
+  roleSource?: AppUserRoleSource;
+  accessLevel: AccessLevel;
+  permissions: string[];
+  areas: AccessArea[];
+  active: boolean;
   /** @nullable */
   phone?: string | null;
+  /** @nullable */
+  birthday?: string | null;
+  /** @nullable */
+  hireDate?: string | null;
   /** @nullable */
   baseAddress?: string | null;
   /** @nullable */
   baseLat?: number | null;
   /** @nullable */
   baseLng?: number | null;
+  jobCount?: number;
+  historyCount?: number;
+  /** @nullable */
+  smsProxyNumber?: string | null;
 }

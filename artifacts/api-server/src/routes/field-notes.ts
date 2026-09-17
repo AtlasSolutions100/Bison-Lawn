@@ -12,6 +12,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { CreateFieldNoteBody } from "@workspace/api-zod";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
 import { logAudit } from "../lib/helpers";
+import { shownName } from "../lib/userAccounts";
 
 const router: IRouter = Router();
 
@@ -28,7 +29,7 @@ async function hydrate(rows: NoteRow[]) {
     userIds.length ? db.select().from(usersTable).where(inArray(usersTable.id, userIds)) : Promise.resolve([]),
   ]);
   const cMap = new Map(clients.map((c) => [c.id, c.name]));
-  const uMap = new Map(users.map((u) => [u.id, u.name]));
+  const uMap = new Map(users.map((u) => [u.id, shownName(u)]));
   return rows.map((r) => ({
     ...r,
     clientName: cMap.get(r.clientId) ?? null,

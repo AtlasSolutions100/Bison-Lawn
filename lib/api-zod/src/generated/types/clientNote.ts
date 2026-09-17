@@ -5,12 +5,22 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+import type { ClientNoteStatus } from './clientNoteStatus';
 
 export interface ClientNote {
   id: number;
   clientId: number;
+  /**
+     * Filled on the cross-customer open-notes list
+     * @nullable
+     */
+  clientName?: string | null;
   body: string;
   /** @nullable */
   authorName?: string | null;
+  /** Open notes wait on the office and show on the dashboard until closed */
+  status: ClientNoteStatus;
+  /** @nullable */
+  closedAt?: string | null;
   createdAt: string;
 }

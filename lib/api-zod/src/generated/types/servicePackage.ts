@@ -5,6 +5,7 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+import type { PackageItem } from './packageItem';
 import type { Service } from './service';
 import type { ServicePackageScheduleType } from './servicePackageScheduleType';
 
@@ -16,7 +17,9 @@ export interface ServicePackage {
   name: string;
   /** @nullable */
   description?: string | null;
+  /** One id per entry, repeats included — always the same order as items */
   serviceIds: number[];
+  items: PackageItem[];
   /** @nullable */
   scheduleType?: ServicePackageScheduleType;
   /** @nullable */
@@ -29,5 +32,6 @@ export interface ServicePackage {
   seasonEndDate?: string | null;
   /** @nullable */
   renewDate?: string | null;
+  /** The service behind each entry, in entry order, so a repeated service appears as many times as it is listed */
   services?: Service[];
 }

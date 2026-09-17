@@ -1,122 +1,589 @@
-import { useState } from 'react';
-import { 
-  useListInvoices, useUpdateInvoice, useCreatePayment, useListPayments, useDeletePayment, useGetInvoice,
-  useListClients, useCreateInvoice, useApplyPayment, useSendInvoice
+import { useEffect, useMemo, useState } from 'react';
+import {
+  useListInvoices,
+  useVerifyInvoice,
+  useEmailInvoices,
+  useListPayments,
+  useDeletePayment,
+  useListClients,
+  useCreateInvoice,
+  type Invoice,
+  type InvoiceBatchEmailResult,
+  type Payment,
+  type ListInvoicesQueue,
+  type ListPaymentsMethod,
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocation, useSearch } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { format } from 'date-fns';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Trash2, Plus, FileText, Send } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { CheckCircle2, Download, FileText, Mail, Plus, Printer, Search, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { InvoiceDialog } from '@/components/billing/invoice-dialog';
+import { RecordPaymentDialog, ApplyPaymentToInvoiceDialog } from '@/components/billing/payment-dialogs';
+import {
+  PAYMENT_METHODS,
+  StatusPill,
+  dayLabel,
+  downloadCsv,
+  errorText,
+  invalidateBilling,
+  methodLabel,
+  money,
+  officeDay,
+  openPdf,
+} from '@/components/billing/shared';
+
+/**
+ * His invoice queues, in the order a bill moves through them: a completed
+ * job lands in "Needs verification", Verify sends it to "To email" or "To
+ * print" by the customer's preference, and from there it sits in Open (with
+ * days past due and how they pay) until it is paid. Nothing is emailed until
+ * he says so.
+ */
+
+type QueueKey = ListInvoicesQueue | 'all' | 'payments';
+
+const QUEUES: { key: QueueKey; label: string; blurb: string }[] = [
+  { key: 'pending', label: 'Needs verification', blurb: 'Completed jobs whose bill you have not checked yet. Nothing here has gone to the customer.' },
+  { key: 'to_email', label: 'To email', blurb: 'Verified and waiting to be emailed with the Bison bill letter and the PDF.' },
+  { key: 'to_print', label: 'To print', blurb: 'Verified and waiting to be printed. Print all makes one PDF, one bill per page.' },
+  { key: 'open', label: 'Open', blurb: 'Everything still owed.' },
+  { key: 'past_due', label: 'Past due', blurb: 'Owed and past the due date (the invoice date when terms are due on receipt).' },
+  { key: 'paid', label: 'Paid', blurb: 'Paid in full.' },
+  { key: 'void', label: 'Void', blurb: 'Cancelled bills, kept for the record.' },
+  { key: 'all', label: 'All', blurb: 'Every invoice.' },
+  { key: 'payments', label: 'Payments', blurb: 'Every payment and credit, searchable.' },
+];
 
 export default function Invoices() {
-  const [status, setStatus] = useState<any>('');
   // A client page deep-links here as /invoices?clientId=<id>. The filter stays in
   // the URL so it is shareable, and it is announced above the table — an unexplained
   // short list is worse than no filter at all.
   const searchString = useSearch();
   const [, setLocation] = useLocation();
-  const clientIdParam = new URLSearchParams(searchString).get('clientId');
+  const params = new URLSearchParams(searchString);
+  const clientIdParam = params.get('clientId');
   const clientFilter = clientIdParam && /^\d+$/.test(clientIdParam) ? Number(clientIdParam) : null;
+  const tabParam = params.get('tab');
+  const [queue, setQueue] = useState<QueueKey>(
+    () => (QUEUES.some((q) => q.key === tabParam) ? (tabParam as QueueKey) : clientFilter ? 'all' : 'pending'),
+  );
+  const [search, setSearch] = useState('');
+  const [debounced, setDebounced] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(search.trim()), 250);
+    return () => clearTimeout(t);
+  }, [search]);
+
   const { data: filterClients } = useListClients();
   const filterLabel =
-    clientFilter == null
-      ? null
-      : filterClients?.find(c => c.id === clientFilter)?.name ?? `client #${clientFilter}`;
-  const { data: invoices, isLoading } = useListInvoices({
-    ...(status ? { status } : {}),
+    clientFilter == null ? null : (filterClients?.find((c) => c.id === clientFilter)?.name ?? `client #${clientFilter}`);
+
+  const listParams = {
+    ...(queue !== 'all' && queue !== 'payments' ? { queue } : {}),
+    ...(debounced ? { search: debounced } : {}),
     ...(clientFilter != null ? { clientId: clientFilter } : {}),
+  };
+  const { data: invoices, isLoading } = useListInvoices(listParams, {
+    query: { enabled: queue !== 'payments', queryKey: ['/api/invoices', listParams] },
   });
+  // The one count that matters at a glance: how much is waiting on him.
+  const { data: pendingList } = useListInvoices(
+    { queue: 'pending' },
+    { query: { queryKey: ['/api/invoices', { queue: 'pending' }] } },
+  );
+  const pendingCount = pendingList?.length ?? 0;
+
+  const current = QUEUES.find((q) => q.key === queue)!;
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6 flex flex-col h-[calc(100vh-2rem)]">
-      <div className="flex justify-between items-center">
+    <div className="p-8 max-w-7xl mx-auto space-y-6 flex flex-col min-h-[calc(100vh-2rem)]">
+      <div className="flex flex-wrap justify-between items-start gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Invoices & Payments</h1>
           {filterLabel ? (
             <p className="text-muted-foreground mt-1">
-              Showing invoices for <span className="font-medium text-foreground">{filterLabel}</span>.{' '}
+              Showing <span className="font-medium text-foreground">{filterLabel}</span> only.{' '}
               <button
                 type="button"
                 className="underline underline-offset-2 hover:text-foreground"
                 onClick={() => setLocation('/invoices', { replace: true })}
               >
-                Show all clients
+                Show everyone
               </button>
             </p>
           ) : (
-            <p className="text-muted-foreground mt-1">Manage receivables and record payments.</p>
+            <p className="text-muted-foreground mt-1">Check each bill, send it, and see what is still owed.</p>
           )}
         </div>
-        
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-3 bg-card p-2 rounded-lg border shadow-sm">
-            <select 
-              className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm w-40" 
-              value={status} 
-              onChange={e => setStatus(e.target.value)}
-            >
-              <option value="">All Statuses</option>
-              <option value="open">Open</option>
-              <option value="partial">Partial</option>
-              <option value="paid">Paid</option>
-              <option value="void">Void</option>
-            </select>
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
+            <Input
+              className="pl-9 w-64"
+              placeholder={queue === 'payments' ? 'Name, check #, amount, invoice #' : 'Name, address or invoice #'}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
           </div>
           <NewInvoiceDialog />
         </div>
       </div>
 
-      <Tabs defaultValue="invoices" className="flex-1 flex flex-col">
-        <TabsList className="w-fit mb-4">
-          <TabsTrigger value="invoices">Invoices</TabsTrigger>
-          <TabsTrigger value="payments">Payment History</TabsTrigger>
-        </TabsList>
+      <div className="flex flex-wrap gap-1 border-b">
+        {QUEUES.map((q) => (
+          <button
+            key={q.key}
+            type="button"
+            onClick={() => setQueue(q.key)}
+            className={`px-3 py-2 text-sm border-b-2 -mb-px transition-colors ${
+              queue === q.key ? 'border-primary text-foreground font-semibold' : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {q.label}
+            {q.key === 'pending' && pendingCount > 0 && (
+              <span className="ml-2 inline-flex items-center justify-center rounded-full bg-accent text-accent-foreground text-xs font-semibold px-1.5 min-w-[1.25rem]">
+                {pendingCount}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+      <p className="text-sm text-muted-foreground -mt-3">{current.blurb}</p>
 
-        <TabsContent value="invoices" className="m-0 flex-1 flex flex-col">
-          <div className="bg-card border rounded-lg shadow-sm flex-1 overflow-auto">
-            <Table>
-              <TableHeader className="bg-muted/50">
-                <TableRow>
-                  <TableHead className="w-24">Invoice #</TableHead>
-                  <TableHead>Client</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
-                  <TableHead className="text-right">Balance Due</TableHead>
-                  <TableHead className="w-56"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading ? (
-                  <TableRow><TableCell colSpan={7} className="text-center py-4">Loading...</TableCell></TableRow>
-                ) : !invoices?.length ? (
-                  <TableRow><TableCell colSpan={7} className="text-center py-4">No invoices found.</TableCell></TableRow>
-                ) : (
-                  invoices.map(inv => (
-                    <InvoiceRow key={inv.id} invoice={inv} />
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </TabsContent>
-        
-        <TabsContent value="payments" className="m-0 flex-1 flex flex-col">
-          <PaymentHistory />
-        </TabsContent>
-      </Tabs>
+      {queue === 'payments' ? (
+        <PaymentsTab search={debounced} clientId={clientFilter} />
+      ) : (
+        <InvoiceQueue queue={queue} invoices={invoices} isLoading={isLoading} />
+      )}
     </div>
   );
 }
 
-type DraftLine = { description: string; serviceDate: string; quantity: string; unitPrice: string };
+// ------------------------------------------------------------- queues ----
 
+function InvoiceQueue({ queue, invoices, isLoading }: { queue: QueueKey; invoices: Invoice[] | undefined; isLoading: boolean }) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [openId, setOpenId] = useState<number | null>(null);
+  const [batch, setBatch] = useState<InvoiceBatchEmailResult | null>(null);
+  const emailInvoices = useEmailInvoices();
+  const verifyInvoice = useVerifyInvoice();
+
+  // A fresh queue is a fresh selection: ticks from the last tab must not
+  // ride along into "Email all".
+  useEffect(() => {
+    setSelected(new Set());
+    setBatch(null);
+  }, [queue]);
+
+  const rows = invoices ?? [];
+  const batchable = queue === 'to_email' || queue === 'to_print';
+  const chosen = rows.filter((r) => selected.has(r.id));
+  const targets = chosen.length ? chosen : rows;
+  const allTicked = rows.length > 0 && rows.every((r) => selected.has(r.id));
+
+  const toggle = (id: number) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const emailAll = () => {
+    const ids = targets.map((r) => r.id);
+    if (ids.length === 0) return;
+    const noEmail = targets.filter((r) => !r.clientEmail).length;
+    const note = noEmail ? ` ${noEmail} of them have no email address on file and will be skipped.` : '';
+    if (!window.confirm(`Email ${ids.length} invoice${ids.length === 1 ? '' : 's'} now?${note}`)) return;
+    emailInvoices.mutate(
+      { data: { ids } },
+      {
+        onSuccess: (result) => {
+          setBatch(result);
+          setSelected(new Set());
+          invalidateBilling(queryClient);
+          toast({
+            title: `${result.sent} of ${ids.length} emailed`,
+            description:
+              result.skipped.length || result.failed.length
+                ? `${result.skipped.length} skipped, ${result.failed.length} failed — see the list below.`
+                : undefined,
+            variant: result.failed.length ? 'destructive' : 'default',
+          });
+        },
+        onError: (error) => toast({ title: 'Could not email the invoices', description: errorText(error), variant: 'destructive' }),
+      },
+    );
+  };
+
+  const printAll = () => {
+    const ids = targets.map((r) => r.id);
+    if (ids.length === 0) return;
+    openPdf(`/api/invoices/print.pdf?ids=${ids.join(',')}`);
+    // The print stamps each invoice on the server; give the tab a moment to
+    // fetch before this list refreshes and the rows leave the queue.
+    setTimeout(() => invalidateBilling(queryClient), 2500);
+    setSelected(new Set());
+  };
+
+  const verify = (inv: Invoice) => {
+    verifyInvoice.mutate(
+      { id: inv.id },
+      {
+        onSuccess: (v) => {
+          invalidateBilling(queryClient, inv.clientId, inv.id);
+          toast({ title: `Invoice #${v.number} verified`, description: `Now waiting to be ${v.deliveryMethod === 'print' ? 'printed' : v.deliveryMethod === 'both' ? 'emailed and printed' : 'emailed'}.` });
+        },
+        onError: (error) => toast({ title: 'Could not verify', description: errorText(error), variant: 'destructive' }),
+      },
+    );
+  };
+
+  const showDue = queue === 'open' || queue === 'past_due' || queue === 'all' || queue === 'to_email' || queue === 'to_print';
+  const cols = 10 + (batchable ? 1 : 0);
+
+  return (
+    <div className="space-y-3 flex-1 flex flex-col">
+      {batchable && (
+        <div className="flex flex-wrap items-center gap-2">
+          {queue === 'to_email' ? (
+            <Button size="sm" onClick={emailAll} disabled={rows.length === 0 || emailInvoices.isPending}>
+              <Mail className="w-4 h-4 mr-2" />
+              {emailInvoices.isPending ? 'Emailing…' : chosen.length ? `Email ${chosen.length} selected` : `Email all (${rows.length})`}
+            </Button>
+          ) : (
+            <Button size="sm" onClick={printAll} disabled={rows.length === 0}>
+              <Printer className="w-4 h-4 mr-2" />
+              {chosen.length ? `Print ${chosen.length} selected` : `Print all (${rows.length})`}
+            </Button>
+          )}
+          {chosen.length > 0 && (
+            <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+              Clear selection
+            </Button>
+          )}
+          <span className="text-xs text-muted-foreground">
+            {queue === 'to_email'
+              ? 'One email per customer, sent in order. Only customers with no address on file are skipped and listed — a bill still goes out to customers marked do-not-email, since that box is for bulk notices. Set a customer to Print on their Billing tab to keep their bill off email.'
+              : 'Opens one PDF with every bill on its own page, and marks each one printed.'}
+          </span>
+        </div>
+      )}
+
+      {batch && (batch.skipped.length > 0 || batch.failed.length > 0) && (
+        <Alert variant={batch.failed.length ? 'destructive' : 'default'}>
+          <AlertTitle>
+            {batch.sent} sent, {batch.skipped.length} skipped, {batch.failed.length} failed
+          </AlertTitle>
+          <AlertDescription>
+            <ul className="mt-1 space-y-0.5 text-sm">
+              {[...batch.failed.map((o) => ({ ...o, kind: 'failed' })), ...batch.skipped.map((o) => ({ ...o, kind: 'skipped' }))].map((o) => (
+                <li key={`${o.kind}-${o.invoiceId}`}>
+                  #{o.number} {o.clientName ?? ''} — {o.kind === 'skipped' ? SKIP_REASON[o.reason] ?? o.reason : o.reason}
+                </li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <div className="bg-card border rounded-lg shadow-sm flex-1 overflow-auto">
+        <Table>
+          <TableHeader className="bg-muted/50">
+            <TableRow>
+              {batchable && (
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={allTicked}
+                    onCheckedChange={(v) => setSelected(v ? new Set(rows.map((r) => r.id)) : new Set())}
+                    aria-label="Select all"
+                  />
+                </TableHead>
+              )}
+              <TableHead className="w-20">#</TableHead>
+              <TableHead>Customer</TableHead>
+              <TableHead>Date</TableHead>
+              <TableHead>{showDue ? 'Due' : 'Job'}</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Pays by</TableHead>
+              <TableHead className="text-right">Total</TableHead>
+              <TableHead className="text-right">Invoice balance</TableHead>
+              <TableHead className="text-right">Account balance</TableHead>
+              <TableHead className="w-64"></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              <TableRow>
+                <TableCell colSpan={cols} className="text-center py-6 text-muted-foreground">Loading…</TableCell>
+              </TableRow>
+            ) : rows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={cols} className="text-center py-6 text-muted-foreground">
+                  {queue === 'pending' ? 'Nothing waiting to be verified.' : 'No invoices here.'}
+                </TableCell>
+              </TableRow>
+            ) : (
+              rows.map((inv) => (
+                <TableRow key={inv.id} className="hover:bg-muted/50">
+                  {batchable && (
+                    <TableCell>
+                      <Checkbox checked={selected.has(inv.id)} onCheckedChange={() => toggle(inv.id)} aria-label={`Select invoice ${inv.number}`} />
+                    </TableCell>
+                  )}
+                  <TableCell className="font-mono text-sm">
+                    <button type="button" className="underline underline-offset-2 hover:text-primary" onClick={() => setOpenId(inv.id)}>
+                      #{inv.number}
+                    </button>
+                    {inv.terms && <div className="text-xs text-muted-foreground">{inv.terms}</div>}
+                  </TableCell>
+                  <TableCell className="font-medium text-foreground">
+                    <div>{inv.clientName}</div>
+                    {inv.clientAddress && <div className="text-xs font-normal text-muted-foreground">{inv.clientAddress}</div>}
+                    {(inv.unappliedCredit ?? 0) > 0 && inv.balance > 0 && (
+                      <div className="text-xs font-normal text-primary">{money(inv.unappliedCredit)} credit on account</div>
+                    )}
+                    {inv.clientDoNotEmail && queue === 'to_email' && (
+                      <div className="text-xs font-normal text-muted-foreground">Do-not-email (bulk notices only — the bill still goes)</div>
+                    )}
+                    {!inv.clientEmail && queue === 'to_email' && <div className="text-xs font-normal text-destructive">No email on file</div>}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground whitespace-nowrap">{dayLabel(inv.invoiceDate ?? inv.createdAt)}</TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    {showDue ? (
+                      <>
+                        <div className="text-muted-foreground">{dayLabel(inv.dueDate ?? inv.invoiceDate)}</div>
+                        {inv.daysPastDue > 0 && <div className="text-xs font-semibold text-destructive">{inv.daysPastDue} days past due</div>}
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">{inv.serviceName ?? (inv.jobId ? `Job #${inv.jobId}` : 'Manual')}</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <StatusPill status={inv.status} />
+                    {!inv.needsVerification && inv.deliveryMethod && (
+                      <div className="text-[11px] text-muted-foreground mt-1">
+                        {inv.sentAt ? `emailed ${dayLabel(inv.sentAt)}` : inv.printedAt ? `printed ${dayLabel(inv.printedAt)}` : `by ${inv.deliveryMethod}`}
+                      </div>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{methodLabel(inv.lastPaymentMethod)}</TableCell>
+                  <TableCell className="text-right font-semibold tabular-nums">{money(inv.total)}</TableCell>
+                  <TableCell className={`text-right font-bold tabular-nums ${inv.balance > 0 ? 'text-destructive' : 'text-primary'}`}>{money(inv.balance)}</TableCell>
+                  <TableCell className={`text-right tabular-nums ${inv.accountBalance > 0 ? 'text-destructive' : 'text-muted-foreground'}`}>{money(inv.accountBalance)}</TableCell>
+                  <TableCell className="text-right whitespace-nowrap space-x-1">
+                    <Button size="sm" variant="ghost" className="h-8" onClick={() => setOpenId(inv.id)}>
+                      Open
+                    </Button>
+                    {inv.needsVerification && (
+                      <Button size="sm" className="h-8" onClick={() => verify(inv)} disabled={verifyInvoice.isPending}>
+                        <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" /> Verify
+                      </Button>
+                    )}
+                    <Button size="sm" variant="ghost" className="h-8 text-muted-foreground" onClick={() => openPdf(`/api/invoices/${inv.id}/pdf`)}>
+                      <FileText className="w-3.5 h-3.5" />
+                    </Button>
+                    {inv.status !== 'void' && !inv.needsVerification && inv.balance > 0 && (
+                      <RecordPaymentDialog invoice={inv} balanceDue={inv.balance} defaultMethod={inv.lastPaymentMethod} />
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      <InvoiceDialog invoiceId={openId} open={openId != null} onOpenChange={(o) => { if (!o) setOpenId(null); }} />
+    </div>
+  );
+}
+
+const SKIP_REASON: Record<string, string> = {
+  no_email: 'no email on file',
+  do_not_email: 'marked do not email',
+  not_verified: 'not verified yet',
+  void: 'void',
+  already_sent: 'already emailed',
+};
+
+// ---------------------------------------------------------- payments ----
+
+function PaymentsTab({ search, clientId }: { search: string; clientId: number | null }) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [method, setMethod] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [unappliedOnly, setUnappliedOnly] = useState(false);
+
+  const params = {
+    ...(search ? { search } : {}),
+    ...(method ? { method: method as ListPaymentsMethod } : {}),
+    ...(from ? { from } : {}),
+    ...(to ? { to } : {}),
+    ...(unappliedOnly ? { unapplied: true } : {}),
+    ...(clientId != null ? { clientId } : {}),
+  };
+  const { data: payments, isLoading } = useListPayments(params, { query: { queryKey: ['/api/payments', params] } });
+  const deletePayment = useDeletePayment();
+  const rows = payments ?? [];
+  const total = rows.reduce((s, p) => s + p.amount, 0);
+
+  // Credit on account, by customer: the "unapplied / prepaid / overpaid" list.
+  const credits = useMemo(() => {
+    const map = new Map<number, { clientId: number; clientName: string; count: number; total: number; oldest: string; payments: Payment[] }>();
+    for (const p of rows) {
+      if (p.invoiceId != null) continue;
+      const entry = map.get(p.clientId) ?? { clientId: p.clientId, clientName: p.clientName ?? `Customer #${p.clientId}`, count: 0, total: 0, oldest: p.createdAt, payments: [] };
+      entry.count += 1;
+      entry.total = Math.round((entry.total + p.amount) * 100) / 100;
+      if (p.createdAt < entry.oldest) entry.oldest = p.createdAt;
+      entry.payments.push(p);
+      map.set(p.clientId, entry);
+    }
+    return [...map.values()].sort((a, b) => b.total - a.total);
+  }, [rows]);
+
+  const remove = (p: Payment) => {
+    if (!window.confirm(`Delete the ${money(p.amount)} payment from ${p.clientName ?? 'this customer'}?${p.invoiceId ? ` Invoice #${p.invoiceNumber} will be owed again.` : ''}`)) return;
+    deletePayment.mutate(
+      { id: p.id },
+      {
+        onSuccess: () => { invalidateBilling(queryClient, p.clientId, p.invoiceId); toast({ title: 'Payment deleted' }); },
+        onError: (error) => toast({ title: 'Could not delete the payment', description: errorText(error), variant: 'destructive' }),
+      },
+    );
+  };
+
+  const exportCsv = () =>
+    downloadCsv(
+      `payments-${officeDay(new Date().toISOString())}.csv`,
+      ['Date', 'Customer', 'Method', 'Reference', 'Invoice #', 'Amount', 'Applied', 'Notes'],
+      rows.map((p) => [
+        // The day he took it, on his clock — an evening payment used to export
+        // dated the next day and would not match his deposit.
+        officeDay(p.createdAt),
+        p.clientName ?? '',
+        methodLabel(p.method),
+        p.reference ?? '',
+        p.invoiceNumber ?? '',
+        p.amount.toFixed(2),
+        p.invoiceId != null ? 'yes' : 'credit on account',
+        p.notes ?? '',
+      ]),
+    );
+
+  return (
+    <div className="space-y-3 flex-1 flex flex-col">
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">Method</label>
+          <select className="h-9 rounded-md border border-input bg-background px-2 text-sm" value={method} onChange={(e) => setMethod(e.target.value)}>
+            <option value="">Any</option>
+            {PAYMENT_METHODS.map((m) => (
+              <option key={m} value={m}>{methodLabel(m)}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">From</label>
+          <Input type="date" className="h-9" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">To</label>
+          <Input type="date" className="h-9" value={to} onChange={(e) => setTo(e.target.value)} />
+        </div>
+        <label className="flex items-center gap-2 text-sm h-9 cursor-pointer">
+          <Checkbox checked={unappliedOnly} onCheckedChange={(v) => setUnappliedOnly(Boolean(v))} />
+          Credit on account only (unapplied, prepaid, overpaid)
+        </label>
+        <div className="ml-auto flex items-center gap-3 text-sm text-muted-foreground">
+          <span>
+            {rows.length} payment{rows.length === 1 ? '' : 's'} · {money(total)}
+          </span>
+          <Button size="sm" variant="outline" className="h-9" onClick={exportCsv} disabled={rows.length === 0}>
+            <Download className="w-3.5 h-3.5 mr-1.5" /> CSV
+          </Button>
+        </div>
+      </div>
+
+      {unappliedOnly && credits.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {credits.map((c) => (
+            <div key={c.clientId} className="rounded-lg border bg-card p-3 flex items-center justify-between gap-3">
+              <div>
+                <div className="font-semibold">{c.clientName}</div>
+                <div className="text-xs text-muted-foreground">
+                  {c.count} credit{c.count === 1 ? '' : 's'} · oldest {dayLabel(c.oldest)}
+                </div>
+                <div className="text-lg font-bold text-primary">{money(c.total)}</div>
+              </div>
+              <ApplyPaymentToInvoiceDialog
+                payment={c.payments[0]}
+                trigger={<Button size="sm">Apply {money(c.payments[0].amount)}</Button>}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="bg-card border rounded-lg shadow-sm flex-1 overflow-auto">
+        <Table>
+          <TableHeader className="bg-muted/50">
+            <TableRow>
+              <TableHead>Date</TableHead>
+              <TableHead>Customer</TableHead>
+              <TableHead>Method</TableHead>
+              <TableHead>Reference</TableHead>
+              <TableHead>Invoice</TableHead>
+              <TableHead className="text-right">Amount</TableHead>
+              <TableHead className="w-44"></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              <TableRow><TableCell colSpan={7} className="text-center py-6 text-muted-foreground">Loading…</TableCell></TableRow>
+            ) : rows.length === 0 ? (
+              <TableRow><TableCell colSpan={7} className="text-center py-6 text-muted-foreground">No payments match.</TableCell></TableRow>
+            ) : (
+              rows.map((p) => (
+                <TableRow key={p.id}>
+                  <TableCell className="whitespace-nowrap">{dayLabel(p.createdAt)}</TableCell>
+                  <TableCell className="font-medium">{p.clientName ?? `Customer #${p.clientId}`}</TableCell>
+                  <TableCell>{methodLabel(p.method)}</TableCell>
+                  <TableCell className="text-muted-foreground">{p.reference || '—'}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {p.invoiceId != null ? `#${p.invoiceNumber ?? p.invoiceId}` : <span className="text-primary text-xs font-semibold">Credit on account</span>}
+                  </TableCell>
+                  <TableCell className="text-right font-bold text-primary tabular-nums">{money(p.amount)}</TableCell>
+                  <TableCell className="text-right whitespace-nowrap space-x-1">
+                    {p.invoiceId == null && <ApplyPaymentToInvoiceDialog payment={p} />}
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => remove(p)} aria-label="Delete payment">
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------- new invoice ----
+
+type DraftLine = { description: string; serviceDate: string; quantity: string; unitPrice: string };
 const emptyLine = (): DraftLine => ({ description: '', serviceDate: '', quantity: '1', unitPrice: '' });
 
 function NewInvoiceDialog() {
@@ -131,11 +598,11 @@ function NewInvoiceDialog() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const selectedClient = clients?.find(c => String(c.id) === clientId);
+  const selectedClient = clients?.find((c) => String(c.id) === clientId);
 
   const parsedLines = lines
-    .filter(line => line.description.trim())
-    .map(line => ({
+    .filter((line) => line.description.trim())
+    .map((line) => ({
       description: line.description.trim(),
       serviceDate: line.serviceDate || null,
       quantity: parseFloat(line.quantity) || 0,
@@ -144,13 +611,10 @@ function NewInvoiceDialog() {
 
   // Shown live so the office sees the same number the customer will, before
   // committing. Rounded per line to match how the server stores them.
-  const total = parsedLines.reduce(
-    (sum, line) => sum + Math.round(line.quantity * line.unitPrice * 100) / 100,
-    0,
-  );
+  const total = parsedLines.reduce((sum, line) => sum + Math.round(line.quantity * line.unitPrice * 100) / 100, 0);
 
   const updateLine = (index: number, patch: Partial<DraftLine>) =>
-    setLines(prev => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)));
+    setLines((prev) => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)));
 
   const reset = () => {
     setClientId('');
@@ -160,67 +624,65 @@ function NewInvoiceDialog() {
   };
 
   const handleSave = () => {
-    createInvoice.mutate({
-      data: {
-        clientId: parseInt(clientId),
-        lines: parsedLines,
-        ...(poNumber.trim() && { poNumber: poNumber.trim() }),
-        ...(notes && { notes }),
-      }
-    }, {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ['/api/invoices'] });
-        queryClient.invalidateQueries({ queryKey: [`/api/clients`] });
-        toast({ title: "Invoice created successfully" });
-        setOpen(false);
-        reset();
+    createInvoice.mutate(
+      {
+        data: {
+          clientId: parseInt(clientId),
+          lines: parsedLines,
+          ...(poNumber.trim() && { poNumber: poNumber.trim() }),
+          ...(notes && { notes }),
+        },
       },
-      onError: (error: any) => {
-        toast({
-          title: 'Could not create the invoice',
-          description: error?.message ?? 'Please try again.',
-          variant: 'destructive',
-        });
+      {
+        onSuccess: (inv) => {
+          invalidateBilling(queryClient, inv.clientId);
+          toast({ title: `Invoice #${inv.number} created`, description: `It is in the ${inv.deliveryMethod === 'print' ? 'To print' : 'To email'} queue.` });
+          setOpen(false);
+          reset();
+        },
+        onError: (error) => toast({ title: 'Could not create the invoice', description: errorText(error), variant: 'destructive' }),
       },
-    });
+    );
   };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button className="h-10 bg-primary text-primary-foreground font-semibold shadow-sm px-4">
-          <Plus className="w-4 h-4 mr-2" /> New Invoice
+          <Plus className="w-4 h-4 mr-2" /> New invoice
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Create Manual Invoice</DialogTitle>
+          <DialogTitle>New invoice</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-4 max-h-[65vh] overflow-y-auto pr-1">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="text-sm font-medium mb-1 block">Client *</label>
-              <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={clientId} onChange={e => setClientId(e.target.value)}>
-                <option value="">Select client...</option>
-                {clients?.map(c => <option key={c.id} value={c.id}>{c.name} - {c.serviceAddress}, {c.city}</option>)}
+              <label className="text-sm font-medium mb-1 block">Customer *</label>
+              <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={clientId} onChange={(e) => setClientId(e.target.value)}>
+                <option value="">Pick a customer…</option>
+                {clients?.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} - {c.serviceAddress}, {c.city}
+                  </option>
+                ))}
               </select>
               {/* Terms are not editable here: they come from the account and are
                   snapshotted at issue. Showing which ones will apply prevents an
                   invoice going out on terms the office did not expect. */}
-              {selectedClient?.billingTerms && (
-                <p className="text-xs text-muted-foreground mt-1">Terms: {selectedClient.billingTerms}</p>
-              )}
+              {selectedClient?.billingTerms && <p className="text-xs text-muted-foreground mt-1">Terms: {selectedClient.billingTerms}</p>}
             </div>
             <div>
-              <label className="text-sm font-medium mb-1 block">PO Number (Optional)</label>
-              <Input value={poNumber} onChange={e => setPoNumber(e.target.value)} placeholder="Customer's reference" />
+              <label className="text-sm font-medium mb-1 block">PO number (optional)</label>
+              <Input value={poNumber} onChange={(e) => setPoNumber(e.target.value)} placeholder="Customer's reference" />
             </div>
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium">Line Items *</label>
-              <Button size="sm" variant="outline" className="h-8" onClick={() => setLines(prev => [...prev, emptyLine()])}>
+              <label className="text-sm font-medium">Lines *</label>
+              <Button size="sm" variant="outline" className="h-8" onClick={() => setLines((prev) => [...prev, emptyLine()])}>
                 <Plus className="w-3.5 h-3.5 mr-1.5" /> Add line
               </Button>
             </div>
@@ -234,33 +696,10 @@ function NewInvoiceDialog() {
               </div>
               {lines.map((line, index) => (
                 <div key={index} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
-                  <Input
-                    className="sm:col-span-5"
-                    value={line.description}
-                    onChange={e => updateLine(index, { description: e.target.value })}
-                    placeholder="Mowing — 8/12, 8/19, 8/26"
-                  />
-                  <Input
-                    type="date"
-                    className="sm:col-span-3"
-                    value={line.serviceDate}
-                    onChange={e => updateLine(index, { serviceDate: e.target.value })}
-                  />
-                  <Input
-                    type="number"
-                    step="0.01"
-                    className="sm:col-span-1 text-right"
-                    value={line.quantity}
-                    onChange={e => updateLine(index, { quantity: e.target.value })}
-                  />
-                  <Input
-                    type="number"
-                    step="0.01"
-                    className="sm:col-span-2 text-right"
-                    value={line.unitPrice}
-                    onChange={e => updateLine(index, { unitPrice: e.target.value })}
-                    placeholder="0.00"
-                  />
+                  <Input className="sm:col-span-5" value={line.description} onChange={(e) => updateLine(index, { description: e.target.value })} placeholder="Mowing — 8/12, 8/19, 8/26" />
+                  <Input type="date" className="sm:col-span-3" value={line.serviceDate} onChange={(e) => updateLine(index, { serviceDate: e.target.value })} />
+                  <Input type="number" step="0.01" className="sm:col-span-1 text-right" value={line.quantity} onChange={(e) => updateLine(index, { quantity: e.target.value })} />
+                  <Input type="number" step="0.01" className="sm:col-span-2 text-right" value={line.unitPrice} onChange={(e) => updateLine(index, { unitPrice: e.target.value })} placeholder="0.00" />
                   <div className="sm:col-span-1 flex justify-end">
                     <Button
                       size="sm"
@@ -268,7 +707,7 @@ function NewInvoiceDialog() {
                       className="h-8 w-8 p-0 text-muted-foreground"
                       // Never leave zero rows: an empty editor gives the office
                       // nothing to click and no way back to a usable form.
-                      onClick={() => setLines(prev => (prev.length === 1 ? [emptyLine()] : prev.filter((_, i) => i !== index)))}
+                      onClick={() => setLines((prev) => (prev.length === 1 ? [emptyLine()] : prev.filter((_, i) => i !== index)))}
                       aria-label="Remove line"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -279,402 +718,25 @@ function NewInvoiceDialog() {
             </div>
             <div className="flex justify-end mt-3 text-sm">
               <span className="text-muted-foreground mr-3">Invoice total</span>
-              <span className="font-bold">${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+              <span className="font-bold">{money(total)}</span>
             </div>
           </div>
 
           <div>
-            <label className="text-sm font-medium mb-1 block">Notes (Optional)</label>
-            <textarea className="flex min-h-[70px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes..." />
+            <label className="text-sm font-medium mb-1 block">Note to the customer (optional)</label>
+            <textarea className="flex min-h-[70px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Prints on the bill" />
           </div>
+          <p className="text-xs text-muted-foreground">
+            A bill you type yourself is already checked, so it goes straight to the email or print queue.
+          </p>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
           <Button onClick={handleSave} disabled={createInvoice.isPending || !clientId || parsedLines.length === 0 || total <= 0}>
-            Create Invoice
+            Create invoice
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function InvoiceRow({ invoice }: { invoice: any }) {
-  const statusColors = {
-    open: "bg-destructive/10 text-destructive border-destructive/20",
-    partial: "bg-accent/20 text-accent-foreground border-accent/30",
-    paid: "bg-primary/10 text-primary border-primary/20",
-    void: "bg-muted text-muted-foreground",
-  };
-
-  const updateInvoice = useUpdateInvoice();
-  const queryClient = useQueryClient();
-  const { data: clients } = useListClients();
-  const client = clients?.find(c => c.id === invoice.clientId);
-  const unappliedCredit = client?.unappliedCredit ?? 0;
-
-  const handleUpdate = () => {
-    // Void sits one button away from Pay, cancels a real bill, and cannot be
-    // undone from this screen — a voided invoice renders with no actions at
-    // all, so there is no way back short of the database. Send and
-    // delete-payment both confirm; this was the one destructive control that
-    // fired on a single click.
-    const amount = `$${(invoice.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
-    const paid = (invoice.amountPaid || 0) > 0
-      ? ` The $${(invoice.amountPaid).toLocaleString(undefined, { minimumFractionDigits: 2 })} already paid stays on the account as credit.`
-      : '';
-    const message =
-      `Void invoice #${invoice.number ?? invoice.id} for ${invoice.clientName} (${amount})?\n\n` +
-      `The customer will no longer owe it, and this cannot be undone here.${paid}`;
-    if (!window.confirm(message)) return;
-
-    updateInvoice.mutate({ id: invoice.id, data: { status: 'void' } }, {
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/invoices'] })
-    });
-  };
-
-  // satisfies useGetInvoice requirement
-  const _ = useGetInvoice(1, { query: { enabled: false, queryKey: ['/api/invoices', 1] } });
-
-  // Server-computed and floored at zero. Subtracting here instead showed an
-  // overpaid invoice as a negative "Balance Due", which reads as the company
-  // owing the customer — the overpayment is credit on the account, and that is
-  // what the credit line above says.
-  // The fallback mirrors the server's rule, void included, so an older cached
-  // response cannot resurrect the red total on a voided invoice.
-  const balanceDue =
-    invoice.balance ??
-    (invoice.status === 'void' ? 0 : Math.max(0, (invoice.total || 0) - (invoice.amountPaid || 0)));
-
-  return (
-    <TableRow className="hover:bg-muted/50">
-      <TableCell className="font-mono text-sm text-muted-foreground">
-        #{invoice.number ?? invoice.id}
-        {/* The office reconciles against a bank statement that shows only the
-            terms the customer agreed to, so terms belong on the row, not buried
-            in a detail view nobody opens during that job. */}
-        {invoice.terms && <div className="text-xs">{invoice.terms}</div>}
-      </TableCell>
-      <TableCell className="font-medium text-foreground">
-        <div>{invoice.clientName}</div>
-        {/* Only where the credit is actionable. Repeating it on paid and void rows
-            is noise, and it reads as though the credit belongs to that invoice. */}
-        {unappliedCredit > 0 && balanceDue > 0 && invoice.status !== 'void' && (
-          <div className="text-xs font-normal text-primary">
-            ${unappliedCredit.toLocaleString(undefined, { minimumFractionDigits: 2 })} credit on account
-          </div>
-        )}
-      </TableCell>
-      <TableCell className="text-muted-foreground">{invoice.createdAt ? format(new Date(invoice.createdAt), 'MMM d, yyyy') : '-'}</TableCell>
-      <TableCell>
-        <span className={`px-2.5 py-1 text-xs font-semibold rounded-full border ${statusColors[invoice.status as keyof typeof statusColors] || statusColors.open}`}>
-          {invoice.status.toUpperCase()}
-        </span>
-      </TableCell>
-      <TableCell className="text-right font-semibold">
-        ${(invoice.total || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}
-      </TableCell>
-      <TableCell className={`text-right font-bold ${balanceDue > 0 ? 'text-destructive' : 'text-primary'}`}>
-        ${balanceDue.toLocaleString(undefined, {minimumFractionDigits: 2})}
-      </TableCell>
-      <TableCell className="text-right space-x-2">
-        {invoice.status !== 'void' && <InvoiceSendControls invoice={invoice} />}
-        {invoice.status !== 'paid' && invoice.status !== 'void' && (
-          <>
-            {unappliedCredit > 0 && <ApplyCreditDialog invoice={invoice} balanceDue={balanceDue} />}
-            <RecordPaymentDialog invoice={invoice} balanceDue={balanceDue} />
-          </>
-        )}
-        {invoice.status !== 'void' && (
-          <Button size="sm" variant="ghost" className="h-8 text-muted-foreground" onClick={handleUpdate}>Void</Button>
-        )}
-      </TableCell>
-    </TableRow>
-  );
-}
-
-/**
- * Preview and send one invoice.
- *
- * Preview sits next to Send deliberately: the PDF is what the customer receives,
- * and the only way to be sure of that is to look at the same file before it goes.
- */
-function InvoiceSendControls({ invoice }: { invoice: any }) {
-  const sendInvoice = useSendInvoice();
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-
-  const handleSend = () => {
-    // An invoice cannot be unsent, and a second copy to a customer who already
-    // paid is the kind of mistake that costs a phone call.
-    const already = invoice.sentAt
-      ? `This invoice was already emailed on ${format(new Date(invoice.sentAt), 'MMM d, yyyy')}. Send it again?`
-      : `Email invoice #${invoice.number ?? invoice.id} to ${invoice.clientName}?`;
-    if (!window.confirm(already)) return;
-
-    sendInvoice.mutate({ id: invoice.id, data: {} }, {
-      onSuccess: (result: any) => {
-        queryClient.invalidateQueries({ queryKey: ['/api/invoices'] });
-        toast({ title: `Invoice emailed to ${result?.toEmail ?? 'the customer'}` });
-      },
-      onError: (error: any) => {
-        toast({
-          title: 'Could not send the invoice',
-          description: error?.message ?? 'Please try again.',
-          variant: 'destructive',
-        });
-      },
-    });
-  };
-
-  return (
-    <>
-      <Button
-        size="sm"
-        variant="ghost"
-        className="h-8 text-muted-foreground"
-        onClick={() => window.open(`/api/invoices/${invoice.id}/pdf`, '_blank', 'noopener,noreferrer')}
-      >
-        <FileText className="w-3.5 h-3.5 mr-1.5" /> PDF
-      </Button>
-      <Button size="sm" variant="ghost" className="h-8" onClick={handleSend} disabled={sendInvoice.isPending}>
-        <Send className="w-3.5 h-3.5 mr-1.5" />
-        {sendInvoice.isPending ? 'Sending…' : invoice.sentAt ? 'Resend' : 'Send'}
-      </Button>
-    </>
-  );
-}
-
-function RecordPaymentDialog({ invoice, balanceDue }: { invoice: any, balanceDue: number }) {
-  const [open, setOpen] = useState(false);
-  const [amount, setAmount] = useState(balanceDue.toString());
-  const [method, setMethod] = useState('credit_card');
-  const [reference, setReference] = useState('');
-  
-  const createPayment = useCreatePayment();
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-
-  const handleSave = () => {
-    const paymentAmount = Math.round(parseFloat(amount) * 100) / 100;
-    const roundedBalance = Math.round(balanceDue * 100) / 100;
-    if (paymentAmount > roundedBalance) {
-      const credit = paymentAmount - roundedBalance;
-      const confirmed = window.confirm(
-        `This payment is $${credit.toFixed(2)} more than the invoice balance. ` +
-        `The invoice will be paid in full and the remaining $${credit.toFixed(2)} will be kept as credit on the client's account. Continue?`
-      );
-      if (!confirmed) return;
-    }
-    createPayment.mutate({
-      data: {
-        clientId: invoice.clientId,
-        invoiceId: invoice.id,
-        amount: paymentAmount,
-        method: method as any,
-        reference
-      }
-    }, {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ['/api/invoices'] });
-        queryClient.invalidateQueries({ queryKey: [`/api/clients/${invoice.clientId}`] });
-        queryClient.invalidateQueries({ queryKey: ['/api/payments'] });
-        queryClient.invalidateQueries({ queryKey: ['/api/clients'] });
-        toast({ title: "Payment recorded successfully" });
-        setOpen(false);
-      },
-      onError: (error: any) => {
-        toast({
-          title: "Could not record payment",
-          description: error?.message ?? "Please try again.",
-          variant: "destructive",
-        });
-      }
-    });
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm" variant="outline" className="h-8 border-primary/30 text-primary hover:bg-primary/10">Pay</Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Record Payment</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4 py-4">
-          <div className="bg-muted p-3 rounded-md mb-4 flex justify-between items-center">
-            <span className="font-semibold text-foreground">{invoice.clientName}</span>
-            <span className="text-destructive font-bold">Due: ${balanceDue.toLocaleString(undefined, {minimumFractionDigits:2})}</span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium mb-1 block">Amount ($)</label>
-              <Input type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} />
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1 block">Method</label>
-              <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={method} onChange={e => setMethod(e.target.value)}>
-                <option value="credit_card">Credit Card</option>
-                <option value="check">Check</option>
-                <option value="venmo">Venmo</option>
-                <option value="zelle">Zelle</option>
-                <option value="cash">Cash</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-          </div>
-          <div>
-            <label className="text-sm font-medium mb-1 block">Reference / Check #</label>
-            <Input value={reference} onChange={e => setReference(e.target.value)} placeholder="Optional" />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button onClick={handleSave} disabled={createPayment.isPending || !amount || parseFloat(amount) <= 0}>
-            {createPayment.isPending ? "Recording..." : "Record Payment"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function ApplyCreditDialog({ invoice, balanceDue }: { invoice: any, balanceDue: number }) {
-  const [open, setOpen] = useState(false);
-  const { data: credits, isLoading, isError } = useListPayments(
-    { clientId: invoice.clientId, unapplied: true },
-    { query: { enabled: open, queryKey: ['/api/payments', { clientId: invoice.clientId, unapplied: true }] } },
-  );
-  const applyPayment = useApplyPayment();
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-
-  const applyCredit = (payment: NonNullable<typeof credits>[number]) => {
-    const amount = Math.min(payment.amount, balanceDue);
-    applyPayment.mutate(
-      { id: payment.id, data: { invoiceId: invoice.id } },
-      {
-        onSuccess: result => {
-          queryClient.invalidateQueries({ queryKey: ['/api/invoices'] });
-          queryClient.invalidateQueries({ queryKey: ['/api/payments'] });
-          queryClient.invalidateQueries({ queryKey: ['/api/clients'] });
-          toast({
-            title: "Credit applied successfully",
-            description: `$${result.appliedAmount.toFixed(2)} applied to this invoice${
-              result.remainingCredit > 0 ? `; $${result.remainingCredit.toFixed(2)} remains on the account.` : "."
-            }`,
-          });
-          setOpen(false);
-        },
-        onError: (error: any) => {
-          toast({
-            title: "Could not apply credit",
-            description: error?.message ?? "The credit may have already been applied. Refresh and try again.",
-            variant: "destructive",
-          });
-        },
-      },
-    );
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm" variant="outline" className="h-8">Apply Credit</Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Apply Account Credit</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3 py-4">
-          <p className="text-sm text-muted-foreground">
-            Choose a credit to apply to the ${balanceDue.toFixed(2)} invoice balance. Any credit beyond the balance will remain on the account.
-          </p>
-          {isLoading ? (
-            <div className="py-4 text-center text-sm text-muted-foreground">Loading available credit...</div>
-          ) : isError ? (
-            <div className="py-4 text-center text-sm text-destructive">Could not load available credit.</div>
-          ) : !credits?.length ? (
-            <div className="py-4 text-center text-sm text-muted-foreground">No unapplied credit is available.</div>
-          ) : (
-            credits.map(payment => (
-              <div key={payment.id} className="flex items-center justify-between rounded-md border p-3">
-                <div>
-                  <div className="font-semibold">${payment.amount.toFixed(2)}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {format(new Date(payment.createdAt), 'MMM d, yyyy')} · {payment.method.replace('_', ' ')}
-                  </div>
-                </div>
-                <Button
-                  size="sm"
-                  onClick={() => applyCredit(payment)}
-                  disabled={applyPayment.isPending}
-                >
-                  {applyPayment.isPending ? "Applying..." : `Apply $${Math.min(payment.amount, balanceDue).toFixed(2)}`}
-                </Button>
-              </div>
-            ))
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function PaymentHistory() {
-  const { data: payments, isLoading } = useListPayments();
-  const deletePayment = useDeletePayment();
-  const queryClient = useQueryClient();
-
-  return (
-    <div className="bg-card border rounded-lg shadow-sm flex-1 overflow-auto">
-      <Table>
-        <TableHeader className="bg-muted/50">
-          <TableRow>
-            <TableHead>Date</TableHead>
-            <TableHead>Method</TableHead>
-            <TableHead>Reference</TableHead>
-            <TableHead className="text-right">Amount</TableHead>
-            <TableHead className="w-16"></TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {isLoading ? (
-            <TableRow><TableCell colSpan={5} className="text-center py-4">Loading...</TableCell></TableRow>
-          ) : !payments?.length ? (
-            <TableRow><TableCell colSpan={5} className="text-center py-4">No payments found.</TableCell></TableRow>
-          ) : (
-            payments.map(p => (
-              <TableRow key={p.id}>
-                <TableCell>{format(new Date(p.createdAt), 'MMM d, yyyy')}</TableCell>
-                <TableCell className="capitalize font-medium">{p.method.replace('_', ' ')}</TableCell>
-                <TableCell className="text-muted-foreground">{p.reference || '-'}</TableCell>
-                <TableCell className="text-right font-bold text-primary">
-                  ${p.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}
-                  {p.invoiceId == null && <div className="text-xs font-normal">Unapplied credit</div>}
-                </TableCell>
-                <TableCell className="text-right">
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => {
-                    if(confirm('Delete payment? This will update the invoice balance.')) {
-                      deletePayment.mutate({ id: p.id }, { onSuccess: () => {
-                        queryClient.invalidateQueries({ queryKey: ['/api/payments'] });
-                        queryClient.invalidateQueries({ queryKey: ['/api/invoices'] });
-                      }});
-                    }
-                  }}>
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
-    </div>
   );
 }

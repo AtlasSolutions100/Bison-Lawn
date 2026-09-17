@@ -384,12 +384,14 @@ test("a package supplies the schedule type when the request omits it", async () 
 });
 
 test("an explicit value in the request beats the package default", async () => {
-  const res = await assignService({ packageId: windowPackage.id, startDate: "2026-07-15" });
+  // Inside the package's window: a start after the inherited end is now refused
+  // (a window that ends before it starts never shows on the waiting list).
+  const res = await assignService({ packageId: windowPackage.id, startDate: "2026-05-15" });
   assert.equal(res.status, 201, JSON.stringify(res.body));
   const [row] = await db
     .select()
     .from(clientServicesTable)
     .where(eq(clientServicesTable.id, res.body[0].id));
-  assert.equal(row.startDate, "2026-07-15");
+  assert.equal(row.startDate, "2026-05-15");
   assert.equal(row.scheduleType, "window", "unspecified fields still come from the package");
 });

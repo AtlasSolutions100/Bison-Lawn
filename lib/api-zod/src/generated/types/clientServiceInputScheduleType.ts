@@ -16,4 +16,5 @@ export const ClientServiceInputScheduleType = {
   window: 'window',
   recurring: 'recurring',
   one_time: 'one_time',
+  contract: 'contract',
 } as const;

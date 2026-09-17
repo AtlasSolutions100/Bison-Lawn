@@ -5,12 +5,14 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+import type { DocumentTemplateCategory } from './documentTemplateCategory';
 import type { DocumentTemplateUpdateKind } from './documentTemplateUpdateKind';
 
 export interface DocumentTemplateUpdate {
   /** @minLength 1 */
   name?: string;
   kind?: DocumentTemplateUpdateKind;
+  category?: DocumentTemplateCategory;
   /** @nullable */
   serviceId?: number | null;
   /** @nullable */

@@ -14,6 +14,11 @@ export interface Payment {
   clientName?: string | null;
   /** @nullable */
   invoiceId?: number | null;
+  /**
+     * The number of the invoice it is applied to, for the payments list
+     * @nullable
+     */
+  invoiceNumber?: number | null;
   /** @nullable */
   jobId?: number | null;
   amount: number;

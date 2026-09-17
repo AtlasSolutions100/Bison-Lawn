@@ -11,6 +11,22 @@ import {
   resolveAccountForClerkId,
 } from "../lib/userAccounts";
 
+// Per-area access lives in lib/access.ts; re-exported so routers keep one
+// import line for "who may do this".
+export { requireArea } from "../lib/access";
+
+/**
+ * A person Adam turned off keeps their history (jobs, notes, photos still
+ * say who did them) but cannot use the app until he turns them back on. The
+ * check is here, not per router, so a deactivated login is shut out of the
+ * phone app and the office screens alike.
+ */
+function refuseInactive(user: User, res: Response): boolean {
+  if (user.active) return false;
+  res.status(403).json({ error: "This account has been turned off. Ask the office to turn it back on." });
+  return true;
+}
+
 export type ClerkIdentity = {
   name: string;
   email: string | null;
@@ -113,6 +129,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
         .from(usersTable)
         .where(eq(usersTable.id, Number(testUserId)));
       if (!testUser) return res.status(401).json({ error: "Unauthorized" });
+      if (refuseInactive(testUser, res)) return;
       req.appUser = testUser;
       return next();
     }
@@ -168,6 +185,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     if (!user) {
       return res.status(500).json({ error: "Unable to provision local user" });
     }
+    if (refuseInactive(user, res)) return;
 
     req.appUser = user;
     return next();

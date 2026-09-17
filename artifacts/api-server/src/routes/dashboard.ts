@@ -9,9 +9,14 @@ import {
   auditEventsTable,
   usersTable,
   suggestedActionsTable,
+  estimatesTable,
+  webRequestsTable,
+  emailSendsTable,
 } from "@workspace/db";
-import { and, count, desc, eq, gte, inArray, ne, sum } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, ne, sql, sum } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
+import { todayISO } from "../lib/invoiceNumbers";
+import { shownName } from "../lib/userAccounts";
 
 const router: IRouter = Router();
 
@@ -102,12 +107,123 @@ router.get("/dashboard/contractor-earnings", async (req, res) => {
   return res.json(
     [...byUser.entries()].map(([contractorId, e]) => ({
       contractorId,
-      contractorName: users.find((u) => u.id === contractorId)?.name ?? "Unknown",
+      contractorName: (() => {
+        const u = users.find((x) => x.id === contractorId);
+        return u ? shownName(u) : "Unknown";
+      })(),
       jobCount: e.jobCount,
       totalAmount: Math.round(e.totalAmount * 100) / 100,
       completedCount: e.completedCount,
     })),
   );
+});
+
+/**
+ * 2026-09-15 walkthrough: the alerts he wants on the first screen of the day —
+ * estimates accepted, invoices that went out today, new website requests, and
+ * emails that did not send. Each carries the last few rows and a count, so the
+ * panel can say "3 estimates accepted" and name them without another trip.
+ * A week back for the "recent" ones: older than that and it is history, not an
+ * alert. Nothing here is marked read; the panel is a glance, not an inbox.
+ */
+router.get("/dashboard/alerts", async (_req, res) => {
+  const today = todayISO();
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  // Timestamps are stored as UTC wall time, so they are read as UTC first and
+  // only then shown on his calendar.
+  const tz = process.env.APP_TIME_ZONE || "America/Los_Angeles";
+  const LIMIT = 8;
+
+  const [estimatesAccepted, [estimatesAcceptedCount], invoicesSent, [invoicesSentCount], webRequests, [webRequestsCount], failedEmails, [failedEmailsCount]] =
+    await Promise.all([
+      db
+        .select({
+          id: estimatesTable.id,
+          clientId: estimatesTable.clientId,
+          clientName: clientsTable.name,
+          total: estimatesTable.total,
+          at: estimatesTable.respondedAt,
+        })
+        .from(estimatesTable)
+        .innerJoin(clientsTable, eq(clientsTable.id, estimatesTable.clientId))
+        .where(and(eq(estimatesTable.status, "accepted"), gte(estimatesTable.respondedAt, weekAgo)))
+        .orderBy(desc(estimatesTable.respondedAt))
+        .limit(LIMIT),
+      db
+        .select({ n: count() })
+        .from(estimatesTable)
+        .where(and(eq(estimatesTable.status, "accepted"), gte(estimatesTable.respondedAt, weekAgo))),
+      db
+        .select({
+          id: invoicesTable.id,
+          number: invoicesTable.number,
+          clientId: invoicesTable.clientId,
+          clientName: clientsTable.name,
+          total: invoicesTable.total,
+          at: invoicesTable.sentAt,
+        })
+        .from(invoicesTable)
+        .innerJoin(clientsTable, eq(clientsTable.id, invoicesTable.clientId))
+        .where(sql`to_char((${invoicesTable.sentAt} at time zone 'UTC') at time zone ${tz}, 'YYYY-MM-DD') = ${today}`)
+        .orderBy(desc(invoicesTable.sentAt))
+        .limit(LIMIT),
+      db
+        .select({ n: count() })
+        .from(invoicesTable)
+        .where(sql`to_char((${invoicesTable.sentAt} at time zone 'UTC') at time zone ${tz}, 'YYYY-MM-DD') = ${today}`),
+      db
+        .select({
+          id: webRequestsTable.id,
+          name: webRequestsTable.name,
+          address: webRequestsTable.address,
+          message: webRequestsTable.message,
+          at: webRequestsTable.createdAt,
+        })
+        .from(webRequestsTable)
+        .where(eq(webRequestsTable.status, "new"))
+        .orderBy(desc(webRequestsTable.createdAt))
+        .limit(LIMIT),
+      db.select({ n: count() }).from(webRequestsTable).where(eq(webRequestsTable.status, "new")),
+      db
+        .select({
+          id: emailSendsTable.id,
+          clientId: emailSendsTable.clientId,
+          clientName: clientsTable.name,
+          toEmail: emailSendsTable.toEmail,
+          subject: emailSendsTable.subject,
+          error: emailSendsTable.error,
+          at: emailSendsTable.createdAt,
+        })
+        .from(emailSendsTable)
+        .leftJoin(clientsTable, eq(clientsTable.id, emailSendsTable.clientId))
+        .where(and(eq(emailSendsTable.status, "failed"), gte(emailSendsTable.createdAt, weekAgo)))
+        .orderBy(desc(emailSendsTable.createdAt))
+        .limit(LIMIT),
+      db
+        .select({ n: count() })
+        .from(emailSendsTable)
+        .where(and(eq(emailSendsTable.status, "failed"), gte(emailSendsTable.createdAt, weekAgo))),
+    ]);
+
+  const iso = (d: Date | null) => (d ? d.toISOString() : null);
+  return res.json({
+    estimatesAccepted: {
+      count: estimatesAcceptedCount.n,
+      items: estimatesAccepted.map((e) => ({ ...e, at: iso(e.at) })),
+    },
+    invoicesSentToday: {
+      count: invoicesSentCount.n,
+      items: invoicesSent.map((i) => ({ ...i, number: i.number ?? i.id, at: iso(i.at) })),
+    },
+    webRequests: {
+      count: webRequestsCount.n,
+      items: webRequests.map((w) => ({ ...w, at: iso(w.at) })),
+    },
+    failedEmails: {
+      count: failedEmailsCount.n,
+      items: failedEmails.map((f) => ({ ...f, at: iso(f.at) })),
+    },
+  });
 });
 
 export default router;

@@ -14,6 +14,14 @@ export interface Invoice {
   /** @nullable */
   clientName?: string | null;
   /** @nullable */
+  clientAddress?: string | null;
+  /**
+     * Where an emailed invoice goes (billing email, else the contact email)
+     * @nullable
+     */
+  clientEmail?: string | null;
+  clientDoNotEmail?: boolean;
+  /** @nullable */
   jobId?: number | null;
   /** @nullable */
   serviceName?: string | null;
@@ -22,6 +30,17 @@ export interface Invoice {
   amountPaid: number;
   /** total minus amountPaid, never negative */
   balance: number;
+  /** The customer's account balance on bills that have actually been issued (checked, emailed or printed), so he can see it next to the invoice balance. Bills still waiting to be verified are left out, along with any money taken at the door for them - this is the figure the printed coupon and the emailed bill quote to the customer. */
+  accountBalance: number;
+  /** Credit sitting on the customer's account, not yet applied to any invoice */
+  unappliedCredit?: number;
+  /** Days past the due date (invoice date when due on receipt); 0 when not past due or nothing owed */
+  daysPastDue: number;
+  /**
+     * How this customer last paid, any invoice — his "how they pay" column
+     * @nullable
+     */
+  lastPaymentMethod?: string | null;
   /** @nullable */
   notes?: string | null;
   /** The number the customer sees; falls back to id on legacy rows */
@@ -36,6 +55,19 @@ export interface Invoice {
   poNumber?: string | null;
   /** @nullable */
   sentAt?: string | null;
+  /** @nullable */
+  verifiedAt?: string | null;
+  /** @nullable */
+  verifiedById?: number | null;
+  /** The office has not checked this bill yet (verifiedAt is empty, it is not void, and it has never been emailed or printed). Read this, not the status - a bill paid in full at the door is already "paid" and still needs checking, while one the customer already holds was checked by the act of going out. */
+  needsVerification: boolean;
+  /**
+     * Snapshot of the customer's delivery preference at verify time (email, print, both)
+     * @nullable
+     */
+  deliveryMethod?: string | null;
+  /** @nullable */
+  printedAt?: string | null;
   lines: InvoiceLineItem[];
   createdAt: string;
 }

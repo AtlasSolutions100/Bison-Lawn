@@ -133,13 +133,19 @@ test("bill-to falls back to the service address for an ordinary residential cust
   assert.deepEqual(billToLines(baseClient), ["Koby Stull", "111 Test Dr", "Post Falls, ID 83854"]);
 });
 
-test("Net terms produce a due date; anything else leaves it unset", () => {
+test("every invoice gets a due date: Net terms, due on receipt, or his standard Net 15", () => {
   assert.equal(dueDateFrom("2026-09-02", "Net 15"), "2026-09-17");
   assert.equal(dueDateFrom("2026-09-02", "net30"), "2026-10-02");
   // Crossing a month boundary and a leap day must not drift.
   assert.equal(dueDateFrom("2026-02-20", "Net 15"), "2026-03-07");
-  assert.equal(dueDateFrom("2026-09-02", "Due on receipt"), null);
-  assert.equal(dueDateFrom("2026-09-02", null), null);
+  // The past-due automation counts from the due date, so "Due on receipt"
+  // is due the day it is issued and blank terms fall back to Net 15.
+  assert.equal(dueDateFrom("2026-09-02", "Due on receipt"), "2026-09-02");
+  assert.equal(dueDateFrom("2026-09-02", "due upon receipt"), "2026-09-02");
+  assert.equal(dueDateFrom("2026-09-02", null), "2026-09-17");
+  assert.equal(dueDateFrom("2026-09-02", ""), "2026-09-17");
+  // Terms the parser does not understand still leave it unset rather than guess.
+  assert.equal(dueDateFrom("2026-09-02", "on the 1st"), null);
 });
 
 test("email states the balance, the terms and every line", () => {

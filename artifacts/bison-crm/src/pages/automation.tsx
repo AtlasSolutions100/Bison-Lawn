@@ -28,6 +28,7 @@ import {
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
+import { EmailAutomationsPanel, EmailActivityPanel } from '@/components/automation/email-automations';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
@@ -79,11 +80,15 @@ export default function Automation() {
   return (
     <div className="p-8 max-w-5xl mx-auto space-y-8">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Automation Review</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Automation</h1>
         <p className="text-muted-foreground mt-1">
-          Scheduling rules decide what happens the moment a customer accepts an estimate. Weather rules prepare skip/reschedule actions and draft customer messages — approving applies the schedule change and emails the approved message to the customer.
+          Automated emails send your documents so many days after something happens. Scheduling rules decide what happens the moment a customer accepts an estimate. Weather rules prepare skip/reschedule actions and draft customer messages — approving applies the schedule change and emails the approved message to the customer.
         </p>
       </div>
+
+      <EmailAutomationsPanel />
+
+      <EmailActivityPanel />
 
       <SchedulingRulesPanel />
 

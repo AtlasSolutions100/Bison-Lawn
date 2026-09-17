@@ -40,6 +40,8 @@ const OPEN_ENDED_WINDOW_DAYS = 365;
 
 export type ScheduledFromEstimate = {
   jobId: number;
+  /** Which line of the estimate this job came from, as an index into `lines`. */
+  lineIndex: number;
   serviceId: number;
   serviceName: string;
   ruleId: number;
@@ -171,6 +173,19 @@ async function planRouteFit(
 }
 
 /**
+ * What one visit of a quoted line is worth: the band rate times the quantity.
+ * Lines saved before visits existed have no unit price, and their
+ * calculatedPrice was always the price of the one visit they meant.
+ */
+export function estimateLineVisitAmount(line: EstimateLine): number {
+  // A "0 visits" line is on the quote as a talking point at no charge; a visit
+  // of it is worth nothing, whatever the band rate says.
+  if ((line.visits ?? 1) === 0) return 0;
+  if (line.unitPrice != null) return Math.round(line.unitPrice * (line.quantity ?? 1) * 100) / 100;
+  return line.calculatedPrice ?? 0;
+}
+
+/**
  * Create the jobs an accepted estimate calls for.
  *
  * Callers must only reach this once per acceptance — see the public respond
@@ -181,7 +196,16 @@ async function planRouteFit(
  */
 export async function scheduleAcceptedEstimate(
   estimate: Estimate,
-  options: { clientName?: string | null; acceptedOn?: string } = {},
+  options: {
+    clientName?: string | null;
+    acceptedOn?: string;
+    /**
+     * The assigned service (client_services row) each accepted line became,
+     * by line index, so the job lands under it on the account instead of
+     * floating loose. See lib/estimateAcceptance.ts.
+     */
+    clientServiceIdByLine?: Map<number, number>;
+  } = {},
 ): Promise<ScheduledFromEstimate[]> {
   /*
    * Only what the customer actually ticked.
@@ -200,10 +224,14 @@ export async function scheduleAcceptedEstimate(
   const lines = (estimate.lines as EstimateLine[])
     .map((line, index) => ({ line, index }))
     .filter(({ index }) => accepted === null || accepted.includes(index))
-    .map(({ line }) => line)
     .filter(
-      (line): line is EstimateLine & { serviceId: number } => line.serviceId != null,
-    );
+      (entry): entry is { line: EstimateLine & { serviceId: number }; index: number } =>
+        entry.line.serviceId != null,
+    )
+    // "0 visits" is a talking point priced at nothing, not work that was
+    // bought, so no rule puts it on the board. Same rule as the account side
+    // (acceptedServiceLines in lib/estimateAcceptance.ts).
+    .filter(({ line }) => (line.visits ?? 1) !== 0);
   if (lines.length === 0) return [];
 
   const rules = await db
@@ -218,18 +246,28 @@ export async function scheduleAcceptedEstimate(
   const acceptedOn = options.acceptedOn ?? localDateOf(new Date());
 
   const [client] = await db.select().from(clientsTable).where(eq(clientsTable.id, estimate.clientId));
-  const serviceIds = [...new Set(lines.map((line) => line.serviceId))];
+  const serviceIds = [...new Set(lines.map(({ line }) => line.serviceId))];
   const services = await db
-    .select({ id: servicesTable.id, name: servicesTable.name, vendorName: servicesTable.vendorName })
+    .select({
+      id: servicesTable.id,
+      name: servicesTable.name,
+      vendorName: servicesTable.vendorName,
+      billingMode: servicesTable.billingMode,
+      rate: servicesTable.rate,
+    })
     .from(servicesTable)
     .where(inArray(servicesTable.id, serviceIds));
   const serviceNames = new Map(services.map((s) => [s.id, s.name]));
+  // A clean-up sold on an estimate is still billed from the clock: the job
+  // carries the service's billing mode and hourly rate the way an assigned
+  // service's visits do, so completion prices it the same.
+  const serviceBilling = new Map(services.map((s) => [s.id, { billingMode: s.billingMode, rate: s.rate }]));
   const vendorServiceIds = new Set(
     services.filter((s) => s.vendorName != null).map((s) => s.id),
   );
 
   const created: ScheduledFromEstimate[] = [];
-  for (const line of lines) {
+  for (const { line, index: lineIndex } of lines) {
     // Work an outside company performs is never scheduled onto our own board.
     // Those jobs are completed in bulk from the vendor's invoice (see Spray
     // Runs), so a crew job here would be a phantom stop the sub cannot do and
@@ -273,10 +311,15 @@ export async function scheduleAcceptedEstimate(
       reason = `dispatched for ${scheduledDate}`;
     }
 
+    // One job is one visit. A season of mowing is quoted as rate x qty x 28
+    // visits, so the job carries the per-visit figure, not the season total —
+    // otherwise the first mow would bill the whole year.
+    const visitAmount = estimateLineVisitAmount(line);
     const [job] = await db
       .insert(jobsTable)
       .values({
         clientId: estimate.clientId,
+        clientServiceId: options.clientServiceIdByLine?.get(lineIndex) ?? null,
         serviceId: line.serviceId,
         // dispatch and route_fit both put the job on the board; waiting_list
         // holds it off until the office moves it to a sub.
@@ -285,8 +328,13 @@ export async function scheduleAcceptedEstimate(
         windowStart,
         windowEnd,
         assignedToId,
-        amount: line.calculatedPrice ?? 0,
+        amount: visitAmount,
         notes: rule.jobNote,
+        billingMode: serviceBilling.get(line.serviceId)?.billingMode ?? "fixed",
+        hourlyRate:
+          serviceBilling.get(line.serviceId)?.billingMode === "time"
+            ? (serviceBilling.get(line.serviceId)?.rate ?? null)
+            : null,
       })
       .returning();
 
@@ -304,11 +352,12 @@ export async function scheduleAcceptedEstimate(
       scheduledDate,
       windowStart,
       windowEnd,
-      amount: line.calculatedPrice ?? 0,
+      amount: visitAmount,
     });
 
     created.push({
       jobId: job.id,
+      lineIndex,
       serviceId: line.serviceId,
       serviceName,
       ruleId: rule.id,

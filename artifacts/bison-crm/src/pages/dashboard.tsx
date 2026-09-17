@@ -1,13 +1,121 @@
-import { 
-  useGetDashboardSummary, 
+import {
+  useGetDashboardSummary,
   useGetContractorEarnings,
   useGetRecentActivity,
+  useGetDashboardAlerts,
+  getGetDashboardAlertsQueryKey,
+  useListOpenNotes,
+  getListOpenNotesQueryKey,
   AuditEvent
 } from '@workspace/api-client-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Users, Briefcase, Receipt, Ticket, Leaf, CalendarClock, MailWarning } from 'lucide-react';
-import { format } from 'date-fns';
+import { Users, Briefcase, Receipt, Ticket, Leaf, CalendarClock, MailWarning, BellRing, FileCheck2, Globe, StickyNote, Send } from 'lucide-react';
+import { format, formatDistanceToNow } from 'date-fns';
 import { Link } from 'wouter';
+
+const money = (v: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(v);
+const ago = (iso: string | null | undefined) => (iso ? formatDistanceToNow(new Date(iso), { addSuffix: true }) : '');
+
+/**
+ * 2026-09-15 walkthrough: the things he wants to see the moment he sits down —
+ * estimates accepted, invoices that went out today, new website requests,
+ * emails that did not send, and notes left open for the office. A glance, not
+ * an inbox: nothing is marked read, each line opens the place to deal with it,
+ * and the panel refreshes itself while the tab is open.
+ */
+function AlertsPanel() {
+  const alerts = useGetDashboardAlerts({
+    query: { queryKey: getGetDashboardAlertsQueryKey(), refetchInterval: 60_000, retry: false },
+  });
+  // Open notes come from the customer-activity side of the app; if that
+  // endpoint is not there, the section is simply left out.
+  const notes = useListOpenNotes({
+    query: { queryKey: getListOpenNotesQueryKey(), refetchInterval: 60_000, retry: false },
+  });
+
+  if (alerts.isLoading) {
+    return <div className="text-sm text-muted-foreground animate-pulse">Checking what needs a look...</div>;
+  }
+  if (alerts.isError || !alerts.data) {
+    return <div className="text-sm text-destructive">Could not load alerts.</div>;
+  }
+  const a = alerts.data;
+  const openNotes = notes.isError ? [] : (notes.data ?? []);
+  const total = a.estimatesAccepted.count + a.invoicesSentToday.count + a.webRequests.count + a.failedEmails.count + openNotes.length;
+  if (total === 0) {
+    return <div className="text-sm text-muted-foreground py-4 text-center" data-testid="alerts-empty">Nothing needs a look right now.</div>;
+  }
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      {a.estimatesAccepted.count > 0 && (
+        <AlertGroup icon={FileCheck2} title="Estimates accepted" count={a.estimatesAccepted.count} note="last 7 days" testId="alerts-estimates">
+          {a.estimatesAccepted.items.map(e => (
+            <AlertLine key={e.id} href={`/clients/${e.clientId}`} title={e.clientName} detail={`${money(e.total)} · ${ago(e.at)}`} />
+          ))}
+        </AlertGroup>
+      )}
+      {a.invoicesSentToday.count > 0 && (
+        <AlertGroup icon={Send} title="Invoices sent today" count={a.invoicesSentToday.count} testId="alerts-invoices">
+          {a.invoicesSentToday.items.map(i => (
+            <AlertLine key={i.id} href={`/invoices?clientId=${i.clientId}`} title={`#${i.number} · ${i.clientName}`} detail={`${money(i.total)} · ${ago(i.at)}`} />
+          ))}
+        </AlertGroup>
+      )}
+      {a.webRequests.count > 0 && (
+        <AlertGroup icon={Globe} title="New website requests" count={a.webRequests.count} testId="alerts-web-requests">
+          {a.webRequests.items.map(w => (
+            <AlertLine key={w.id} href="/web-requests" title={w.name ?? 'Someone'} detail={[w.address, w.message].filter(Boolean).join(' · ') || ago(w.at)} />
+          ))}
+        </AlertGroup>
+      )}
+      {a.failedEmails.count > 0 && (
+        <AlertGroup icon={MailWarning} title="Emails that did not send" count={a.failedEmails.count} note="last 7 days" tone="destructive" testId="alerts-failed-emails">
+          {a.failedEmails.items.map(f => (
+            <AlertLine
+              key={f.id}
+              href={f.clientId != null ? `/clients/${f.clientId}` : '/reports'}
+              title={f.clientName ?? f.toEmail ?? 'No address'}
+              detail={[f.subject, f.error].filter(Boolean).join(' · ') || ago(f.at)}
+            />
+          ))}
+        </AlertGroup>
+      )}
+      {openNotes.length > 0 && (
+        <AlertGroup icon={StickyNote} title="Open notes" count={openNotes.length} note="oldest first" testId="alerts-open-notes">
+          {openNotes.slice(0, 8).map(n => (
+            <AlertLine key={n.id} href={`/clients/${n.clientId}`} title={n.clientName ?? `Customer #${n.clientId}`} detail={n.body} />
+          ))}
+        </AlertGroup>
+      )}
+    </div>
+  );
+}
+
+function AlertGroup({ icon: Icon, title, count, note, tone, testId, children }: {
+  icon: typeof BellRing; title: string; count: number; note?: string; tone?: 'destructive'; testId: string; children: React.ReactNode;
+}) {
+  return (
+    <div className={`rounded-lg border p-3 ${tone === 'destructive' ? 'border-destructive/30 bg-destructive/5' : 'bg-card'}`} data-testid={testId}>
+      <div className="flex items-center gap-2 mb-2">
+        <Icon className={`w-4 h-4 ${tone === 'destructive' ? 'text-destructive' : 'text-primary'}`} />
+        <span className="font-semibold text-sm">{title}</span>
+        <span className="ml-auto rounded-full bg-primary/10 text-primary text-xs font-bold px-2 py-0.5 tabular-nums">{count}</span>
+      </div>
+      <div className="space-y-1">{children}</div>
+      {note && <p className="mt-2 text-[11px] text-muted-foreground">{note}</p>}
+    </div>
+  );
+}
+
+function AlertLine({ href, title, detail }: { href: string; title: string; detail: string }) {
+  return (
+    <Link href={href} className="block rounded-md px-2 py-1.5 -mx-1 hover:bg-muted/60 transition-colors">
+      <div className="text-sm font-medium truncate">{title}</div>
+      {detail && <div className="text-xs text-muted-foreground truncate">{detail}</div>}
+    </Link>
+  );
+}
 
 export default function Dashboard() {
   const { data: summary, isLoading: isLoadingSummary } = useGetDashboardSummary();
@@ -52,6 +160,17 @@ export default function Dashboard() {
           </div>
         </Link>
       )}
+
+      <Card className="shadow-sm" data-testid="alerts-panel">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <BellRing className="w-5 h-5 text-primary" /> Needs a look
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <AlertsPanel />
+        </CardContent>
+      </Card>
 
       {/* Top Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

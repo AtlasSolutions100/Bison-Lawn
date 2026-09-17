@@ -15,14 +15,20 @@ import {
   CreateDocumentTemplateBody,
   UpdateDocumentTemplateBody,
   PreviewDocumentTemplateBody,
+  SendDocumentTemplateBody,
 } from "@workspace/api-zod";
-import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
+import { requireAuth, requireArea } from "../middlewares/requireAuth";
 import { supportedTokens, renderTemplate, unknownTokensIn } from "../lib/mergeTokens";
 import { getCompanyProfile } from "../lib/companyProfile";
+import { ensureDocumentTemplatesOnce } from "../lib/documentTemplateSeeds";
+import { documentEmailHtml, sendDocumentToClients } from "../lib/documentSend";
 
 const router: IRouter = Router();
 
-router.use(["/company-profile", "/merge-tokens", "/document-templates"], requireAuth, requireAdmin);
+// Company settings are the owner's; document templates are day-to-day office
+// work (letters, estimates), so they sit behind the documents area instead.
+router.use(["/company-profile", "/merge-tokens"], requireAuth, requireArea("settings"));
+router.use(["/document-templates"], requireAuth, requireArea("documents"));
 
 router.get("/company-profile", async (_req, res) => {
   return res.json(await getCompanyProfile());
@@ -109,11 +115,18 @@ async function uniqueKey(desired: string): Promise<string> {
   return `${base}-${Date.now()}`;
 }
 
-router.get("/document-templates", async (_req, res) => {
+const CATEGORIES = new Set(["client", "marketing", "estimate"]);
+
+router.get("/document-templates", async (req, res) => {
+  // His letters are part of the product: a fresh install shows them on first
+  // open rather than after somebody remembers to run a seed.
+  await ensureDocumentTemplatesOnce();
+  const category = typeof req.query.category === "string" && CATEGORIES.has(req.query.category) ? req.query.category : null;
   const rows = await db
     .select({ template: documentTemplatesTable, serviceName: servicesTable.name })
     .from(documentTemplatesTable)
     .leftJoin(servicesTable, eq(servicesTable.id, documentTemplatesTable.serviceId))
+    .where(category ? eq(documentTemplatesTable.category, category) : undefined)
     .orderBy(asc(documentTemplatesTable.name));
   return res.json(rows.map((row) => present(row.template, row.serviceName)));
 });
@@ -134,6 +147,7 @@ router.post("/document-templates", async (req, res) => {
       key,
       name: body.name,
       kind: body.kind ?? "notice",
+      category: body.category ?? "client",
       serviceId: body.serviceId ?? null,
       subject: body.subject ?? null,
       body: body.body,
@@ -153,6 +167,7 @@ router.patch("/document-templates/:id", async (req, res) => {
   const values: Partial<typeof documentTemplatesTable.$inferInsert> = { updatedAt: new Date() };
   if (body.name !== undefined) values.name = body.name;
   if (body.kind !== undefined) values.kind = body.kind;
+  if (body.category !== undefined) values.category = body.category;
   if (body.serviceId !== undefined) values.serviceId = body.serviceId ?? null;
   if (body.subject !== undefined) values.subject = body.subject ?? null;
   if (body.body !== undefined) values.body = body.body;
@@ -271,13 +286,43 @@ router.post("/document-templates/:id/preview", async (req, res) => {
   const company = await getCompanyProfile();
   const quote = template.kind === "estimate_cover" ? await sampleQuote(client) : {};
   const context = { client, company, ...quote };
+  const bodyText = renderTemplate(template.body, context);
 
   return res.json({
     subject: template.subject ? renderTemplate(template.subject, context) : null,
-    body: renderTemplate(template.body, context),
+    body: bodyText,
+    // The same shell a real send uses, so the logo and company block he sees
+    // here are the ones the customer gets.
+    html: documentEmailHtml({ bodyText, company }),
     clientName: client?.name ?? null,
     unknownTokens: unknownTokensIn(`${template.subject ?? ""}\n${template.body}`),
   });
+});
+
+/**
+ * Email a template to a list of customers (contract C1). The board, the
+ * waiting list, the client page and the invoice screen all call this; the
+ * result is the "42 of 44 sent" line with the names of who was skipped and
+ * why, so he can call the two without an email.
+ */
+router.post("/document-templates/:id/send", async (req, res) => {
+  const body = SendDocumentTemplateBody.parse(req.body);
+  const [template] = await db
+    .select()
+    .from(documentTemplatesTable)
+    .where(eq(documentTemplatesTable.id, Number(req.params.id)));
+  if (!template) return res.status(404).json({ error: "Template not found" });
+
+  const result = await sendDocumentToClients({
+    template,
+    clientIds: body.clientIds,
+    jobIds: body.jobIds ?? null,
+    tokens: body.tokens ?? null,
+    source: body.source,
+    sentById: req.appUser?.id ?? null,
+    actorName: req.appUser?.name ?? null,
+  });
+  return res.json(result);
 });
 
 export default router;

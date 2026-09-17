@@ -5,12 +5,15 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+import type { AccessLevel } from './accessLevel';
 import type { InvitationInputRole } from './invitationInputRole';
 
 export interface InvitationInput {
   /** @minLength 3 */
   email: string;
   role?: InvitationInputRole;
+  accessLevel?: AccessLevel;
+  permissions?: string[];
   /** @nullable */
   note?: string | null;
 }

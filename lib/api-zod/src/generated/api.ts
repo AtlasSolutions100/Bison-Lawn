@@ -23,34 +23,62 @@ export const GetCurrentUserResponse = zod.object({
   "id": zod.int(),
   "clerkId": zod.string(),
   "name": zod.string(),
+  "fullName": zod.string().optional(),
+  "displayName": zod.string().nullish(),
   "email": zod.string().nullish(),
   "role": zod.enum(['admin', 'contractor']),
+  "roleSource": zod.enum(['provisioned', 'owner', 'owner_assigned']).optional(),
+  "accessLevel": zod.enum(['full', 'office', 'mobile']).describe('full = every office screen; office = day-to-day screens plus whatever is granted; mobile = the phone app only'),
+  "permissions": zod.array(zod.string()),
+  "areas": zod.array(zod.enum(['dispatch', 'clients', 'invoices', 'quickbooks', 'reports', 'settings', 'team', 'documents']).describe('A part of the office app a person can be let into or kept out of')),
+  "active": zod.boolean(),
   "phone": zod.string().nullish(),
+  "birthday": zod.string().nullish(),
+  "hireDate": zod.string().nullish(),
   "baseAddress": zod.string().nullish(),
   "baseLat": zod.number().nullish(),
-  "baseLng": zod.number().nullish()
+  "baseLng": zod.number().nullish(),
+  "jobCount": zod.int().optional(),
+  "historyCount": zod.int().optional(),
+  "smsProxyNumber": zod.string().nullish()
 })
 
 
 /**
- * @summary List team members (admins and contractors)
+ * @summary List team members (admins and contractors); active people only unless includeInactive is set
  */
+export const ListUsersQueryParams = zod.object({
+  "includeInactive": zod.coerce.boolean().optional()
+})
+
 export const ListUsersResponseItem = zod.object({
   "id": zod.int(),
   "clerkId": zod.string(),
   "name": zod.string(),
+  "fullName": zod.string().optional(),
+  "displayName": zod.string().nullish(),
   "email": zod.string().nullish(),
   "role": zod.enum(['admin', 'contractor']),
+  "roleSource": zod.enum(['provisioned', 'owner', 'owner_assigned']).optional(),
+  "accessLevel": zod.enum(['full', 'office', 'mobile']).describe('full = every office screen; office = day-to-day screens plus whatever is granted; mobile = the phone app only'),
+  "permissions": zod.array(zod.string()),
+  "areas": zod.array(zod.enum(['dispatch', 'clients', 'invoices', 'quickbooks', 'reports', 'settings', 'team', 'documents']).describe('A part of the office app a person can be let into or kept out of')),
+  "active": zod.boolean(),
   "phone": zod.string().nullish(),
+  "birthday": zod.string().nullish(),
+  "hireDate": zod.string().nullish(),
   "baseAddress": zod.string().nullish(),
   "baseLat": zod.number().nullish(),
-  "baseLng": zod.number().nullish()
+  "baseLng": zod.number().nullish(),
+  "jobCount": zod.int().optional(),
+  "historyCount": zod.int().optional(),
+  "smsProxyNumber": zod.string().nullish()
 })
 export const ListUsersResponse = zod.array(ListUsersResponseItem)
 
 
 /**
- * @summary Update a user's role, name, or base location
+ * @summary Update a user's access level, permissions, details, or active flag
  */
 export const UpdateUserParams = zod.object({
   "id": zod.coerce.number().int()
@@ -58,8 +86,14 @@ export const UpdateUserParams = zod.object({
 
 export const UpdateUserBody = zod.object({
   "name": zod.string().optional(),
+  "displayName": zod.string().nullish(),
   "role": zod.enum(['admin', 'contractor']).optional(),
+  "accessLevel": zod.enum(['full', 'office', 'mobile']).optional().describe('full = every office screen; office = day-to-day screens plus whatever is granted; mobile = the phone app only'),
+  "permissions": zod.array(zod.string()).optional(),
+  "active": zod.boolean().optional(),
   "phone": zod.string().nullish(),
+  "birthday": zod.string().nullish(),
+  "hireDate": zod.string().nullish(),
   "baseAddress": zod.string().nullish(),
   "baseLat": zod.number().nullish(),
   "baseLng": zod.number().nullish()
@@ -69,13 +103,35 @@ export const UpdateUserResponse = zod.object({
   "id": zod.int(),
   "clerkId": zod.string(),
   "name": zod.string(),
+  "fullName": zod.string().optional(),
+  "displayName": zod.string().nullish(),
   "email": zod.string().nullish(),
   "role": zod.enum(['admin', 'contractor']),
+  "roleSource": zod.enum(['provisioned', 'owner', 'owner_assigned']).optional(),
+  "accessLevel": zod.enum(['full', 'office', 'mobile']).describe('full = every office screen; office = day-to-day screens plus whatever is granted; mobile = the phone app only'),
+  "permissions": zod.array(zod.string()),
+  "areas": zod.array(zod.enum(['dispatch', 'clients', 'invoices', 'quickbooks', 'reports', 'settings', 'team', 'documents']).describe('A part of the office app a person can be let into or kept out of')),
+  "active": zod.boolean(),
   "phone": zod.string().nullish(),
+  "birthday": zod.string().nullish(),
+  "hireDate": zod.string().nullish(),
   "baseAddress": zod.string().nullish(),
   "baseLat": zod.number().nullish(),
-  "baseLng": zod.number().nullish()
+  "baseLng": zod.number().nullish(),
+  "jobCount": zod.int().optional(),
+  "historyCount": zod.int().optional(),
+  "smsProxyNumber": zod.string().nullish()
 })
+
+
+/**
+ * @summary Remove a person who has never had a job; otherwise deactivate them instead
+ */
+export const DeleteUserParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const DeleteUserResponse = zod.void()
 
 
 /**
@@ -85,6 +141,8 @@ export const ListInvitationsResponseItem = zod.object({
   "id": zod.int(),
   "email": zod.string(),
   "role": zod.enum(['admin', 'contractor']),
+  "accessLevel": zod.enum(['full', 'office', 'mobile']).describe('full = every office screen; office = day-to-day screens plus whatever is granted; mobile = the phone app only'),
+  "permissions": zod.array(zod.string()),
   "invitedById": zod.int().nullish(),
   "invitedByName": zod.string().nullish(),
   "note": zod.string().nullish(),
@@ -107,6 +165,8 @@ export const createInvitationBodyEmailMin = 3;
 export const CreateInvitationBody = zod.object({
   "email": zod.string().min(createInvitationBodyEmailMin),
   "role": zod.enum(['admin', 'contractor']).optional(),
+  "accessLevel": zod.enum(['full', 'office', 'mobile']).optional().describe('full = every office screen; office = day-to-day screens plus whatever is granted; mobile = the phone app only'),
+  "permissions": zod.array(zod.string()).optional(),
   "note": zod.string().nullish()
 })
 
@@ -114,6 +174,8 @@ export const CreateInvitationResponse = zod.object({
   "id": zod.int(),
   "email": zod.string(),
   "role": zod.enum(['admin', 'contractor']),
+  "accessLevel": zod.enum(['full', 'office', 'mobile']).describe('full = every office screen; office = day-to-day screens plus whatever is granted; mobile = the phone app only'),
+  "permissions": zod.array(zod.string()),
   "invitedById": zod.int().nullish(),
   "invitedByName": zod.string().nullish(),
   "note": zod.string().nullish(),
@@ -136,6 +198,8 @@ export const ResendInvitationResponse = zod.object({
   "id": zod.int(),
   "email": zod.string(),
   "role": zod.enum(['admin', 'contractor']),
+  "accessLevel": zod.enum(['full', 'office', 'mobile']).describe('full = every office screen; office = day-to-day screens plus whatever is granted; mobile = the phone app only'),
+  "permissions": zod.array(zod.string()),
   "invitedById": zod.int().nullish(),
   "invitedByName": zod.string().nullish(),
   "note": zod.string().nullish(),
@@ -405,11 +469,16 @@ export const ListMergeTokensResponse = zod.array(ListMergeTokensResponseItem)
 /**
  * @summary The letters and proposals the office sends
  */
+export const ListDocumentTemplatesQueryParams = zod.object({
+  "category": zod.enum(['client', 'marketing', 'estimate']).optional()
+})
+
 export const ListDocumentTemplatesResponseItem = zod.object({
   "id": zod.int(),
   "key": zod.string(),
   "name": zod.string(),
   "kind": zod.enum(['notice', 'estimate_cover', 'contract']),
+  "category": zod.enum(['client', 'marketing', 'estimate']),
   "serviceId": zod.int().nullish(),
   "serviceName": zod.string().nullish(),
   "subject": zod.string().nullish(),
@@ -432,6 +501,7 @@ export const CreateDocumentTemplateBody = zod.object({
   "key": zod.string().optional(),
   "name": zod.string().min(1),
   "kind": zod.enum(['notice', 'estimate_cover', 'contract']).optional(),
+  "category": zod.enum(['client', 'marketing', 'estimate']).optional(),
   "serviceId": zod.int().nullish(),
   "subject": zod.string().nullish(),
   "body": zod.string().min(1)
@@ -442,6 +512,7 @@ export const CreateDocumentTemplateResponse = zod.object({
   "key": zod.string(),
   "name": zod.string(),
   "kind": zod.enum(['notice', 'estimate_cover', 'contract']),
+  "category": zod.enum(['client', 'marketing', 'estimate']),
   "serviceId": zod.int().nullish(),
   "serviceName": zod.string().nullish(),
   "subject": zod.string().nullish(),
@@ -466,6 +537,7 @@ export const UpdateDocumentTemplateParams = zod.object({
 export const UpdateDocumentTemplateBody = zod.object({
   "name": zod.string().min(1).optional(),
   "kind": zod.enum(['notice', 'estimate_cover', 'contract']).optional(),
+  "category": zod.enum(['client', 'marketing', 'estimate']).optional(),
   "serviceId": zod.int().nullish(),
   "subject": zod.string().nullish(),
   "body": zod.string().min(1).optional()
@@ -476,6 +548,7 @@ export const UpdateDocumentTemplateResponse = zod.object({
   "key": zod.string(),
   "name": zod.string(),
   "kind": zod.enum(['notice', 'estimate_cover', 'contract']),
+  "category": zod.enum(['client', 'marketing', 'estimate']),
   "serviceId": zod.int().nullish(),
   "serviceName": zod.string().nullish(),
   "subject": zod.string().nullish(),
@@ -510,9 +583,92 @@ export const PreviewDocumentTemplateBody = zod.object({
 export const PreviewDocumentTemplateResponse = zod.object({
   "subject": zod.string().nullable(),
   "body": zod.string(),
+  "html": zod.string().optional().describe('The letter inside the branded email shell, as the customer sees it'),
   "clientName": zod.string().nullish(),
   "unknownTokens": zod.array(zod.string())
 })
+
+
+/**
+ * @summary Email a template to a list of customers, filled in per customer
+ */
+export const SendDocumentTemplateParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+
+
+
+export const SendDocumentTemplateBody = zod.object({
+  "clientIds": zod.array(zod.int()).min(1),
+  "jobIds": zod.array(zod.int()).optional().describe('Jobs the letter is about; fills [servicedate] and [servicename] and adds their customers'),
+  "tokens": zod.record(zod.string(), zod.string()).optional().describe('Extra merge values typed by the sender, e.g. { servicedate: \'October 3, 2026\' }'),
+  "source": zod.enum(['dispatch', 'waiting_list', 'client_page', 'automation', 'invoice'])
+})
+
+export const SendDocumentTemplateResponse = zod.object({
+  "batchId": zod.string(),
+  "sent": zod.int(),
+  "skipped": zod.array(zod.object({
+  "clientId": zod.int(),
+  "clientName": zod.string(),
+  "reason": zod.enum(['no_email', 'do_not_email', 'failed'])
+}))
+})
+
+
+/**
+ * @summary Every bulk email send, newest first, with sent / failed / skipped / opened counts
+ */
+export const listEmailBatchesQueryLimitMax = 500;
+
+
+
+export const ListEmailBatchesQueryParams = zod.object({
+  "limit": zod.coerce.number().int().min(1).max(listEmailBatchesQueryLimitMax).optional()
+})
+
+export const ListEmailBatchesResponseItem = zod.object({
+  "batchId": zod.string(),
+  "createdAt": zod.string(),
+  "source": zod.string(),
+  "sourceLabel": zod.string(),
+  "templateId": zod.int().nullish(),
+  "templateName": zod.string().nullish(),
+  "ruleName": zod.string().nullish(),
+  "subject": zod.string().nullish(),
+  "sentByName": zod.string().nullish(),
+  "total": zod.int(),
+  "sent": zod.int(),
+  "failed": zod.int(),
+  "skipped": zod.int(),
+  "opened": zod.int()
+})
+export const ListEmailBatchesResponse = zod.array(ListEmailBatchesResponseItem)
+
+
+/**
+ * @summary Who was in one bulk send and whether each of them opened it
+ */
+export const GetEmailBatchParams = zod.object({
+  "batchId": zod.coerce.string()
+})
+
+export const GetEmailBatchResponseItem = zod.object({
+  "id": zod.int(),
+  "clientId": zod.int().nullish(),
+  "clientName": zod.string(),
+  "toEmail": zod.string().nullish(),
+  "subject": zod.string().nullish(),
+  "status": zod.enum(['sent', 'failed', 'skipped']),
+  "skipReason": zod.string().nullish(),
+  "error": zod.string().nullish(),
+  "openedAt": zod.string().nullish(),
+  "openCount": zod.int(),
+  "sentAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const GetEmailBatchResponse = zod.array(GetEmailBatchResponseItem)
 
 
 /**
@@ -647,6 +803,15 @@ export const ListClientsResponseItem = zod.object({
   "propertyData": zod.record(zod.string(), zod.string()).optional(),
   "lastServiceDate": zod.string().nullish(),
   "unappliedCredit": zod.number().optional().describe('Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice.'),
+  "parentClientId": zod.int().nullish().describe('The master account (property manager) this property sits under, one level only'),
+  "parentClientName": zod.string().nullish(),
+  "relatedPropertyCount": zod.int().optional().describe('How many properties sit under this account (0 unless it is a master)'),
+  "relatedBalanceTotal": zod.number().optional().describe('This account\'s balance plus every property under it. Equals accountBalance for an ordinary customer; on a master it is what the property manager owes in all.'),
+  "doNotEmail": zod.boolean().optional().describe('Stops every bulk email (board, waiting list, automations). Invoices still go out.'),
+  "source": zod.string().nullish().describe('Where they came from, e.g. Door Hanger'),
+  "referredByClientId": zod.int().nullish(),
+  "referredByClientName": zod.string().nullish(),
+  "preferredPaymentMethod": zod.union([zod.literal('check'),zod.literal('venmo'),zod.literal('zelle'),zod.literal('credit_card'),zod.literal('cash'),zod.literal('ach'),zod.literal('other'),zod.literal(null)]).nullish(),
   "createdAt": zod.string().optional()
 })
 export const ListClientsResponse = zod.array(ListClientsResponseItem)
@@ -685,7 +850,12 @@ export const CreateClientBody = zod.object({
   "accountType": zod.enum(['commercial', 'residential']).optional(),
   "officeNote": zod.string().nullish(),
   "tags": zod.array(zod.string()).optional(),
-  "propertyData": zod.record(zod.string(), zod.string()).optional()
+  "propertyData": zod.record(zod.string(), zod.string()).optional(),
+  "parentClientId": zod.int().nullish(),
+  "doNotEmail": zod.boolean().optional(),
+  "source": zod.string().nullish(),
+  "referredByClientId": zod.int().nullish(),
+  "preferredPaymentMethod": zod.union([zod.literal('check'),zod.literal('venmo'),zod.literal('zelle'),zod.literal('credit_card'),zod.literal('cash'),zod.literal('ach'),zod.literal('other'),zod.literal(null)]).nullish()
 })
 
 export const CreateClientResponse = zod.object({
@@ -723,7 +893,78 @@ export const CreateClientResponse = zod.object({
   "propertyData": zod.record(zod.string(), zod.string()).optional(),
   "lastServiceDate": zod.string().nullish(),
   "unappliedCredit": zod.number().optional().describe('Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice.'),
+  "parentClientId": zod.int().nullish().describe('The master account (property manager) this property sits under, one level only'),
+  "parentClientName": zod.string().nullish(),
+  "relatedPropertyCount": zod.int().optional().describe('How many properties sit under this account (0 unless it is a master)'),
+  "relatedBalanceTotal": zod.number().optional().describe('This account\'s balance plus every property under it. Equals accountBalance for an ordinary customer; on a master it is what the property manager owes in all.'),
+  "doNotEmail": zod.boolean().optional().describe('Stops every bulk email (board, waiting list, automations). Invoices still go out.'),
+  "source": zod.string().nullish().describe('Where they came from, e.g. Door Hanger'),
+  "referredByClientId": zod.int().nullish(),
+  "referredByClientName": zod.string().nullish(),
+  "preferredPaymentMethod": zod.union([zod.literal('check'),zod.literal('venmo'),zod.literal('zelle'),zod.literal('credit_card'),zod.literal('cash'),zod.literal('ach'),zod.literal('other'),zod.literal(null)]).nullish(),
   "createdAt": zod.string().optional()
+})
+
+
+/**
+ * The same rows the list shows, as a spreadsheet. `ids` is what the office selected or filtered on screen; without it the status/search filters apply, and with neither every customer comes out. Opens in Excel with the UTF-8 marker so names with accents survive.
+ * @summary Download clients as a CSV file
+ */
+export const ExportClientsQueryParams = zod.object({
+  "status": zod.enum(['lead', 'client', 'former_client']).optional(),
+  "search": zod.coerce.string().optional(),
+  "ids": zod.coerce.string().optional().describe('Comma-separated client ids. Omit to export the whole filtered list.')
+})
+
+export const ExportClientsResponse = zod.unknown()
+
+
+/**
+ * The Actions menu on the client list. Fields left out are left alone — setting a route zone on forty customers must not blank their billing terms — so send only what the office touched, and null to clear it. Tags are added or removed on top of what each customer already has. One transaction, one audit line per customer so the change shows on each customer's own history.
+ * @summary Change the same field on several clients at once
+ */
+
+
+
+export const BulkUpdateClientsBody = zod.object({
+  "clientIds": zod.array(zod.int()).min(1),
+  "status": zod.enum(['lead', 'client', 'former_client']).optional().describe('Activate = client, deactivate = former_client. Omit to leave alone.'),
+  "mapCode": zod.string().nullish().describe('Route zone, e.g. PF. Omit to leave alone; null to clear.'),
+  "waterDistrict": zod.string().nullish(),
+  "state": zod.string().nullish().describe('His branch: ID or WA. Omit to leave alone; null to clear.'),
+  "accountType": zod.union([zod.literal('commercial'),zod.literal('residential'),zod.literal(null)]).nullish(),
+  "billingTerms": zod.string().nullish().describe('Payment window, e.g. Net 15'),
+  "invoiceFrequency": zod.string().nullish(),
+  "invoiceDelivery": zod.union([zod.literal('email'),zod.literal('print'),zod.literal('both'),zod.literal(null)]).nullish(),
+  "doNotEmail": zod.boolean().nullish().describe('Omit to leave alone.'),
+  "addTags": zod.array(zod.string()).optional().describe('Added to each customer\'s existing tags (stored lowercase).'),
+  "removeTags": zod.array(zod.string()).optional()
+})
+
+export const BulkUpdateClientsResponse = zod.object({
+  "updated": zod.int(),
+  "clientIds": zod.array(zod.int())
+})
+
+
+/**
+ * POST rather than DELETE because it carries a body. Deleting a customer takes their invoices, payments, jobs, notes and history with them, so the office is shown the counts first: `preview: true` only counts, `preview: false` (the default) deletes. One transaction.
+ * @summary Delete several clients, with everything attached to them
+ */
+
+
+
+export const BulkDeleteClientsBody = zod.object({
+  "clientIds": zod.array(zod.int()).min(1),
+  "preview": zod.boolean().optional().describe('True only counts what would go, so the confirm can say so. Default false.')
+})
+
+export const BulkDeleteClientsResponse = zod.object({
+  "preview": zod.boolean(),
+  "clients": zod.int().describe('Clients matched (or deleted).'),
+  "invoices": zod.int(),
+  "payments": zod.int(),
+  "jobs": zod.int()
 })
 
 
@@ -766,6 +1007,15 @@ export const GetClientResponse = zod.object({
   "propertyData": zod.record(zod.string(), zod.string()).optional(),
   "lastServiceDate": zod.string().nullish(),
   "unappliedCredit": zod.number().optional().describe('Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice.'),
+  "parentClientId": zod.int().nullish().describe('The master account (property manager) this property sits under, one level only'),
+  "parentClientName": zod.string().nullish(),
+  "relatedPropertyCount": zod.int().optional().describe('How many properties sit under this account (0 unless it is a master)'),
+  "relatedBalanceTotal": zod.number().optional().describe('This account\'s balance plus every property under it. Equals accountBalance for an ordinary customer; on a master it is what the property manager owes in all.'),
+  "doNotEmail": zod.boolean().optional().describe('Stops every bulk email (board, waiting list, automations). Invoices still go out.'),
+  "source": zod.string().nullish().describe('Where they came from, e.g. Door Hanger'),
+  "referredByClientId": zod.int().nullish(),
+  "referredByClientName": zod.string().nullish(),
+  "preferredPaymentMethod": zod.union([zod.literal('check'),zod.literal('venmo'),zod.literal('zelle'),zod.literal('credit_card'),zod.literal('cash'),zod.literal('ach'),zod.literal('other'),zod.literal(null)]).nullish(),
   "createdAt": zod.string().optional()
 })
 
@@ -807,7 +1057,12 @@ export const UpdateClientBody = zod.object({
   "accountType": zod.union([zod.literal('commercial'),zod.literal('residential'),zod.literal(null)]).nullish(),
   "officeNote": zod.string().nullish(),
   "tags": zod.array(zod.string()).optional(),
-  "propertyData": zod.record(zod.string(), zod.string()).optional()
+  "propertyData": zod.record(zod.string(), zod.string()).optional(),
+  "parentClientId": zod.int().nullish().describe('Put this property under a master account; null takes it out again'),
+  "doNotEmail": zod.boolean().optional(),
+  "source": zod.string().nullish(),
+  "referredByClientId": zod.int().nullish(),
+  "preferredPaymentMethod": zod.union([zod.literal('check'),zod.literal('venmo'),zod.literal('zelle'),zod.literal('credit_card'),zod.literal('cash'),zod.literal('ach'),zod.literal('other'),zod.literal(null)]).nullish()
 })
 
 export const UpdateClientResponse = zod.object({
@@ -845,6 +1100,15 @@ export const UpdateClientResponse = zod.object({
   "propertyData": zod.record(zod.string(), zod.string()).optional(),
   "lastServiceDate": zod.string().nullish(),
   "unappliedCredit": zod.number().optional().describe('Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice.'),
+  "parentClientId": zod.int().nullish().describe('The master account (property manager) this property sits under, one level only'),
+  "parentClientName": zod.string().nullish(),
+  "relatedPropertyCount": zod.int().optional().describe('How many properties sit under this account (0 unless it is a master)'),
+  "relatedBalanceTotal": zod.number().optional().describe('This account\'s balance plus every property under it. Equals accountBalance for an ordinary customer; on a master it is what the property manager owes in all.'),
+  "doNotEmail": zod.boolean().optional().describe('Stops every bulk email (board, waiting list, automations). Invoices still go out.'),
+  "source": zod.string().nullish().describe('Where they came from, e.g. Door Hanger'),
+  "referredByClientId": zod.int().nullish(),
+  "referredByClientName": zod.string().nullish(),
+  "preferredPaymentMethod": zod.union([zod.literal('check'),zod.literal('venmo'),zod.literal('zelle'),zod.literal('credit_card'),zod.literal('cash'),zod.literal('ach'),zod.literal('other'),zod.literal(null)]).nullish(),
   "createdAt": zod.string().optional()
 })
 
@@ -863,8 +1127,11 @@ export const ListClientNotesParams = zod.object({
 export const ListClientNotesResponseItem = zod.object({
   "id": zod.int(),
   "clientId": zod.int(),
+  "clientName": zod.string().nullish().describe('Filled on the cross-customer open-notes list'),
   "body": zod.string(),
   "authorName": zod.string().nullish(),
+  "status": zod.enum(['open', 'closed']).describe('Open notes wait on the office and show on the dashboard until closed'),
+  "closedAt": zod.string().nullish(),
   "createdAt": zod.string()
 })
 export const ListClientNotesResponse = zod.array(ListClientNotesResponseItem)
@@ -875,17 +1142,21 @@ export const CreateClientNoteParams = zod.object({
 })
 
 
-
+export const createClientNoteBodyStatusDefault = `closed`;
 
 export const CreateClientNoteBody = zod.object({
-  "body": zod.string().min(1)
+  "body": zod.string().min(1),
+  "status": zod.enum(['open', 'closed']).default(createClientNoteBodyStatusDefault)
 })
 
 export const CreateClientNoteResponse = zod.object({
   "id": zod.int(),
   "clientId": zod.int(),
+  "clientName": zod.string().nullish().describe('Filled on the cross-customer open-notes list'),
   "body": zod.string(),
   "authorName": zod.string().nullish(),
+  "status": zod.enum(['open', 'closed']).describe('Open notes wait on the office and show on the dashboard until closed'),
+  "closedAt": zod.string().nullish(),
   "createdAt": zod.string()
 })
 
@@ -904,9 +1175,154 @@ export const ListClientAuditResponseItem = zod.object({
   "actorName": zod.string().nullish(),
   "action": zod.string(),
   "description": zod.string(),
+  "entityType": zod.string().nullish().describe('Which record the event is about (invoice, payment, job); null on older rows'),
+  "entityId": zod.int().nullish(),
   "createdAt": zod.string()
 })
 export const ListClientAuditResponse = zod.array(ListClientAuditResponseItem)
+
+
+/**
+ * Visits, invoices, payments, emails (with opened / unopened), estimates, tickets, notes and audit events in one list, so the office can answer "what has happened with this customer" without opening five cards. Defaults to the last 90 days when no range is given; a long-standing customer has thousands of rows. Capped at 500 items. A query parameter rather than /clients/{id}/activity because the generator cannot name an operation that has both a path id and query parameters.
+ * @summary One timeline for a customer, newest first
+ */
+export const ListClientActivityQueryParams = zod.object({
+  "clientId": zod.coerce.number().int(),
+  "from": zod.coerce.string().optional().describe('yyyy-mm-dd, inclusive'),
+  "to": zod.coerce.string().optional().describe('yyyy-mm-dd, inclusive'),
+  "kinds": zod.coerce.string().optional().describe('Comma-separated subset of visit,invoice,payment,email,estimate,ticket,note,event')
+})
+
+export const ListClientActivityResponseItem = zod.object({
+  "kind": zod.enum(['visit', 'invoice', 'payment', 'email', 'estimate', 'ticket', 'note', 'event']),
+  "date": zod.string().describe('yyyy-mm-dd the item belongs to on the office\'s calendar (Pacific), used for the range filter'),
+  "at": zod.string().nullish().describe('Exact instant when known, ISO'),
+  "title": zod.string(),
+  "detail": zod.string().nullish().describe('Second line: who did it, the address it went to, the note body'),
+  "amount": zod.number().nullish().describe('For a visit, what it bills at after the discount on the assigned service'),
+  "status": zod.string().nullish().describe('The row\'s own status word: completed, paid, opened, unopened, open, closed...'),
+  "actorName": zod.string().nullish(),
+  "refKind": zod.enum(['job', 'invoice', 'payment', 'email', 'estimate', 'ticket', 'note', 'audit']),
+  "refId": zod.int()
+})
+export const ListClientActivityResponse = zod.array(ListClientActivityResponseItem)
+
+
+/**
+ * The client page's All / Upcoming / History tabs. Unlike GET /jobs this includes waiting-list jobs (not yet dispatched) so the office sees the whole account, not just what is on the board.
+ * @summary Every job on this customer, dispatched or still waiting, newest first
+ */
+export const ListClientJobsParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ListClientJobsResponseItem = zod.object({
+  "id": zod.int(),
+  "clientId": zod.int(),
+  "clientName": zod.string().nullish(),
+  "clientAddress": zod.string().nullish(),
+  "clientBalance": zod.number().nullish(),
+  "lastInvoiceNumber": zod.int().nullish(),
+  "lastInvoiceBalance": zod.number().nullish(),
+  "lastInvoiceDate": zod.string().nullish(),
+  "clientLat": zod.number().nullish(),
+  "clientLng": zod.number().nullish(),
+  "city": zod.string().nullish(),
+  "clientServiceId": zod.int().nullish(),
+  "serviceId": zod.int().nullish(),
+  "serviceName": zod.string().nullish(),
+  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped', 'cancelled']),
+  "dispatched": zod.boolean(),
+  "scheduledDate": zod.string().nullish(),
+  "windowStart": zod.string().nullish(),
+  "windowEnd": zod.string().nullish(),
+  "routeOrder": zod.int().nullish(),
+  "assignedToId": zod.int().nullish(),
+  "assignedToName": zod.string().nullish().describe('The contractor\'s short display name, never an email address.'),
+  "mapNote": zod.string().nullish(),
+  "cancelReason": zod.string().nullish(),
+  "cancelledAt": zod.string().nullish(),
+  "clientEmail": zod.string().nullish(),
+  "clientPhone": zod.string().nullish(),
+  "clientDoNotEmail": zod.boolean().optional(),
+  "clientMapCode": zod.string().nullish(),
+  "clientState": zod.string().nullish().describe('His branch: ID or WA.'),
+  "clientTags": zod.array(zod.string()).optional(),
+  "serviceCode": zod.string().nullish().describe('The service\'s short code, what the waiting list shows (BA7, BACKF, MOWIN).'),
+  "clientPropertyData": zod.record(zod.string(), zod.string()).optional().describe('The client\'s saved property details, keyed by field label (Gate Code, Sprinkler Zones, Turf Sqft). Carried on the job so the crew can read access details from the job card without opening the client record, which a contractor cannot do.'),
+  "lastServiceDate": zod.string().nullish(),
+  "budgetedHours": zod.number().nullish(),
+  "amount": zod.number(),
+  "notes": zod.string().nullish(),
+  "notesImportant": zod.boolean().nullish(),
+  "visibleToContractor": zod.boolean().nullish(),
+  "products": zod.array(zod.object({
+  "id": zod.int(),
+  "jobId": zod.int(),
+  "name": zod.string(),
+  "price": zod.number(),
+  "quantity": zod.number().optional(),
+  "serviceId": zod.int().nullish(),
+  "chargePresetId": zod.int().nullish().describe('Set when the line came from the parts list')
+})).optional(),
+  "invoiceId": zod.int().nullish(),
+  "completedAt": zod.string().nullish(),
+  "skipReason": zod.string().nullish(),
+  "skippedAt": zod.string().nullish(),
+  "skipBillable": zod.boolean().nullish().describe('Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.'),
+  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.'),
+  "contractorNote": zod.string().nullish().describe('The assigned service\'s must-read note, when one is in force on this visit\'s day. The contractor must open it before Start unlocks.'),
+  "noteAcknowledgedAt": zod.string().nullish().describe('When the contractor opened the note on this visit'),
+  "clockedMinutes": zod.number().optional().describe('Closed time entries on this job, all crew, in minutes'),
+  "clockOpen": zod.boolean().optional().describe('Someone is still clocked in'),
+  "billingMode": zod.enum(['fixed', 'time']).optional(),
+  "hourlyRate": zod.number().nullish().describe('On a time job: the rate the clock is billed at'),
+  "amountOverridden": zod.boolean().optional().describe('The office set the amount by hand; the clock no longer decides it'),
+  "discountType": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "discountValue": zod.number().nullish(),
+  "discountLabel": zod.string().nullish(),
+  "discountAmount": zod.number().optional().describe('The discount in dollars against the current amount; its own line on the invoice')
+})
+export const ListClientJobsResponse = zod.array(ListClientJobsResponseItem)
+
+
+/**
+ * @summary Open or close a note
+ */
+export const UpdateClientNoteParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const UpdateClientNoteBody = zod.object({
+  "status": zod.enum(['open', 'closed'])
+})
+
+export const UpdateClientNoteResponse = zod.object({
+  "id": zod.int(),
+  "clientId": zod.int(),
+  "clientName": zod.string().nullish().describe('Filled on the cross-customer open-notes list'),
+  "body": zod.string(),
+  "authorName": zod.string().nullish(),
+  "status": zod.enum(['open', 'closed']).describe('Open notes wait on the office and show on the dashboard until closed'),
+  "closedAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Every open note across all customers, oldest first, for the dashboard
+ */
+export const ListOpenNotesResponseItem = zod.object({
+  "id": zod.int(),
+  "clientId": zod.int(),
+  "clientName": zod.string().nullish().describe('Filled on the cross-customer open-notes list'),
+  "body": zod.string(),
+  "authorName": zod.string().nullish(),
+  "status": zod.enum(['open', 'closed']).describe('Open notes wait on the office and show on the dashboard until closed'),
+  "closedAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListOpenNotesResponse = zod.array(ListOpenNotesResponseItem)
 
 
 /**
@@ -949,6 +1365,156 @@ export const EmailClientResponse = zod.object({
 
 
 /**
+ * Comes from the customers themselves, not a settings list: typing a new source on a customer is what adds it here, the way map codes work.
+ * @summary Every "where they came from" answer already on file
+ */
+export const ListClientSourcesResponseItem = zod.string()
+export const ListClientSourcesResponse = zod.array(ListClientSourcesResponseItem)
+
+
+/**
+ * @summary The properties under a master account, each with its own balance
+ */
+export const ListRelatedClientsParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ListRelatedClientsResponseItem = zod.object({
+  "id": zod.int(),
+  "name": zod.string(),
+  "status": zod.enum(['lead', 'client', 'former_client']),
+  "serviceAddress": zod.string().nullish(),
+  "addressLine2": zod.string().nullish(),
+  "state": zod.string().nullish(),
+  "postalCode": zod.string().nullish(),
+  "city": zod.string().nullish(),
+  "lat": zod.number().nullish(),
+  "lng": zod.number().nullish(),
+  "accountBalance": zod.number(),
+  "email": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "additionalContact": zod.string().nullish(),
+  "mapNote": zod.string().nullish(),
+  "mapCode": zod.string().nullish().describe('Route zone shorthand, e.g. PF'),
+  "waterDistrict": zod.string().nullish().describe('Water purveyor serving the property'),
+  "nameOnInvoice": zod.string().nullish(),
+  "billingAddressLine1": zod.string().nullish(),
+  "billingAddressLine2": zod.string().nullish(),
+  "billingCity": zod.string().nullish(),
+  "billingState": zod.string().nullish(),
+  "billingPostalCode": zod.string().nullish(),
+  "billingEmail": zod.string().nullish(),
+  "accountNumber": zod.string().nullish(),
+  "billingTerms": zod.string().nullish().describe('Payment window, e.g. Net 15'),
+  "invoiceFrequency": zod.string().nullish(),
+  "invoiceDelivery": zod.union([zod.literal('email'),zod.literal('print'),zod.literal('both'),zod.literal(null)]).nullish(),
+  "accountType": zod.union([zod.literal('commercial'),zod.literal('residential'),zod.literal(null)]).nullish(),
+  "officeNote": zod.string().nullish(),
+  "tags": zod.array(zod.string()).optional(),
+  "propertyData": zod.record(zod.string(), zod.string()).optional(),
+  "lastServiceDate": zod.string().nullish(),
+  "unappliedCredit": zod.number().optional().describe('Money received from this client that is not attached to any invoice (typically an overpayment). Available to apply to an open invoice.'),
+  "parentClientId": zod.int().nullish().describe('The master account (property manager) this property sits under, one level only'),
+  "parentClientName": zod.string().nullish(),
+  "relatedPropertyCount": zod.int().optional().describe('How many properties sit under this account (0 unless it is a master)'),
+  "relatedBalanceTotal": zod.number().optional().describe('This account\'s balance plus every property under it. Equals accountBalance for an ordinary customer; on a master it is what the property manager owes in all.'),
+  "doNotEmail": zod.boolean().optional().describe('Stops every bulk email (board, waiting list, automations). Invoices still go out.'),
+  "source": zod.string().nullish().describe('Where they came from, e.g. Door Hanger'),
+  "referredByClientId": zod.int().nullish(),
+  "referredByClientName": zod.string().nullish(),
+  "preferredPaymentMethod": zod.union([zod.literal('check'),zod.literal('venmo'),zod.literal('zelle'),zod.literal('credit_card'),zod.literal('cash'),zod.literal('ach'),zod.literal('other'),zod.literal(null)]).nullish(),
+  "createdAt": zod.string().optional()
+})
+export const ListRelatedClientsResponse = zod.array(ListRelatedClientsResponseItem)
+
+
+/**
+ * @summary Extra people on the account (the CPA, the HOA contact, a spouse)
+ */
+export const ListClientContactsParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ListClientContactsResponseItem = zod.object({
+  "id": zod.int(),
+  "clientId": zod.int(),
+  "name": zod.string(),
+  "role": zod.string().nullish().describe('Who they are to the account: CPA, spouse, HOA president'),
+  "phone": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "birthday": zod.string().nullish().describe('yyyy-mm-dd, or mm-dd when the year is not known'),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListClientContactsResponse = zod.array(ListClientContactsResponseItem)
+
+
+export const CreateClientContactParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+
+
+
+export const CreateClientContactBody = zod.object({
+  "name": zod.string().min(1),
+  "role": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "birthday": zod.string().nullish(),
+  "notes": zod.string().nullish()
+})
+
+export const CreateClientContactResponse = zod.object({
+  "id": zod.int(),
+  "clientId": zod.int(),
+  "name": zod.string(),
+  "role": zod.string().nullish().describe('Who they are to the account: CPA, spouse, HOA president'),
+  "phone": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "birthday": zod.string().nullish().describe('yyyy-mm-dd, or mm-dd when the year is not known'),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+export const UpdateClientContactParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+
+
+
+export const UpdateClientContactBody = zod.object({
+  "name": zod.string().min(1).optional(),
+  "role": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "birthday": zod.string().nullish(),
+  "notes": zod.string().nullish()
+})
+
+export const UpdateClientContactResponse = zod.object({
+  "id": zod.int(),
+  "clientId": zod.int(),
+  "name": zod.string(),
+  "role": zod.string().nullish().describe('Who they are to the account: CPA, spouse, HOA president'),
+  "phone": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "birthday": zod.string().nullish().describe('yyyy-mm-dd, or mm-dd when the year is not known'),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+export const DeleteClientContactParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const DeleteClientContactResponse = zod.void()
+
+
+/**
  * @summary Services/packages assigned to a client
  */
 export const ListClientServicesParams = zod.object({
@@ -960,19 +1526,56 @@ export const ListClientServicesResponseItem = zod.object({
   "clientId": zod.int(),
   "serviceId": zod.int(),
   "serviceName": zod.string().nullish(),
+  "serviceCode": zod.string().nullish(),
+  "billingMode": zod.enum(['fixed', 'time']).describe('From the service. On a time service `amount` is the hourly rate.'),
   "packageId": zod.int().nullish(),
   "packageName": zod.string().nullish(),
+  "label": zod.string().nullish().describe('The package entry\'s label, e.g. Timer adjustment — June'),
   "quantity": zod.number(),
-  "amount": zod.number(),
-  "scheduleType": zod.enum(['window', 'recurring', 'one_time']),
+  "amount": zod.number().describe('Per visit (or per hour on a time service, or the contract\'s annual total split is in retailAmount)'),
+  "scheduleType": zod.enum(['window', 'recurring', 'one_time', 'contract']),
   "startDate": zod.string().nullish(),
   "endDate": zod.string().nullish(),
   "frequencyWeeks": zod.int().nullish(),
   "firstServiceDate": zod.string().nullish(),
   "seasonEndDate": zod.string().nullish(),
   "renewDate": zod.string().nullish(),
-  "budgetedHours": zod.number().nullish()
-})
+  "budgetedHours": zod.number().nullish(),
+  "lastRenewedAt": zod.string().nullish(),
+  "assignedToId": zod.int().nullish(),
+  "assignedToName": zod.string().nullish(),
+  "frequency": zod.union([zod.literal('weekly'),zod.literal('biweekly'),zod.literal('monthly'),zod.literal(null)]).nullish(),
+  "weekday": zod.int().nullish().describe('0 Sunday to 6 Saturday'),
+  "weekParity": zod.union([zod.literal('odd'),zod.literal('even'),zod.literal(null)]).nullish().describe('ISO week parity for bi-weekly'),
+  "monthlyWeek": zod.int().nullish().describe('1-4, which week of the month for monthly'),
+  "cadenceLabel": zod.string().describe('Every other Wednesday (odd weeks)'),
+  "discountType": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "discountValue": zod.number().nullish(),
+  "discountLabel": zod.string().nullish(),
+  "contractorNote": zod.string().nullish().describe('The note the crew must open before starting the job'),
+  "noteStartDate": zod.string().nullish(),
+  "noteEndDate": zod.string().nullish(),
+  "noteActiveToday": zod.boolean().optional(),
+  "pausedAt": zod.string().nullish(),
+  "pauseUntil": zod.string().nullish(),
+  "resumeWhenPaid": zod.boolean(),
+  "pauseReason": zod.string().nullish(),
+  "active": zod.boolean().describe('Off means no visits are generated; a package entry can be switched off on its own'),
+  "autoRenew": zod.boolean(),
+  "pricedFromLabel": zod.string().nullish().describe('The customer field the matrix priced from, e.g. Turf Sqft'),
+  "pricedFromValue": zod.number().nullish(),
+  "contractMonths": zod.int().nullish().describe('8 or 12 for a contract'),
+  "contractTotal": zod.number().nullish().describe('The contract\'s annual amount'),
+  "retailAmount": zod.number().describe('Per visit before the discount (a time service: hourly rate x budgeted hours; a contract: one monthly line)'),
+  "discountAmount": zod.number().describe('Per visit, in dollars'),
+  "netAmount": zod.number().describe('retailAmount less discountAmount'),
+  "upcomingCount": zod.int(),
+  "upcomingTotal": zod.number(),
+  "nextDate": zod.string().nullish(),
+  "completedCount": zod.int(),
+  "lastCompletedDate": zod.string().nullish(),
+  "createdAt": zod.string().optional()
+}).describe('A service on a customer\'s account (2026-09-15 walkthrough): the contractor it always goes to, the cadence in words, the price and where the matrix got it, a discount that prints as its own invoice line, the must-read crew note with its dates, pause state, and what is ahead \/ behind.')
 export const ListClientServicesResponse = zod.array(ListClientServicesResponseItem)
 
 
@@ -983,20 +1586,41 @@ export const CreateClientServiceParams = zod.object({
   "id": zod.coerce.number().int()
 })
 
+export const createClientServiceBodyWeekdayMin = 0;
+export const createClientServiceBodyWeekdayMax = 6;
+
+export const createClientServiceBodyMonthlyWeekMax = 4;
+
+
+
 export const CreateClientServiceBody = zod.object({
   "serviceId": zod.int().nullish(),
   "packageId": zod.int().nullish().describe('Provide packageId to add every service in the package'),
   "quantity": zod.number().optional(),
-  "amount": zod.number().nullish().describe('Override; defaults to engine-calculated or service rate'),
-  "sqft": zod.number().nullish().describe('Used with pricing equations to compute amount'),
-  "scheduleType": zod.enum(['window', 'recurring', 'one_time']).optional().describe('Optional only when packageId is given and that package sets its own schedule type; otherwise required.'),
+  "amount": zod.number().nullish().describe('Override; defaults to the matrix price from the customer\'s field, else the service rate'),
+  "sqft": zod.number().nullish().describe('A typed measurement; beats the one on the customer\'s record'),
+  "scheduleType": zod.enum(['window', 'recurring', 'one_time', 'contract']).optional().describe('Optional only when packageId is given and that package sets its own schedule type; otherwise required.'),
   "startDate": zod.string().nullish(),
   "endDate": zod.string().nullish(),
-  "frequencyWeeks": zod.int().nullish(),
+  "frequencyWeeks": zod.int().nullish().describe('Older callers; frequency is preferred'),
   "firstServiceDate": zod.string().nullish(),
   "seasonEndDate": zod.string().nullish(),
   "renewDate": zod.string().nullish(),
-  "budgetedHours": zod.number().nullish()
+  "budgetedHours": zod.number().nullish(),
+  "assignedToId": zod.int().nullish(),
+  "frequency": zod.union([zod.literal('weekly'),zod.literal('biweekly'),zod.literal('monthly'),zod.literal(null)]).nullish(),
+  "weekday": zod.int().min(createClientServiceBodyWeekdayMin).max(createClientServiceBodyWeekdayMax).nullish(),
+  "weekParity": zod.union([zod.literal('odd'),zod.literal('even'),zod.literal(null)]).nullish(),
+  "monthlyWeek": zod.int().min(1).max(createClientServiceBodyMonthlyWeekMax).nullish(),
+  "discountType": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "discountValue": zod.number().nullish(),
+  "discountLabel": zod.string().nullish(),
+  "contractorNote": zod.string().nullish(),
+  "noteStartDate": zod.string().nullish(),
+  "noteEndDate": zod.string().nullish(),
+  "autoRenew": zod.boolean().optional(),
+  "contractMonths": zod.int().nullish(),
+  "contractTotal": zod.number().nullish()
 })
 
 export const CreateClientServiceResponseItem = zod.object({
@@ -1004,19 +1628,56 @@ export const CreateClientServiceResponseItem = zod.object({
   "clientId": zod.int(),
   "serviceId": zod.int(),
   "serviceName": zod.string().nullish(),
+  "serviceCode": zod.string().nullish(),
+  "billingMode": zod.enum(['fixed', 'time']).describe('From the service. On a time service `amount` is the hourly rate.'),
   "packageId": zod.int().nullish(),
   "packageName": zod.string().nullish(),
+  "label": zod.string().nullish().describe('The package entry\'s label, e.g. Timer adjustment — June'),
   "quantity": zod.number(),
-  "amount": zod.number(),
-  "scheduleType": zod.enum(['window', 'recurring', 'one_time']),
+  "amount": zod.number().describe('Per visit (or per hour on a time service, or the contract\'s annual total split is in retailAmount)'),
+  "scheduleType": zod.enum(['window', 'recurring', 'one_time', 'contract']),
   "startDate": zod.string().nullish(),
   "endDate": zod.string().nullish(),
   "frequencyWeeks": zod.int().nullish(),
   "firstServiceDate": zod.string().nullish(),
   "seasonEndDate": zod.string().nullish(),
   "renewDate": zod.string().nullish(),
-  "budgetedHours": zod.number().nullish()
-})
+  "budgetedHours": zod.number().nullish(),
+  "lastRenewedAt": zod.string().nullish(),
+  "assignedToId": zod.int().nullish(),
+  "assignedToName": zod.string().nullish(),
+  "frequency": zod.union([zod.literal('weekly'),zod.literal('biweekly'),zod.literal('monthly'),zod.literal(null)]).nullish(),
+  "weekday": zod.int().nullish().describe('0 Sunday to 6 Saturday'),
+  "weekParity": zod.union([zod.literal('odd'),zod.literal('even'),zod.literal(null)]).nullish().describe('ISO week parity for bi-weekly'),
+  "monthlyWeek": zod.int().nullish().describe('1-4, which week of the month for monthly'),
+  "cadenceLabel": zod.string().describe('Every other Wednesday (odd weeks)'),
+  "discountType": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "discountValue": zod.number().nullish(),
+  "discountLabel": zod.string().nullish(),
+  "contractorNote": zod.string().nullish().describe('The note the crew must open before starting the job'),
+  "noteStartDate": zod.string().nullish(),
+  "noteEndDate": zod.string().nullish(),
+  "noteActiveToday": zod.boolean().optional(),
+  "pausedAt": zod.string().nullish(),
+  "pauseUntil": zod.string().nullish(),
+  "resumeWhenPaid": zod.boolean(),
+  "pauseReason": zod.string().nullish(),
+  "active": zod.boolean().describe('Off means no visits are generated; a package entry can be switched off on its own'),
+  "autoRenew": zod.boolean(),
+  "pricedFromLabel": zod.string().nullish().describe('The customer field the matrix priced from, e.g. Turf Sqft'),
+  "pricedFromValue": zod.number().nullish(),
+  "contractMonths": zod.int().nullish().describe('8 or 12 for a contract'),
+  "contractTotal": zod.number().nullish().describe('The contract\'s annual amount'),
+  "retailAmount": zod.number().describe('Per visit before the discount (a time service: hourly rate x budgeted hours; a contract: one monthly line)'),
+  "discountAmount": zod.number().describe('Per visit, in dollars'),
+  "netAmount": zod.number().describe('retailAmount less discountAmount'),
+  "upcomingCount": zod.int(),
+  "upcomingTotal": zod.number(),
+  "nextDate": zod.string().nullish(),
+  "completedCount": zod.int(),
+  "lastCompletedDate": zod.string().nullish(),
+  "createdAt": zod.string().optional()
+}).describe('A service on a customer\'s account (2026-09-15 walkthrough): the contractor it always goes to, the cadence in words, the price and where the matrix got it, a discount that prints as its own invoice line, the must-read crew note with its dates, pause state, and what is ahead \/ behind.')
 export const CreateClientServiceResponse = zod.array(CreateClientServiceResponseItem)
 
 
@@ -1024,16 +1685,39 @@ export const UpdateClientServiceParams = zod.object({
   "id": zod.coerce.number().int()
 })
 
+export const updateClientServiceBodyWeekdayMin = 0;
+export const updateClientServiceBodyWeekdayMax = 6;
+
+export const updateClientServiceBodyMonthlyWeekMax = 4;
+
+
+
 export const UpdateClientServiceBody = zod.object({
   "quantity": zod.number().optional(),
   "amount": zod.number().optional(),
+  "scheduleType": zod.enum(['window', 'recurring', 'one_time', 'contract']).optional(),
   "startDate": zod.string().nullish(),
   "endDate": zod.string().nullish(),
   "frequencyWeeks": zod.int().nullish(),
   "firstServiceDate": zod.string().nullish(),
   "seasonEndDate": zod.string().nullish(),
   "renewDate": zod.string().nullish(),
-  "budgetedHours": zod.number().nullish()
+  "budgetedHours": zod.number().nullish(),
+  "assignedToId": zod.int().nullish(),
+  "frequency": zod.union([zod.literal('weekly'),zod.literal('biweekly'),zod.literal('monthly'),zod.literal(null)]).nullish(),
+  "weekday": zod.int().min(updateClientServiceBodyWeekdayMin).max(updateClientServiceBodyWeekdayMax).nullish(),
+  "weekParity": zod.union([zod.literal('odd'),zod.literal('even'),zod.literal(null)]).nullish(),
+  "monthlyWeek": zod.int().min(1).max(updateClientServiceBodyMonthlyWeekMax).nullish(),
+  "discountType": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "discountValue": zod.number().nullish(),
+  "discountLabel": zod.string().nullish(),
+  "contractorNote": zod.string().nullish(),
+  "noteStartDate": zod.string().nullish(),
+  "noteEndDate": zod.string().nullish(),
+  "autoRenew": zod.boolean().optional(),
+  "active": zod.boolean().optional(),
+  "contractMonths": zod.int().nullish(),
+  "contractTotal": zod.number().nullish()
 })
 
 export const UpdateClientServiceResponse = zod.object({
@@ -1041,19 +1725,56 @@ export const UpdateClientServiceResponse = zod.object({
   "clientId": zod.int(),
   "serviceId": zod.int(),
   "serviceName": zod.string().nullish(),
+  "serviceCode": zod.string().nullish(),
+  "billingMode": zod.enum(['fixed', 'time']).describe('From the service. On a time service `amount` is the hourly rate.'),
   "packageId": zod.int().nullish(),
   "packageName": zod.string().nullish(),
+  "label": zod.string().nullish().describe('The package entry\'s label, e.g. Timer adjustment — June'),
   "quantity": zod.number(),
-  "amount": zod.number(),
-  "scheduleType": zod.enum(['window', 'recurring', 'one_time']),
+  "amount": zod.number().describe('Per visit (or per hour on a time service, or the contract\'s annual total split is in retailAmount)'),
+  "scheduleType": zod.enum(['window', 'recurring', 'one_time', 'contract']),
   "startDate": zod.string().nullish(),
   "endDate": zod.string().nullish(),
   "frequencyWeeks": zod.int().nullish(),
   "firstServiceDate": zod.string().nullish(),
   "seasonEndDate": zod.string().nullish(),
   "renewDate": zod.string().nullish(),
-  "budgetedHours": zod.number().nullish()
-})
+  "budgetedHours": zod.number().nullish(),
+  "lastRenewedAt": zod.string().nullish(),
+  "assignedToId": zod.int().nullish(),
+  "assignedToName": zod.string().nullish(),
+  "frequency": zod.union([zod.literal('weekly'),zod.literal('biweekly'),zod.literal('monthly'),zod.literal(null)]).nullish(),
+  "weekday": zod.int().nullish().describe('0 Sunday to 6 Saturday'),
+  "weekParity": zod.union([zod.literal('odd'),zod.literal('even'),zod.literal(null)]).nullish().describe('ISO week parity for bi-weekly'),
+  "monthlyWeek": zod.int().nullish().describe('1-4, which week of the month for monthly'),
+  "cadenceLabel": zod.string().describe('Every other Wednesday (odd weeks)'),
+  "discountType": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "discountValue": zod.number().nullish(),
+  "discountLabel": zod.string().nullish(),
+  "contractorNote": zod.string().nullish().describe('The note the crew must open before starting the job'),
+  "noteStartDate": zod.string().nullish(),
+  "noteEndDate": zod.string().nullish(),
+  "noteActiveToday": zod.boolean().optional(),
+  "pausedAt": zod.string().nullish(),
+  "pauseUntil": zod.string().nullish(),
+  "resumeWhenPaid": zod.boolean(),
+  "pauseReason": zod.string().nullish(),
+  "active": zod.boolean().describe('Off means no visits are generated; a package entry can be switched off on its own'),
+  "autoRenew": zod.boolean(),
+  "pricedFromLabel": zod.string().nullish().describe('The customer field the matrix priced from, e.g. Turf Sqft'),
+  "pricedFromValue": zod.number().nullish(),
+  "contractMonths": zod.int().nullish().describe('8 or 12 for a contract'),
+  "contractTotal": zod.number().nullish().describe('The contract\'s annual amount'),
+  "retailAmount": zod.number().describe('Per visit before the discount (a time service: hourly rate x budgeted hours; a contract: one monthly line)'),
+  "discountAmount": zod.number().describe('Per visit, in dollars'),
+  "netAmount": zod.number().describe('retailAmount less discountAmount'),
+  "upcomingCount": zod.int(),
+  "upcomingTotal": zod.number(),
+  "nextDate": zod.string().nullish(),
+  "completedCount": zod.int(),
+  "lastCompletedDate": zod.string().nullish(),
+  "createdAt": zod.string().optional()
+}).describe('A service on a customer\'s account (2026-09-15 walkthrough): the contractor it always goes to, the cadence in words, the price and where the matrix got it, a discount that prints as its own invoice line, the must-read crew note with its dates, pause state, and what is ahead \/ behind.')
 
 
 export const DeleteClientServiceParams = zod.object({
@@ -1063,10 +1784,396 @@ export const DeleteClientServiceParams = zod.object({
 export const DeleteClientServiceResponse = zod.void()
 
 
+/**
+ * @summary What a service would cost this customer, priced from their own property field via the matrix
+ */
+export const PreviewClientServicePriceParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const PreviewClientServicePriceBody = zod.object({
+  "serviceId": zod.int(),
+  "quantity": zod.number().nullish(),
+  "sqft": zod.number().nullish().describe('A typed measurement to price against instead of the one on file')
+})
+
+export const PreviewClientServicePriceResponse = zod.object({
+  "amount": zod.number(),
+  "budgetedHours": zod.number().nullish(),
+  "pricedFromLabel": zod.string().nullish(),
+  "pricedFromValue": zod.number().nullish(),
+  "missingField": zod.string().nullish().describe('Set when the matrix needs a customer field that is blank; amount is then the flat rate'),
+  "billingMode": zod.enum(['fixed', 'time']),
+  "rate": zod.number(),
+  "serviceName": zod.string(),
+  "defaultStartDate": zod.string().nullish(),
+  "defaultEndDate": zod.string().nullish(),
+  "renewDate": zod.string().nullish()
+})
+
+
+/**
+ * @summary One assigned service's upcoming visits and its history
+ */
+export const ListClientServiceJobsParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ListClientServiceJobsResponse = zod.object({
+  "upcoming": zod.array(zod.object({
+  "id": zod.int(),
+  "clientId": zod.int(),
+  "clientName": zod.string().nullish(),
+  "clientAddress": zod.string().nullish(),
+  "clientBalance": zod.number().nullish(),
+  "lastInvoiceNumber": zod.int().nullish(),
+  "lastInvoiceBalance": zod.number().nullish(),
+  "lastInvoiceDate": zod.string().nullish(),
+  "clientLat": zod.number().nullish(),
+  "clientLng": zod.number().nullish(),
+  "city": zod.string().nullish(),
+  "clientServiceId": zod.int().nullish(),
+  "serviceId": zod.int().nullish(),
+  "serviceName": zod.string().nullish(),
+  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped', 'cancelled']),
+  "dispatched": zod.boolean(),
+  "scheduledDate": zod.string().nullish(),
+  "windowStart": zod.string().nullish(),
+  "windowEnd": zod.string().nullish(),
+  "routeOrder": zod.int().nullish(),
+  "assignedToId": zod.int().nullish(),
+  "assignedToName": zod.string().nullish().describe('The contractor\'s short display name, never an email address.'),
+  "mapNote": zod.string().nullish(),
+  "cancelReason": zod.string().nullish(),
+  "cancelledAt": zod.string().nullish(),
+  "clientEmail": zod.string().nullish(),
+  "clientPhone": zod.string().nullish(),
+  "clientDoNotEmail": zod.boolean().optional(),
+  "clientMapCode": zod.string().nullish(),
+  "clientState": zod.string().nullish().describe('His branch: ID or WA.'),
+  "clientTags": zod.array(zod.string()).optional(),
+  "serviceCode": zod.string().nullish().describe('The service\'s short code, what the waiting list shows (BA7, BACKF, MOWIN).'),
+  "clientPropertyData": zod.record(zod.string(), zod.string()).optional().describe('The client\'s saved property details, keyed by field label (Gate Code, Sprinkler Zones, Turf Sqft). Carried on the job so the crew can read access details from the job card without opening the client record, which a contractor cannot do.'),
+  "lastServiceDate": zod.string().nullish(),
+  "budgetedHours": zod.number().nullish(),
+  "amount": zod.number(),
+  "notes": zod.string().nullish(),
+  "notesImportant": zod.boolean().nullish(),
+  "visibleToContractor": zod.boolean().nullish(),
+  "products": zod.array(zod.object({
+  "id": zod.int(),
+  "jobId": zod.int(),
+  "name": zod.string(),
+  "price": zod.number(),
+  "quantity": zod.number().optional(),
+  "serviceId": zod.int().nullish(),
+  "chargePresetId": zod.int().nullish().describe('Set when the line came from the parts list')
+})).optional(),
+  "invoiceId": zod.int().nullish(),
+  "completedAt": zod.string().nullish(),
+  "skipReason": zod.string().nullish(),
+  "skippedAt": zod.string().nullish(),
+  "skipBillable": zod.boolean().nullish().describe('Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.'),
+  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.'),
+  "contractorNote": zod.string().nullish().describe('The assigned service\'s must-read note, when one is in force on this visit\'s day. The contractor must open it before Start unlocks.'),
+  "noteAcknowledgedAt": zod.string().nullish().describe('When the contractor opened the note on this visit'),
+  "clockedMinutes": zod.number().optional().describe('Closed time entries on this job, all crew, in minutes'),
+  "clockOpen": zod.boolean().optional().describe('Someone is still clocked in'),
+  "billingMode": zod.enum(['fixed', 'time']).optional(),
+  "hourlyRate": zod.number().nullish().describe('On a time job: the rate the clock is billed at'),
+  "amountOverridden": zod.boolean().optional().describe('The office set the amount by hand; the clock no longer decides it'),
+  "discountType": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "discountValue": zod.number().nullish(),
+  "discountLabel": zod.string().nullish(),
+  "discountAmount": zod.number().optional().describe('The discount in dollars against the current amount; its own line on the invoice')
+})),
+  "history": zod.array(zod.object({
+  "id": zod.int(),
+  "clientId": zod.int(),
+  "clientName": zod.string().nullish(),
+  "clientAddress": zod.string().nullish(),
+  "clientBalance": zod.number().nullish(),
+  "lastInvoiceNumber": zod.int().nullish(),
+  "lastInvoiceBalance": zod.number().nullish(),
+  "lastInvoiceDate": zod.string().nullish(),
+  "clientLat": zod.number().nullish(),
+  "clientLng": zod.number().nullish(),
+  "city": zod.string().nullish(),
+  "clientServiceId": zod.int().nullish(),
+  "serviceId": zod.int().nullish(),
+  "serviceName": zod.string().nullish(),
+  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped', 'cancelled']),
+  "dispatched": zod.boolean(),
+  "scheduledDate": zod.string().nullish(),
+  "windowStart": zod.string().nullish(),
+  "windowEnd": zod.string().nullish(),
+  "routeOrder": zod.int().nullish(),
+  "assignedToId": zod.int().nullish(),
+  "assignedToName": zod.string().nullish().describe('The contractor\'s short display name, never an email address.'),
+  "mapNote": zod.string().nullish(),
+  "cancelReason": zod.string().nullish(),
+  "cancelledAt": zod.string().nullish(),
+  "clientEmail": zod.string().nullish(),
+  "clientPhone": zod.string().nullish(),
+  "clientDoNotEmail": zod.boolean().optional(),
+  "clientMapCode": zod.string().nullish(),
+  "clientState": zod.string().nullish().describe('His branch: ID or WA.'),
+  "clientTags": zod.array(zod.string()).optional(),
+  "serviceCode": zod.string().nullish().describe('The service\'s short code, what the waiting list shows (BA7, BACKF, MOWIN).'),
+  "clientPropertyData": zod.record(zod.string(), zod.string()).optional().describe('The client\'s saved property details, keyed by field label (Gate Code, Sprinkler Zones, Turf Sqft). Carried on the job so the crew can read access details from the job card without opening the client record, which a contractor cannot do.'),
+  "lastServiceDate": zod.string().nullish(),
+  "budgetedHours": zod.number().nullish(),
+  "amount": zod.number(),
+  "notes": zod.string().nullish(),
+  "notesImportant": zod.boolean().nullish(),
+  "visibleToContractor": zod.boolean().nullish(),
+  "products": zod.array(zod.object({
+  "id": zod.int(),
+  "jobId": zod.int(),
+  "name": zod.string(),
+  "price": zod.number(),
+  "quantity": zod.number().optional(),
+  "serviceId": zod.int().nullish(),
+  "chargePresetId": zod.int().nullish().describe('Set when the line came from the parts list')
+})).optional(),
+  "invoiceId": zod.int().nullish(),
+  "completedAt": zod.string().nullish(),
+  "skipReason": zod.string().nullish(),
+  "skippedAt": zod.string().nullish(),
+  "skipBillable": zod.boolean().nullish().describe('Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.'),
+  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.'),
+  "contractorNote": zod.string().nullish().describe('The assigned service\'s must-read note, when one is in force on this visit\'s day. The contractor must open it before Start unlocks.'),
+  "noteAcknowledgedAt": zod.string().nullish().describe('When the contractor opened the note on this visit'),
+  "clockedMinutes": zod.number().optional().describe('Closed time entries on this job, all crew, in minutes'),
+  "clockOpen": zod.boolean().optional().describe('Someone is still clocked in'),
+  "billingMode": zod.enum(['fixed', 'time']).optional(),
+  "hourlyRate": zod.number().nullish().describe('On a time job: the rate the clock is billed at'),
+  "amountOverridden": zod.boolean().optional().describe('The office set the amount by hand; the clock no longer decides it'),
+  "discountType": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "discountValue": zod.number().nullish(),
+  "discountLabel": zod.string().nullish(),
+  "discountAmount": zod.number().optional().describe('The discount in dollars against the current amount; its own line on the invoice')
+}))
+})
+
+
+/**
+ * @summary Pause an assigned service (or its whole package) until a date or until the account is paid
+ */
+export const PauseClientServiceParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const PauseClientServiceBody = zod.object({
+  "reason": zod.string().nullish(),
+  "pauseUntil": zod.string().nullish().describe('yyyy-mm-dd; the nightly check resumes it that day'),
+  "resumeWhenPaid": zod.boolean().optional().describe('Resume as soon as the account balance is zero or less'),
+  "wholePackage": zod.boolean().optional().describe('Pause every service this package put on the account')
+})
+
+export const PauseClientServiceResponse = zod.object({
+  "id": zod.int(),
+  "clientId": zod.int(),
+  "serviceId": zod.int(),
+  "serviceName": zod.string().nullish(),
+  "serviceCode": zod.string().nullish(),
+  "billingMode": zod.enum(['fixed', 'time']).describe('From the service. On a time service `amount` is the hourly rate.'),
+  "packageId": zod.int().nullish(),
+  "packageName": zod.string().nullish(),
+  "label": zod.string().nullish().describe('The package entry\'s label, e.g. Timer adjustment — June'),
+  "quantity": zod.number(),
+  "amount": zod.number().describe('Per visit (or per hour on a time service, or the contract\'s annual total split is in retailAmount)'),
+  "scheduleType": zod.enum(['window', 'recurring', 'one_time', 'contract']),
+  "startDate": zod.string().nullish(),
+  "endDate": zod.string().nullish(),
+  "frequencyWeeks": zod.int().nullish(),
+  "firstServiceDate": zod.string().nullish(),
+  "seasonEndDate": zod.string().nullish(),
+  "renewDate": zod.string().nullish(),
+  "budgetedHours": zod.number().nullish(),
+  "lastRenewedAt": zod.string().nullish(),
+  "assignedToId": zod.int().nullish(),
+  "assignedToName": zod.string().nullish(),
+  "frequency": zod.union([zod.literal('weekly'),zod.literal('biweekly'),zod.literal('monthly'),zod.literal(null)]).nullish(),
+  "weekday": zod.int().nullish().describe('0 Sunday to 6 Saturday'),
+  "weekParity": zod.union([zod.literal('odd'),zod.literal('even'),zod.literal(null)]).nullish().describe('ISO week parity for bi-weekly'),
+  "monthlyWeek": zod.int().nullish().describe('1-4, which week of the month for monthly'),
+  "cadenceLabel": zod.string().describe('Every other Wednesday (odd weeks)'),
+  "discountType": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "discountValue": zod.number().nullish(),
+  "discountLabel": zod.string().nullish(),
+  "contractorNote": zod.string().nullish().describe('The note the crew must open before starting the job'),
+  "noteStartDate": zod.string().nullish(),
+  "noteEndDate": zod.string().nullish(),
+  "noteActiveToday": zod.boolean().optional(),
+  "pausedAt": zod.string().nullish(),
+  "pauseUntil": zod.string().nullish(),
+  "resumeWhenPaid": zod.boolean(),
+  "pauseReason": zod.string().nullish(),
+  "active": zod.boolean().describe('Off means no visits are generated; a package entry can be switched off on its own'),
+  "autoRenew": zod.boolean(),
+  "pricedFromLabel": zod.string().nullish().describe('The customer field the matrix priced from, e.g. Turf Sqft'),
+  "pricedFromValue": zod.number().nullish(),
+  "contractMonths": zod.int().nullish().describe('8 or 12 for a contract'),
+  "contractTotal": zod.number().nullish().describe('The contract\'s annual amount'),
+  "retailAmount": zod.number().describe('Per visit before the discount (a time service: hourly rate x budgeted hours; a contract: one monthly line)'),
+  "discountAmount": zod.number().describe('Per visit, in dollars'),
+  "netAmount": zod.number().describe('retailAmount less discountAmount'),
+  "upcomingCount": zod.int(),
+  "upcomingTotal": zod.number(),
+  "nextDate": zod.string().nullish(),
+  "completedCount": zod.int(),
+  "lastCompletedDate": zod.string().nullish(),
+  "createdAt": zod.string().optional()
+}).describe('A service on a customer\'s account (2026-09-15 walkthrough): the contractor it always goes to, the cadence in words, the price and where the matrix got it, a discount that prints as its own invoice line, the must-read crew note with its dates, pause state, and what is ahead \/ behind.')
+
+
+/**
+ * @summary Put a paused service back on the board
+ */
+export const ResumeClientServiceParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ResumeClientServiceResponse = zod.object({
+  "id": zod.int(),
+  "clientId": zod.int(),
+  "serviceId": zod.int(),
+  "serviceName": zod.string().nullish(),
+  "serviceCode": zod.string().nullish(),
+  "billingMode": zod.enum(['fixed', 'time']).describe('From the service. On a time service `amount` is the hourly rate.'),
+  "packageId": zod.int().nullish(),
+  "packageName": zod.string().nullish(),
+  "label": zod.string().nullish().describe('The package entry\'s label, e.g. Timer adjustment — June'),
+  "quantity": zod.number(),
+  "amount": zod.number().describe('Per visit (or per hour on a time service, or the contract\'s annual total split is in retailAmount)'),
+  "scheduleType": zod.enum(['window', 'recurring', 'one_time', 'contract']),
+  "startDate": zod.string().nullish(),
+  "endDate": zod.string().nullish(),
+  "frequencyWeeks": zod.int().nullish(),
+  "firstServiceDate": zod.string().nullish(),
+  "seasonEndDate": zod.string().nullish(),
+  "renewDate": zod.string().nullish(),
+  "budgetedHours": zod.number().nullish(),
+  "lastRenewedAt": zod.string().nullish(),
+  "assignedToId": zod.int().nullish(),
+  "assignedToName": zod.string().nullish(),
+  "frequency": zod.union([zod.literal('weekly'),zod.literal('biweekly'),zod.literal('monthly'),zod.literal(null)]).nullish(),
+  "weekday": zod.int().nullish().describe('0 Sunday to 6 Saturday'),
+  "weekParity": zod.union([zod.literal('odd'),zod.literal('even'),zod.literal(null)]).nullish().describe('ISO week parity for bi-weekly'),
+  "monthlyWeek": zod.int().nullish().describe('1-4, which week of the month for monthly'),
+  "cadenceLabel": zod.string().describe('Every other Wednesday (odd weeks)'),
+  "discountType": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "discountValue": zod.number().nullish(),
+  "discountLabel": zod.string().nullish(),
+  "contractorNote": zod.string().nullish().describe('The note the crew must open before starting the job'),
+  "noteStartDate": zod.string().nullish(),
+  "noteEndDate": zod.string().nullish(),
+  "noteActiveToday": zod.boolean().optional(),
+  "pausedAt": zod.string().nullish(),
+  "pauseUntil": zod.string().nullish(),
+  "resumeWhenPaid": zod.boolean(),
+  "pauseReason": zod.string().nullish(),
+  "active": zod.boolean().describe('Off means no visits are generated; a package entry can be switched off on its own'),
+  "autoRenew": zod.boolean(),
+  "pricedFromLabel": zod.string().nullish().describe('The customer field the matrix priced from, e.g. Turf Sqft'),
+  "pricedFromValue": zod.number().nullish(),
+  "contractMonths": zod.int().nullish().describe('8 or 12 for a contract'),
+  "contractTotal": zod.number().nullish().describe('The contract\'s annual amount'),
+  "retailAmount": zod.number().describe('Per visit before the discount (a time service: hourly rate x budgeted hours; a contract: one monthly line)'),
+  "discountAmount": zod.number().describe('Per visit, in dollars'),
+  "netAmount": zod.number().describe('retailAmount less discountAmount'),
+  "upcomingCount": zod.int(),
+  "upcomingTotal": zod.number(),
+  "nextDate": zod.string().nullish(),
+  "completedCount": zod.int(),
+  "lastCompletedDate": zod.string().nullish(),
+  "createdAt": zod.string().optional()
+}).describe('A service on a customer\'s account (2026-09-15 walkthrough): the contractor it always goes to, the cadence in words, the price and where the matrix got it, a discount that prints as its own invoice line, the must-read crew note with its dates, pause state, and what is ahead \/ behind.')
+
+
+/**
+ * @summary Roll an assigned service into next season by hand
+ */
+export const RenewClientServiceParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const RenewClientServiceResponse = zod.object({
+  "id": zod.int(),
+  "clientId": zod.int(),
+  "serviceId": zod.int(),
+  "serviceName": zod.string().nullish(),
+  "serviceCode": zod.string().nullish(),
+  "billingMode": zod.enum(['fixed', 'time']).describe('From the service. On a time service `amount` is the hourly rate.'),
+  "packageId": zod.int().nullish(),
+  "packageName": zod.string().nullish(),
+  "label": zod.string().nullish().describe('The package entry\'s label, e.g. Timer adjustment — June'),
+  "quantity": zod.number(),
+  "amount": zod.number().describe('Per visit (or per hour on a time service, or the contract\'s annual total split is in retailAmount)'),
+  "scheduleType": zod.enum(['window', 'recurring', 'one_time', 'contract']),
+  "startDate": zod.string().nullish(),
+  "endDate": zod.string().nullish(),
+  "frequencyWeeks": zod.int().nullish(),
+  "firstServiceDate": zod.string().nullish(),
+  "seasonEndDate": zod.string().nullish(),
+  "renewDate": zod.string().nullish(),
+  "budgetedHours": zod.number().nullish(),
+  "lastRenewedAt": zod.string().nullish(),
+  "assignedToId": zod.int().nullish(),
+  "assignedToName": zod.string().nullish(),
+  "frequency": zod.union([zod.literal('weekly'),zod.literal('biweekly'),zod.literal('monthly'),zod.literal(null)]).nullish(),
+  "weekday": zod.int().nullish().describe('0 Sunday to 6 Saturday'),
+  "weekParity": zod.union([zod.literal('odd'),zod.literal('even'),zod.literal(null)]).nullish().describe('ISO week parity for bi-weekly'),
+  "monthlyWeek": zod.int().nullish().describe('1-4, which week of the month for monthly'),
+  "cadenceLabel": zod.string().describe('Every other Wednesday (odd weeks)'),
+  "discountType": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "discountValue": zod.number().nullish(),
+  "discountLabel": zod.string().nullish(),
+  "contractorNote": zod.string().nullish().describe('The note the crew must open before starting the job'),
+  "noteStartDate": zod.string().nullish(),
+  "noteEndDate": zod.string().nullish(),
+  "noteActiveToday": zod.boolean().optional(),
+  "pausedAt": zod.string().nullish(),
+  "pauseUntil": zod.string().nullish(),
+  "resumeWhenPaid": zod.boolean(),
+  "pauseReason": zod.string().nullish(),
+  "active": zod.boolean().describe('Off means no visits are generated; a package entry can be switched off on its own'),
+  "autoRenew": zod.boolean(),
+  "pricedFromLabel": zod.string().nullish().describe('The customer field the matrix priced from, e.g. Turf Sqft'),
+  "pricedFromValue": zod.number().nullish(),
+  "contractMonths": zod.int().nullish().describe('8 or 12 for a contract'),
+  "contractTotal": zod.number().nullish().describe('The contract\'s annual amount'),
+  "retailAmount": zod.number().describe('Per visit before the discount (a time service: hourly rate x budgeted hours; a contract: one monthly line)'),
+  "discountAmount": zod.number().describe('Per visit, in dollars'),
+  "netAmount": zod.number().describe('retailAmount less discountAmount'),
+  "upcomingCount": zod.int(),
+  "upcomingTotal": zod.number(),
+  "nextDate": zod.string().nullish(),
+  "completedCount": zod.int(),
+  "lastCompletedDate": zod.string().nullish(),
+  "createdAt": zod.string().optional()
+}).describe('A service on a customer\'s account (2026-09-15 walkthrough): the contractor it always goes to, the cadence in words, the price and where the matrix got it, a discount that prints as its own invoice line, the must-read crew note with its dates, pause state, and what is ahead \/ behind.')
+
+
+/**
+ * @summary Run the nightly assigned-services check now (resume paused services that are due, auto-renew)
+ */
+export const RunClientServiceDailyTasksResponse = zod.object({
+  "resumed": zod.int(),
+  "renewed": zod.int(),
+  "renewalsRan": zod.boolean().describe('False when today\'s renewal pass had already been claimed')
+})
+
+
 export const ListServicesResponseItem = zod.object({
   "id": zod.int(),
   "name": zod.string(),
   "description": zod.string().nullish(),
+  "code": zod.string().nullish().describe('Short code shown on the waiting list, e.g. BA7 or MOWIN'),
+  "invoiceDescription": zod.string().nullish().describe('What prints on the invoice line; blank falls back to the name'),
+  "billingMode": zod.enum(['fixed', 'time']).optional().describe('fixed = set price; time = billed on the job\'s start\/stop time and adjusted afterwards'),
+  "visitsPerSeason": zod.int().nullish().describe('Default number of visits an estimate multiplies the band rate by (28 mows a season). Null means one.'),
   "quantity": zod.number(),
   "rate": zod.number(),
   "billableHours": zod.number().nullish(),
@@ -1095,9 +2202,14 @@ export const ListServicesResponse = zod.array(ListServicesResponseItem)
 
 
 
+
 export const CreateServiceBody = zod.object({
   "name": zod.string().min(1),
   "description": zod.string().optional(),
+  "code": zod.string().nullish(),
+  "invoiceDescription": zod.string().nullish(),
+  "billingMode": zod.enum(['fixed', 'time']).optional(),
+  "visitsPerSeason": zod.int().min(1).nullish(),
   "quantity": zod.number().optional(),
   "rate": zod.number().optional(),
   "billableHours": zod.number().nullish(),
@@ -1125,6 +2237,10 @@ export const CreateServiceResponse = zod.object({
   "id": zod.int(),
   "name": zod.string(),
   "description": zod.string().nullish(),
+  "code": zod.string().nullish().describe('Short code shown on the waiting list, e.g. BA7 or MOWIN'),
+  "invoiceDescription": zod.string().nullish().describe('What prints on the invoice line; blank falls back to the name'),
+  "billingMode": zod.enum(['fixed', 'time']).optional().describe('fixed = set price; time = billed on the job\'s start\/stop time and adjusted afterwards'),
+  "visitsPerSeason": zod.int().nullish().describe('Default number of visits an estimate multiplies the band rate by (28 mows a season). Null means one.'),
   "quantity": zod.number(),
   "rate": zod.number(),
   "billableHours": zod.number().nullish(),
@@ -1157,6 +2273,10 @@ export const GetServiceResponse = zod.object({
   "id": zod.int(),
   "name": zod.string(),
   "description": zod.string().nullish(),
+  "code": zod.string().nullish().describe('Short code shown on the waiting list, e.g. BA7 or MOWIN'),
+  "invoiceDescription": zod.string().nullish().describe('What prints on the invoice line; blank falls back to the name'),
+  "billingMode": zod.enum(['fixed', 'time']).optional().describe('fixed = set price; time = billed on the job\'s start\/stop time and adjusted afterwards'),
+  "visitsPerSeason": zod.int().nullish().describe('Default number of visits an estimate multiplies the band rate by (28 mows a season). Null means one.'),
   "quantity": zod.number(),
   "rate": zod.number(),
   "billableHours": zod.number().nullish(),
@@ -1188,9 +2308,14 @@ export const UpdateServiceParams = zod.object({
 
 
 
+
 export const UpdateServiceBody = zod.object({
   "name": zod.string().min(1).optional(),
   "description": zod.string().nullish(),
+  "code": zod.string().nullish(),
+  "invoiceDescription": zod.string().nullish(),
+  "billingMode": zod.enum(['fixed', 'time']).optional(),
+  "visitsPerSeason": zod.int().min(1).nullish(),
   "quantity": zod.number().optional(),
   "rate": zod.number().optional(),
   "billableHours": zod.number().nullish(),
@@ -1218,6 +2343,10 @@ export const UpdateServiceResponse = zod.object({
   "id": zod.int(),
   "name": zod.string(),
   "description": zod.string().nullish(),
+  "code": zod.string().nullish().describe('Short code shown on the waiting list, e.g. BA7 or MOWIN'),
+  "invoiceDescription": zod.string().nullish().describe('What prints on the invoice line; blank falls back to the name'),
+  "billingMode": zod.enum(['fixed', 'time']).optional().describe('fixed = set price; time = billed on the job\'s start\/stop time and adjusted afterwards'),
+  "visitsPerSeason": zod.int().nullish().describe('Default number of visits an estimate multiplies the band rate by (28 mows a season). Null means one.'),
   "quantity": zod.number(),
   "rate": zod.number(),
   "billableHours": zod.number().nullish(),
@@ -1267,11 +2396,102 @@ export const CalculateServicePriceResponse = zod.object({
 })
 
 
+/**
+ * @summary Copy this service's rate matrix onto other services, scaled — preview first, then apply
+ */
+export const CopyServiceMatrixParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+
+
+
+export const CopyServiceMatrixBody = zod.object({
+  "targetServiceIds": zod.array(zod.int()).min(1),
+  "mode": zod.enum(['multiply', 'add', 'percent']).optional().describe('multiply = rate x value (1.5 for a one-time mow); add = rate + $value; percent = rate + value%. Default multiply.'),
+  "value": zod.number().optional().describe('The multiplier, the dollars or the percent, depending on mode. Default 1 (multiply) or 0.'),
+  "roundTo": zod.number().nullish().describe('Round every scaled price to this increment, e.g. 0.5 or 1. Null keeps cents.'),
+  "copyPricingField": zod.boolean().optional().describe('Point each target at the source\'s Price By field too (default true) — the bands are measured in it.'),
+  "apply": zod.boolean().optional().describe('false (the default) only previews what each target would get; true writes it.'),
+  "overwrite": zod.boolean().optional().describe('Must be true to replace a target that already has priced bands.')
+})
+
+export const CopyServiceMatrixResponse = zod.object({
+  "applied": zod.boolean(),
+  "sourceServiceId": zod.int(),
+  "sourceServiceName": zod.string(),
+  "targets": zod.array(zod.object({
+  "serviceId": zod.int(),
+  "serviceName": zod.string(),
+  "existingBands": zod.int().describe('Priced bands the target has today — the copy replaces them'),
+  "equations": zod.array(zod.object({
+  "upToSqft": zod.number().nullable().describe('Breakpoint; null = no upper bound'),
+  "basePrice": zod.number(),
+  "baseSqft": zod.number().describe('Base price covers the first N sqft'),
+  "incrementPrice": zod.number(),
+  "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up'),
+  "budgetedHours": zod.number().nullish().describe('Expected labour hours for a job falling in this band. Per band because the work scales with the property — a 4,000 sqft mow is not the same job as a 19,000 sqft one. Null means no estimate for this band, which is deliberately distinct from zero.'),
+  "budgetedCost": zod.number().nullish().describe('Expected cost to deliver a job in this band, for job costing against the rate. Null means no estimate, not zero.')
+})),
+  "pricingFieldChanged": zod.boolean()
+}))
+})
+
+
+/**
+ * @summary Turn a pricing rule ($X per N sqft up to Y) into matrix bands
+ */
+export const buildMatrixFromRuleBodyStartPriceMin = 0;
+
+export const buildMatrixFromRuleBodyFirstTierPricePerStepMin = 0;
+
+export const buildMatrixFromRuleBodyFirstTierStepSizeExclusiveMin = 0;
+
+export const buildMatrixFromRuleBodySecondTierPricePerStepMin = 0;
+
+export const buildMatrixFromRuleBodySecondTierStepSizeExclusiveMin = 0;
+
+
+
+export const BuildMatrixFromRuleBody = zod.object({
+  "startPrice": zod.number().min(buildMatrixFromRuleBodyStartPriceMin).describe('Price of the first band, which covers the first step'),
+  "firstTier": zod.object({
+  "pricePerStep": zod.number().min(buildMatrixFromRuleBodyFirstTierPricePerStepMin).describe('Dollars added for every step'),
+  "stepSize": zod.number().gt(buildMatrixFromRuleBodyFirstTierStepSizeExclusiveMin).describe('One step in the pricing unit, e.g. 1000 sqft or 500 sqft'),
+  "upTo": zod.number().nullish().describe('Where this tier stops. Null makes one final and-up band that keeps adding pricePerStep per stepSize.')
+}),
+  "secondTier": zod.object({
+  "pricePerStep": zod.number().min(buildMatrixFromRuleBodySecondTierPricePerStepMin).describe('Dollars added for every step'),
+  "stepSize": zod.number().gt(buildMatrixFromRuleBodySecondTierStepSizeExclusiveMin).describe('One step in the pricing unit, e.g. 1000 sqft or 500 sqft'),
+  "upTo": zod.number().nullish().describe('Where this tier stops. Null makes one final and-up band that keeps adding pricePerStep per stepSize.')
+}).optional(),
+  "costPercent": zod.number().nullish().describe('Fill budgeted cost as this percent of each band\'s rate; null leaves cost blank')
+})
+
+export const BuildMatrixFromRuleResponse = zod.object({
+  "equations": zod.array(zod.object({
+  "upToSqft": zod.number().nullable().describe('Breakpoint; null = no upper bound'),
+  "basePrice": zod.number(),
+  "baseSqft": zod.number().describe('Base price covers the first N sqft'),
+  "incrementPrice": zod.number(),
+  "incrementSqft": zod.number().describe('Additional price per N sqft, rounded up'),
+  "budgetedHours": zod.number().nullish().describe('Expected labour hours for a job falling in this band. Per band because the work scales with the property — a 4,000 sqft mow is not the same job as a 19,000 sqft one. Null means no estimate for this band, which is deliberately distinct from zero.'),
+  "budgetedCost": zod.number().nullish().describe('Expected cost to deliver a job in this band, for job costing against the rate. Null means no estimate, not zero.')
+}))
+})
+
+
 export const ListPackagesResponseItem = zod.object({
   "id": zod.int(),
   "name": zod.string(),
   "description": zod.string().nullish(),
-  "serviceIds": zod.array(zod.int()),
+  "serviceIds": zod.array(zod.int()).describe('One id per entry, repeats included — always the same order as items'),
+  "items": zod.array(zod.object({
+  "serviceId": zod.int(),
+  "label": zod.string().nullish(),
+  "windowStart": zod.string().nullish().describe('yyyy-mm-dd'),
+  "windowEnd": zod.string().nullish().describe('yyyy-mm-dd')
+}).describe('One entry in a package. The same service may appear several times (Sprinkler timer adjustment x4, Aeration x2); the label tells the entries apart on the account and the window, when set, beats the package-wide start\/end for that entry only.')),
   "scheduleType": zod.union([zod.literal('window'),zod.literal('recurring'),zod.literal('one_time'),zod.literal(null)]).nullish(),
   "startDate": zod.string().nullish(),
   "endDate": zod.string().nullish(),
@@ -1282,6 +2502,10 @@ export const ListPackagesResponseItem = zod.object({
   "id": zod.int(),
   "name": zod.string(),
   "description": zod.string().nullish(),
+  "code": zod.string().nullish().describe('Short code shown on the waiting list, e.g. BA7 or MOWIN'),
+  "invoiceDescription": zod.string().nullish().describe('What prints on the invoice line; blank falls back to the name'),
+  "billingMode": zod.enum(['fixed', 'time']).optional().describe('fixed = set price; time = billed on the job\'s start\/stop time and adjusted afterwards'),
+  "visitsPerSeason": zod.int().nullish().describe('Default number of visits an estimate multiplies the band rate by (28 mows a season). Null means one.'),
   "quantity": zod.number(),
   "rate": zod.number(),
   "billableHours": zod.number().nullish(),
@@ -1303,7 +2527,7 @@ export const ListPackagesResponseItem = zod.object({
   "contractorPrice": zod.number().nullish(),
   "vendorName": zod.string().nullish().describe('Outside company that performs this work and invoices us; null means our own crew'),
   "pricingFieldId": zod.int().nullish().describe('Estimate field whose value drives the pricing equations. Null means turf square footage.')
-})).optional()
+})).optional().describe('The service behind each entry, in entry order, so a repeated service appears as many times as it is listed')
 }).describe('A collection of services plus the scheduling defaults its members inherit. Assigning the package copies these onto each client service by value, so editing the package later never rewrites work already scheduled.')
 export const ListPackagesResponse = zod.array(ListPackagesResponseItem)
 
@@ -1314,7 +2538,13 @@ export const ListPackagesResponse = zod.array(ListPackagesResponseItem)
 export const CreatePackageBody = zod.object({
   "name": zod.string().min(1),
   "description": zod.string().optional(),
-  "serviceIds": zod.array(zod.int()),
+  "serviceIds": zod.array(zod.int()).optional().describe('Older callers send only ids; ignored when items is given'),
+  "items": zod.array(zod.object({
+  "serviceId": zod.int(),
+  "label": zod.string().nullish(),
+  "windowStart": zod.string().nullish().describe('yyyy-mm-dd'),
+  "windowEnd": zod.string().nullish().describe('yyyy-mm-dd')
+}).describe('One entry in a package. The same service may appear several times (Sprinkler timer adjustment x4, Aeration x2); the label tells the entries apart on the account and the window, when set, beats the package-wide start\/end for that entry only.')).optional(),
   "scheduleType": zod.union([zod.literal('window'),zod.literal('recurring'),zod.literal('one_time'),zod.literal(null)]).nullish(),
   "startDate": zod.string().nullish(),
   "endDate": zod.string().nullish(),
@@ -1327,7 +2557,13 @@ export const CreatePackageResponse = zod.object({
   "id": zod.int(),
   "name": zod.string(),
   "description": zod.string().nullish(),
-  "serviceIds": zod.array(zod.int()),
+  "serviceIds": zod.array(zod.int()).describe('One id per entry, repeats included — always the same order as items'),
+  "items": zod.array(zod.object({
+  "serviceId": zod.int(),
+  "label": zod.string().nullish(),
+  "windowStart": zod.string().nullish().describe('yyyy-mm-dd'),
+  "windowEnd": zod.string().nullish().describe('yyyy-mm-dd')
+}).describe('One entry in a package. The same service may appear several times (Sprinkler timer adjustment x4, Aeration x2); the label tells the entries apart on the account and the window, when set, beats the package-wide start\/end for that entry only.')),
   "scheduleType": zod.union([zod.literal('window'),zod.literal('recurring'),zod.literal('one_time'),zod.literal(null)]).nullish(),
   "startDate": zod.string().nullish(),
   "endDate": zod.string().nullish(),
@@ -1338,6 +2574,10 @@ export const CreatePackageResponse = zod.object({
   "id": zod.int(),
   "name": zod.string(),
   "description": zod.string().nullish(),
+  "code": zod.string().nullish().describe('Short code shown on the waiting list, e.g. BA7 or MOWIN'),
+  "invoiceDescription": zod.string().nullish().describe('What prints on the invoice line; blank falls back to the name'),
+  "billingMode": zod.enum(['fixed', 'time']).optional().describe('fixed = set price; time = billed on the job\'s start\/stop time and adjusted afterwards'),
+  "visitsPerSeason": zod.int().nullish().describe('Default number of visits an estimate multiplies the band rate by (28 mows a season). Null means one.'),
   "quantity": zod.number(),
   "rate": zod.number(),
   "billableHours": zod.number().nullish(),
@@ -1359,7 +2599,7 @@ export const CreatePackageResponse = zod.object({
   "contractorPrice": zod.number().nullish(),
   "vendorName": zod.string().nullish().describe('Outside company that performs this work and invoices us; null means our own crew'),
   "pricingFieldId": zod.int().nullish().describe('Estimate field whose value drives the pricing equations. Null means turf square footage.')
-})).optional()
+})).optional().describe('The service behind each entry, in entry order, so a repeated service appears as many times as it is listed')
 }).describe('A collection of services plus the scheduling defaults its members inherit. Assigning the package copies these onto each client service by value, so editing the package later never rewrites work already scheduled.')
 
 
@@ -1374,6 +2614,12 @@ export const UpdatePackageBody = zod.object({
   "name": zod.string().min(1).optional(),
   "description": zod.string().nullish(),
   "serviceIds": zod.array(zod.int()).optional(),
+  "items": zod.array(zod.object({
+  "serviceId": zod.int(),
+  "label": zod.string().nullish(),
+  "windowStart": zod.string().nullish().describe('yyyy-mm-dd'),
+  "windowEnd": zod.string().nullish().describe('yyyy-mm-dd')
+}).describe('One entry in a package. The same service may appear several times (Sprinkler timer adjustment x4, Aeration x2); the label tells the entries apart on the account and the window, when set, beats the package-wide start\/end for that entry only.')).optional(),
   "scheduleType": zod.union([zod.literal('window'),zod.literal('recurring'),zod.literal('one_time'),zod.literal(null)]).nullish(),
   "startDate": zod.string().nullish(),
   "endDate": zod.string().nullish(),
@@ -1386,7 +2632,13 @@ export const UpdatePackageResponse = zod.object({
   "id": zod.int(),
   "name": zod.string(),
   "description": zod.string().nullish(),
-  "serviceIds": zod.array(zod.int()),
+  "serviceIds": zod.array(zod.int()).describe('One id per entry, repeats included — always the same order as items'),
+  "items": zod.array(zod.object({
+  "serviceId": zod.int(),
+  "label": zod.string().nullish(),
+  "windowStart": zod.string().nullish().describe('yyyy-mm-dd'),
+  "windowEnd": zod.string().nullish().describe('yyyy-mm-dd')
+}).describe('One entry in a package. The same service may appear several times (Sprinkler timer adjustment x4, Aeration x2); the label tells the entries apart on the account and the window, when set, beats the package-wide start\/end for that entry only.')),
   "scheduleType": zod.union([zod.literal('window'),zod.literal('recurring'),zod.literal('one_time'),zod.literal(null)]).nullish(),
   "startDate": zod.string().nullish(),
   "endDate": zod.string().nullish(),
@@ -1397,6 +2649,10 @@ export const UpdatePackageResponse = zod.object({
   "id": zod.int(),
   "name": zod.string(),
   "description": zod.string().nullish(),
+  "code": zod.string().nullish().describe('Short code shown on the waiting list, e.g. BA7 or MOWIN'),
+  "invoiceDescription": zod.string().nullish().describe('What prints on the invoice line; blank falls back to the name'),
+  "billingMode": zod.enum(['fixed', 'time']).optional().describe('fixed = set price; time = billed on the job\'s start\/stop time and adjusted afterwards'),
+  "visitsPerSeason": zod.int().nullish().describe('Default number of visits an estimate multiplies the band rate by (28 mows a season). Null means one.'),
   "quantity": zod.number(),
   "rate": zod.number(),
   "billableHours": zod.number().nullish(),
@@ -1418,7 +2674,7 @@ export const UpdatePackageResponse = zod.object({
   "contractorPrice": zod.number().nullish(),
   "vendorName": zod.string().nullish().describe('Outside company that performs this work and invoices us; null means our own crew'),
   "pricingFieldId": zod.int().nullish().describe('Estimate field whose value drives the pricing equations. Null means turf square footage.')
-})).optional()
+})).optional().describe('The service behind each entry, in entry order, so a repeated service appears as many times as it is listed')
 }).describe('A collection of services plus the scheduling defaults its members inherit. Assigning the package copies these onto each client service by value, so editing the package later never rewrites work already scheduled.')
 
 
@@ -1494,6 +2750,76 @@ export const DeleteEstimateFieldResponse = zod.void()
 
 
 /**
+ * @summary The parts and fees list (bag fee, sprinkler parts) a contractor picks from on a job
+ */
+export const ListProductPresetsResponseItem = zod.object({
+  "id": zod.int(),
+  "label": zod.string(),
+  "defaultPrice": zod.number(),
+  "kind": zod.enum(['charge', 'product']),
+  "unit": zod.string().nullish().describe('bag, each, ft — shown next to the quantity'),
+  "contractorCanAdd": zod.boolean().describe('Whether the crew may add it without asking the office'),
+  "sortOrder": zod.int().nullish()
+}).describe('A part or fee on the office\'s list (bag fee, sprinkler head, valve). A contractor picks one on the job card and types how many; the job keeps its own copy of the name and price.')
+export const ListProductPresetsResponse = zod.array(ListProductPresetsResponseItem)
+
+
+
+
+
+export const CreateProductPresetBody = zod.object({
+  "label": zod.string().min(1),
+  "defaultPrice": zod.number(),
+  "unit": zod.string().nullish(),
+  "contractorCanAdd": zod.boolean().optional(),
+  "sortOrder": zod.int().nullish()
+})
+
+export const CreateProductPresetResponse = zod.object({
+  "id": zod.int(),
+  "label": zod.string(),
+  "defaultPrice": zod.number(),
+  "kind": zod.enum(['charge', 'product']),
+  "unit": zod.string().nullish().describe('bag, each, ft — shown next to the quantity'),
+  "contractorCanAdd": zod.boolean().describe('Whether the crew may add it without asking the office'),
+  "sortOrder": zod.int().nullish()
+}).describe('A part or fee on the office\'s list (bag fee, sprinkler head, valve). A contractor picks one on the job card and types how many; the job keeps its own copy of the name and price.')
+
+
+export const UpdateProductPresetParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+
+
+
+export const UpdateProductPresetBody = zod.object({
+  "label": zod.string().min(1).optional(),
+  "defaultPrice": zod.number().optional(),
+  "unit": zod.string().nullish(),
+  "contractorCanAdd": zod.boolean().optional(),
+  "sortOrder": zod.int().nullish()
+})
+
+export const UpdateProductPresetResponse = zod.object({
+  "id": zod.int(),
+  "label": zod.string(),
+  "defaultPrice": zod.number(),
+  "kind": zod.enum(['charge', 'product']),
+  "unit": zod.string().nullish().describe('bag, each, ft — shown next to the quantity'),
+  "contractorCanAdd": zod.boolean().describe('Whether the crew may add it without asking the office'),
+  "sortOrder": zod.int().nullish()
+}).describe('A part or fee on the office\'s list (bag fee, sprinkler head, valve). A contractor picks one on the job card and types how many; the job keeps its own copy of the name and price.')
+
+
+export const DeleteProductPresetParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const DeleteProductPresetResponse = zod.void()
+
+
+/**
  * @summary Reusable one-off charge templates shared by the whole office
  */
 export const ListChargePresetsResponseItem = zod.object({
@@ -1559,12 +2885,21 @@ export const ListEstimatesResponseItem = zod.object({
   "notes": zod.string().nullish(),
   "coverNote": zod.string().nullish(),
   "includeServiceDescriptions": zod.boolean().optional(),
+  "coverTemplateId": zod.int().nullish().describe('The estimate document (his \'estimate\' folder) rendered above the quote in the PDF and email; null keeps the plain greeting'),
+  "coverTemplateName": zod.string().nullish(),
   "lines": zod.array(zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
   "label": zod.string(),
   "value": zod.string().describe('Entered value for field\/service lines, optional description for custom lines'),
-  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines')
+  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines'),
+  "unitPrice": zod.number().nullish().describe('Service lines only. The per-visit rate the band (or the flat rate) gave; calculatedPrice = unitPrice x quantity x visits'),
+  "quantity": zod.number().nullish().describe('Service lines only. Null means the service\'s own default quantity'),
+  "visits": zod.int().nullish().describe('Service lines only. Visits per season (28 mows). Null means the service\'s visitsPerSeason, or one'),
+  "hours": zod.number().nullish().describe('Server-computed, time-billed service lines only: the hours one visit is budgeted for. unitPrice is those hours at the service\'s hourly rate, so the quote shows what a visit costs.'),
+  "packageId": zod.int().nullish().describe('Set when this line was added as part of a package'),
+  "packageKey": zod.string().nullish().describe('Lines added together from one package share this key; the customer accepts or declines them as one'),
+  "packageName": zod.string().nullish().describe('The package name as it read when the line was added')
 }).describe('A line on an estimate. With a fieldId or serviceId the price is computed server-side from that definition; with neither it is a custom one-off charge (haul-away, dump fee, discount) whose label and submitted price are validated and kept as entered.')),
   "createdAt": zod.string(),
   "sentAt": zod.string().nullish(),
@@ -1587,13 +2922,21 @@ export const CreateEstimateBody = zod.object({
   "notes": zod.string().optional(),
   "coverNote": zod.string().nullish().describe('Optional letter shown above the quoted work in the estimate document'),
   "includeServiceDescriptions": zod.boolean().optional().describe('Spell out what each quoted service includes, using the service descriptions at send time'),
+  "coverTemplateId": zod.int().nullish().describe('Estimate document to lead the quote with; must be a document_templates id'),
   "savePropertyData": zod.boolean().optional().describe('Write the entered field values back to the client\'s saved property details, matched by field label'),
   "lines": zod.array(zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
   "label": zod.string(),
   "value": zod.string().describe('Entered value for field\/service lines, optional description for custom lines'),
-  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines')
+  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines'),
+  "unitPrice": zod.number().nullish().describe('Service lines only. The per-visit rate the band (or the flat rate) gave; calculatedPrice = unitPrice x quantity x visits'),
+  "quantity": zod.number().nullish().describe('Service lines only. Null means the service\'s own default quantity'),
+  "visits": zod.int().nullish().describe('Service lines only. Visits per season (28 mows). Null means the service\'s visitsPerSeason, or one'),
+  "hours": zod.number().nullish().describe('Server-computed, time-billed service lines only: the hours one visit is budgeted for. unitPrice is those hours at the service\'s hourly rate, so the quote shows what a visit costs.'),
+  "packageId": zod.int().nullish().describe('Set when this line was added as part of a package'),
+  "packageKey": zod.string().nullish().describe('Lines added together from one package share this key; the customer accepts or declines them as one'),
+  "packageName": zod.string().nullish().describe('The package name as it read when the line was added')
 }).describe('A line on an estimate. With a fieldId or serviceId the price is computed server-side from that definition; with neither it is a custom one-off charge (haul-away, dump fee, discount) whose label and submitted price are validated and kept as entered.'))
 })
 
@@ -1607,12 +2950,21 @@ export const CreateEstimateResponse = zod.object({
   "notes": zod.string().nullish(),
   "coverNote": zod.string().nullish(),
   "includeServiceDescriptions": zod.boolean().optional(),
+  "coverTemplateId": zod.int().nullish().describe('The estimate document (his \'estimate\' folder) rendered above the quote in the PDF and email; null keeps the plain greeting'),
+  "coverTemplateName": zod.string().nullish(),
   "lines": zod.array(zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
   "label": zod.string(),
   "value": zod.string().describe('Entered value for field\/service lines, optional description for custom lines'),
-  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines')
+  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines'),
+  "unitPrice": zod.number().nullish().describe('Service lines only. The per-visit rate the band (or the flat rate) gave; calculatedPrice = unitPrice x quantity x visits'),
+  "quantity": zod.number().nullish().describe('Service lines only. Null means the service\'s own default quantity'),
+  "visits": zod.int().nullish().describe('Service lines only. Visits per season (28 mows). Null means the service\'s visitsPerSeason, or one'),
+  "hours": zod.number().nullish().describe('Server-computed, time-billed service lines only: the hours one visit is budgeted for. unitPrice is those hours at the service\'s hourly rate, so the quote shows what a visit costs.'),
+  "packageId": zod.int().nullish().describe('Set when this line was added as part of a package'),
+  "packageKey": zod.string().nullish().describe('Lines added together from one package share this key; the customer accepts or declines them as one'),
+  "packageName": zod.string().nullish().describe('The package name as it read when the line was added')
 }).describe('A line on an estimate. With a fieldId or serviceId the price is computed server-side from that definition; with neither it is a custom one-off charge (haul-away, dump fee, discount) whose label and submitted price are validated and kept as entered.')),
   "createdAt": zod.string(),
   "sentAt": zod.string().nullish(),
@@ -1643,12 +2995,21 @@ export const GetEstimateResponse = zod.object({
   "notes": zod.string().nullish(),
   "coverNote": zod.string().nullish(),
   "includeServiceDescriptions": zod.boolean().optional(),
+  "coverTemplateId": zod.int().nullish().describe('The estimate document (his \'estimate\' folder) rendered above the quote in the PDF and email; null keeps the plain greeting'),
+  "coverTemplateName": zod.string().nullish(),
   "lines": zod.array(zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
   "label": zod.string(),
   "value": zod.string().describe('Entered value for field\/service lines, optional description for custom lines'),
-  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines')
+  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines'),
+  "unitPrice": zod.number().nullish().describe('Service lines only. The per-visit rate the band (or the flat rate) gave; calculatedPrice = unitPrice x quantity x visits'),
+  "quantity": zod.number().nullish().describe('Service lines only. Null means the service\'s own default quantity'),
+  "visits": zod.int().nullish().describe('Service lines only. Visits per season (28 mows). Null means the service\'s visitsPerSeason, or one'),
+  "hours": zod.number().nullish().describe('Server-computed, time-billed service lines only: the hours one visit is budgeted for. unitPrice is those hours at the service\'s hourly rate, so the quote shows what a visit costs.'),
+  "packageId": zod.int().nullish().describe('Set when this line was added as part of a package'),
+  "packageKey": zod.string().nullish().describe('Lines added together from one package share this key; the customer accepts or declines them as one'),
+  "packageName": zod.string().nullish().describe('The package name as it read when the line was added')
 }).describe('A line on an estimate. With a fieldId or serviceId the price is computed server-side from that definition; with neither it is a custom one-off charge (haul-away, dump fee, discount) whose label and submitted price are validated and kept as entered.')),
   "createdAt": zod.string(),
   "sentAt": zod.string().nullish(),
@@ -1677,12 +3038,20 @@ export const UpdateEstimateBody = zod.object({
   "notes": zod.string().nullish(),
   "coverNote": zod.string().nullish(),
   "includeServiceDescriptions": zod.boolean().optional(),
+  "coverTemplateId": zod.int().nullish().describe('Omit to leave unchanged; null clears it'),
   "lines": zod.array(zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
   "label": zod.string(),
   "value": zod.string().describe('Entered value for field\/service lines, optional description for custom lines'),
-  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines')
+  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines'),
+  "unitPrice": zod.number().nullish().describe('Service lines only. The per-visit rate the band (or the flat rate) gave; calculatedPrice = unitPrice x quantity x visits'),
+  "quantity": zod.number().nullish().describe('Service lines only. Null means the service\'s own default quantity'),
+  "visits": zod.int().nullish().describe('Service lines only. Visits per season (28 mows). Null means the service\'s visitsPerSeason, or one'),
+  "hours": zod.number().nullish().describe('Server-computed, time-billed service lines only: the hours one visit is budgeted for. unitPrice is those hours at the service\'s hourly rate, so the quote shows what a visit costs.'),
+  "packageId": zod.int().nullish().describe('Set when this line was added as part of a package'),
+  "packageKey": zod.string().nullish().describe('Lines added together from one package share this key; the customer accepts or declines them as one'),
+  "packageName": zod.string().nullish().describe('The package name as it read when the line was added')
 }).describe('A line on an estimate. With a fieldId or serviceId the price is computed server-side from that definition; with neither it is a custom one-off charge (haul-away, dump fee, discount) whose label and submitted price are validated and kept as entered.'))
 })
 
@@ -1696,12 +3065,21 @@ export const UpdateEstimateResponse = zod.object({
   "notes": zod.string().nullish(),
   "coverNote": zod.string().nullish(),
   "includeServiceDescriptions": zod.boolean().optional(),
+  "coverTemplateId": zod.int().nullish().describe('The estimate document (his \'estimate\' folder) rendered above the quote in the PDF and email; null keeps the plain greeting'),
+  "coverTemplateName": zod.string().nullish(),
   "lines": zod.array(zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
   "label": zod.string(),
   "value": zod.string().describe('Entered value for field\/service lines, optional description for custom lines'),
-  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines')
+  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines'),
+  "unitPrice": zod.number().nullish().describe('Service lines only. The per-visit rate the band (or the flat rate) gave; calculatedPrice = unitPrice x quantity x visits'),
+  "quantity": zod.number().nullish().describe('Service lines only. Null means the service\'s own default quantity'),
+  "visits": zod.int().nullish().describe('Service lines only. Visits per season (28 mows). Null means the service\'s visitsPerSeason, or one'),
+  "hours": zod.number().nullish().describe('Server-computed, time-billed service lines only: the hours one visit is budgeted for. unitPrice is those hours at the service\'s hourly rate, so the quote shows what a visit costs.'),
+  "packageId": zod.int().nullish().describe('Set when this line was added as part of a package'),
+  "packageKey": zod.string().nullish().describe('Lines added together from one package share this key; the customer accepts or declines them as one'),
+  "packageName": zod.string().nullish().describe('The package name as it read when the line was added')
 }).describe('A line on an estimate. With a fieldId or serviceId the price is computed server-side from that definition; with neither it is a custom one-off charge (haul-away, dump fee, discount) whose label and submitted price are validated and kept as entered.')),
   "createdAt": zod.string(),
   "sentAt": zod.string().nullish(),
@@ -1759,12 +3137,21 @@ export const SendEstimateResponse = zod.object({
   "notes": zod.string().nullish(),
   "coverNote": zod.string().nullish(),
   "includeServiceDescriptions": zod.boolean().optional(),
+  "coverTemplateId": zod.int().nullish().describe('The estimate document (his \'estimate\' folder) rendered above the quote in the PDF and email; null keeps the plain greeting'),
+  "coverTemplateName": zod.string().nullish(),
   "lines": zod.array(zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
   "label": zod.string(),
   "value": zod.string().describe('Entered value for field\/service lines, optional description for custom lines'),
-  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines')
+  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines'),
+  "unitPrice": zod.number().nullish().describe('Service lines only. The per-visit rate the band (or the flat rate) gave; calculatedPrice = unitPrice x quantity x visits'),
+  "quantity": zod.number().nullish().describe('Service lines only. Null means the service\'s own default quantity'),
+  "visits": zod.int().nullish().describe('Service lines only. Visits per season (28 mows). Null means the service\'s visitsPerSeason, or one'),
+  "hours": zod.number().nullish().describe('Server-computed, time-billed service lines only: the hours one visit is budgeted for. unitPrice is those hours at the service\'s hourly rate, so the quote shows what a visit costs.'),
+  "packageId": zod.int().nullish().describe('Set when this line was added as part of a package'),
+  "packageKey": zod.string().nullish().describe('Lines added together from one package share this key; the customer accepts or declines them as one'),
+  "packageName": zod.string().nullish().describe('The package name as it read when the line was added')
 }).describe('A line on an estimate. With a fieldId or serviceId the price is computed server-side from that definition; with neither it is a custom one-off charge (haul-away, dump fee, discount) whose label and submitted price are validated and kept as entered.')),
   "createdAt": zod.string(),
   "sentAt": zod.string().nullish(),
@@ -1798,12 +3185,21 @@ export const ReconcileEstimateDeliveryResponse = zod.object({
   "notes": zod.string().nullish(),
   "coverNote": zod.string().nullish(),
   "includeServiceDescriptions": zod.boolean().optional(),
+  "coverTemplateId": zod.int().nullish().describe('The estimate document (his \'estimate\' folder) rendered above the quote in the PDF and email; null keeps the plain greeting'),
+  "coverTemplateName": zod.string().nullish(),
   "lines": zod.array(zod.object({
   "fieldId": zod.int().nullish().describe('Reference to a reusable estimate field'),
   "serviceId": zod.int().nullish().describe('Reference to a service priced by its equations'),
   "label": zod.string(),
   "value": zod.string().describe('Entered value for field\/service lines, optional description for custom lines'),
-  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines')
+  "calculatedPrice": zod.number().nullish().describe('Server-computed for field\/service lines; required and kept as submitted for custom lines'),
+  "unitPrice": zod.number().nullish().describe('Service lines only. The per-visit rate the band (or the flat rate) gave; calculatedPrice = unitPrice x quantity x visits'),
+  "quantity": zod.number().nullish().describe('Service lines only. Null means the service\'s own default quantity'),
+  "visits": zod.int().nullish().describe('Service lines only. Visits per season (28 mows). Null means the service\'s visitsPerSeason, or one'),
+  "hours": zod.number().nullish().describe('Server-computed, time-billed service lines only: the hours one visit is budgeted for. unitPrice is those hours at the service\'s hourly rate, so the quote shows what a visit costs.'),
+  "packageId": zod.int().nullish().describe('Set when this line was added as part of a package'),
+  "packageKey": zod.string().nullish().describe('Lines added together from one package share this key; the customer accepts or declines them as one'),
+  "packageName": zod.string().nullish().describe('The package name as it read when the line was added')
 }).describe('A line on an estimate. With a fieldId or serviceId the price is computed server-side from that definition; with neither it is a custom one-off charge (haul-away, dump fee, discount) whose label and submitted price are validated and kept as entered.')),
   "createdAt": zod.string(),
   "sentAt": zod.string().nullish(),
@@ -1821,12 +3217,23 @@ export const ReconcileEstimateDeliveryResponse = zod.object({
 
 
 /**
+ * A waiting-list job only shows when the chosen `date` sits inside its window. `window=past` lists the ones whose window has already closed so they can be cancelled in bulk; `window=all` shows everything still waiting. Cancelled and completed jobs stay out unless `status` asks for them.
  * @summary Jobs with date windows not yet dispatched; filter by date range
  */
 export const ListWaitingListQueryParams = zod.object({
   "date": zod.coerce.string().optional(),
   "from": zod.coerce.string().optional(),
-  "to": zod.coerce.string().optional()
+  "to": zod.coerce.string().optional(),
+  "window": zod.enum(['open', 'past', 'all']).optional(),
+  "serviceId": zod.coerce.number().int().optional(),
+  "assignedTo": zod.coerce.number().int().optional(),
+  "mapCode": zod.coerce.string().optional(),
+  "city": zod.coerce.string().optional(),
+  "branch": zod.coerce.string().optional().describe('The client\'s state: ID or WA.'),
+  "tag": zod.coerce.string().optional(),
+  "hasNotes": zod.coerce.boolean().optional(),
+  "search": zod.coerce.string().optional().describe('Matches the client name or service address, any part of it.'),
+  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped', 'cancelled']).optional()
 })
 
 export const ListWaitingListResponseItem = zod.object({
@@ -1844,15 +3251,24 @@ export const ListWaitingListResponseItem = zod.object({
   "clientServiceId": zod.int().nullish(),
   "serviceId": zod.int().nullish(),
   "serviceName": zod.string().nullish(),
-  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped']),
+  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped', 'cancelled']),
   "dispatched": zod.boolean(),
   "scheduledDate": zod.string().nullish(),
   "windowStart": zod.string().nullish(),
   "windowEnd": zod.string().nullish(),
   "routeOrder": zod.int().nullish(),
   "assignedToId": zod.int().nullish(),
-  "assignedToName": zod.string().nullish(),
+  "assignedToName": zod.string().nullish().describe('The contractor\'s short display name, never an email address.'),
   "mapNote": zod.string().nullish(),
+  "cancelReason": zod.string().nullish(),
+  "cancelledAt": zod.string().nullish(),
+  "clientEmail": zod.string().nullish(),
+  "clientPhone": zod.string().nullish(),
+  "clientDoNotEmail": zod.boolean().optional(),
+  "clientMapCode": zod.string().nullish(),
+  "clientState": zod.string().nullish().describe('His branch: ID or WA.'),
+  "clientTags": zod.array(zod.string()).optional(),
+  "serviceCode": zod.string().nullish().describe('The service\'s short code, what the waiting list shows (BA7, BACKF, MOWIN).'),
   "clientPropertyData": zod.record(zod.string(), zod.string()).optional().describe('The client\'s saved property details, keyed by field label (Gate Code, Sprinkler Zones, Turf Sqft). Carried on the job so the crew can read access details from the job card without opening the client record, which a contractor cannot do.'),
   "lastServiceDate": zod.string().nullish(),
   "budgetedHours": zod.number().nullish(),
@@ -1866,14 +3282,26 @@ export const ListWaitingListResponseItem = zod.object({
   "name": zod.string(),
   "price": zod.number(),
   "quantity": zod.number().optional(),
-  "serviceId": zod.int().nullish()
+  "serviceId": zod.int().nullish(),
+  "chargePresetId": zod.int().nullish().describe('Set when the line came from the parts list')
 })).optional(),
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish(),
   "skipReason": zod.string().nullish(),
   "skippedAt": zod.string().nullish(),
   "skipBillable": zod.boolean().nullish().describe('Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.'),
-  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.')
+  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.'),
+  "contractorNote": zod.string().nullish().describe('The assigned service\'s must-read note, when one is in force on this visit\'s day. The contractor must open it before Start unlocks.'),
+  "noteAcknowledgedAt": zod.string().nullish().describe('When the contractor opened the note on this visit'),
+  "clockedMinutes": zod.number().optional().describe('Closed time entries on this job, all crew, in minutes'),
+  "clockOpen": zod.boolean().optional().describe('Someone is still clocked in'),
+  "billingMode": zod.enum(['fixed', 'time']).optional(),
+  "hourlyRate": zod.number().nullish().describe('On a time job: the rate the clock is billed at'),
+  "amountOverridden": zod.boolean().optional().describe('The office set the amount by hand; the clock no longer decides it'),
+  "discountType": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "discountValue": zod.number().nullish(),
+  "discountLabel": zod.string().nullish(),
+  "discountAmount": zod.number().optional().describe('The discount in dollars against the current amount; its own line on the invoice')
 })
 export const ListWaitingListResponse = zod.array(ListWaitingListResponseItem)
 
@@ -1886,10 +3314,15 @@ export const ListJobsQueryParams = zod.object({
   "from": zod.coerce.string().optional(),
   "to": zod.coerce.string().optional(),
   "assignedTo": zod.coerce.number().int().optional(),
-  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped']).optional(),
+  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped', 'cancelled']).optional(),
   "city": zod.coerce.string().optional(),
   "serviceId": zod.coerce.number().int().optional(),
-  "clientId": zod.coerce.number().int().optional()
+  "clientId": zod.coerce.number().int().optional(),
+  "mapCode": zod.coerce.string().optional(),
+  "branch": zod.coerce.string().optional().describe('The client\'s state: ID or WA.'),
+  "tag": zod.coerce.string().optional(),
+  "search": zod.coerce.string().optional().describe('Matches the client name or service address, any part of it.'),
+  "hasNotes": zod.coerce.boolean().optional()
 })
 
 export const ListJobsResponseItem = zod.object({
@@ -1907,15 +3340,24 @@ export const ListJobsResponseItem = zod.object({
   "clientServiceId": zod.int().nullish(),
   "serviceId": zod.int().nullish(),
   "serviceName": zod.string().nullish(),
-  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped']),
+  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped', 'cancelled']),
   "dispatched": zod.boolean(),
   "scheduledDate": zod.string().nullish(),
   "windowStart": zod.string().nullish(),
   "windowEnd": zod.string().nullish(),
   "routeOrder": zod.int().nullish(),
   "assignedToId": zod.int().nullish(),
-  "assignedToName": zod.string().nullish(),
+  "assignedToName": zod.string().nullish().describe('The contractor\'s short display name, never an email address.'),
   "mapNote": zod.string().nullish(),
+  "cancelReason": zod.string().nullish(),
+  "cancelledAt": zod.string().nullish(),
+  "clientEmail": zod.string().nullish(),
+  "clientPhone": zod.string().nullish(),
+  "clientDoNotEmail": zod.boolean().optional(),
+  "clientMapCode": zod.string().nullish(),
+  "clientState": zod.string().nullish().describe('His branch: ID or WA.'),
+  "clientTags": zod.array(zod.string()).optional(),
+  "serviceCode": zod.string().nullish().describe('The service\'s short code, what the waiting list shows (BA7, BACKF, MOWIN).'),
   "clientPropertyData": zod.record(zod.string(), zod.string()).optional().describe('The client\'s saved property details, keyed by field label (Gate Code, Sprinkler Zones, Turf Sqft). Carried on the job so the crew can read access details from the job card without opening the client record, which a contractor cannot do.'),
   "lastServiceDate": zod.string().nullish(),
   "budgetedHours": zod.number().nullish(),
@@ -1929,14 +3371,26 @@ export const ListJobsResponseItem = zod.object({
   "name": zod.string(),
   "price": zod.number(),
   "quantity": zod.number().optional(),
-  "serviceId": zod.int().nullish()
+  "serviceId": zod.int().nullish(),
+  "chargePresetId": zod.int().nullish().describe('Set when the line came from the parts list')
 })).optional(),
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish(),
   "skipReason": zod.string().nullish(),
   "skippedAt": zod.string().nullish(),
   "skipBillable": zod.boolean().nullish().describe('Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.'),
-  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.')
+  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.'),
+  "contractorNote": zod.string().nullish().describe('The assigned service\'s must-read note, when one is in force on this visit\'s day. The contractor must open it before Start unlocks.'),
+  "noteAcknowledgedAt": zod.string().nullish().describe('When the contractor opened the note on this visit'),
+  "clockedMinutes": zod.number().optional().describe('Closed time entries on this job, all crew, in minutes'),
+  "clockOpen": zod.boolean().optional().describe('Someone is still clocked in'),
+  "billingMode": zod.enum(['fixed', 'time']).optional(),
+  "hourlyRate": zod.number().nullish().describe('On a time job: the rate the clock is billed at'),
+  "amountOverridden": zod.boolean().optional().describe('The office set the amount by hand; the clock no longer decides it'),
+  "discountType": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "discountValue": zod.number().nullish(),
+  "discountLabel": zod.string().nullish(),
+  "discountAmount": zod.number().optional().describe('The discount in dollars against the current amount; its own line on the invoice')
 })
 export const ListJobsResponse = zod.array(ListJobsResponseItem)
 
@@ -1974,15 +3428,24 @@ export const CreateJobResponse = zod.object({
   "clientServiceId": zod.int().nullish(),
   "serviceId": zod.int().nullish(),
   "serviceName": zod.string().nullish(),
-  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped']),
+  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped', 'cancelled']),
   "dispatched": zod.boolean(),
   "scheduledDate": zod.string().nullish(),
   "windowStart": zod.string().nullish(),
   "windowEnd": zod.string().nullish(),
   "routeOrder": zod.int().nullish(),
   "assignedToId": zod.int().nullish(),
-  "assignedToName": zod.string().nullish(),
+  "assignedToName": zod.string().nullish().describe('The contractor\'s short display name, never an email address.'),
   "mapNote": zod.string().nullish(),
+  "cancelReason": zod.string().nullish(),
+  "cancelledAt": zod.string().nullish(),
+  "clientEmail": zod.string().nullish(),
+  "clientPhone": zod.string().nullish(),
+  "clientDoNotEmail": zod.boolean().optional(),
+  "clientMapCode": zod.string().nullish(),
+  "clientState": zod.string().nullish().describe('His branch: ID or WA.'),
+  "clientTags": zod.array(zod.string()).optional(),
+  "serviceCode": zod.string().nullish().describe('The service\'s short code, what the waiting list shows (BA7, BACKF, MOWIN).'),
   "clientPropertyData": zod.record(zod.string(), zod.string()).optional().describe('The client\'s saved property details, keyed by field label (Gate Code, Sprinkler Zones, Turf Sqft). Carried on the job so the crew can read access details from the job card without opening the client record, which a contractor cannot do.'),
   "lastServiceDate": zod.string().nullish(),
   "budgetedHours": zod.number().nullish(),
@@ -1996,14 +3459,26 @@ export const CreateJobResponse = zod.object({
   "name": zod.string(),
   "price": zod.number(),
   "quantity": zod.number().optional(),
-  "serviceId": zod.int().nullish()
+  "serviceId": zod.int().nullish(),
+  "chargePresetId": zod.int().nullish().describe('Set when the line came from the parts list')
 })).optional(),
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish(),
   "skipReason": zod.string().nullish(),
   "skippedAt": zod.string().nullish(),
   "skipBillable": zod.boolean().nullish().describe('Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.'),
-  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.')
+  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.'),
+  "contractorNote": zod.string().nullish().describe('The assigned service\'s must-read note, when one is in force on this visit\'s day. The contractor must open it before Start unlocks.'),
+  "noteAcknowledgedAt": zod.string().nullish().describe('When the contractor opened the note on this visit'),
+  "clockedMinutes": zod.number().optional().describe('Closed time entries on this job, all crew, in minutes'),
+  "clockOpen": zod.boolean().optional().describe('Someone is still clocked in'),
+  "billingMode": zod.enum(['fixed', 'time']).optional(),
+  "hourlyRate": zod.number().nullish().describe('On a time job: the rate the clock is billed at'),
+  "amountOverridden": zod.boolean().optional().describe('The office set the amount by hand; the clock no longer decides it'),
+  "discountType": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "discountValue": zod.number().nullish(),
+  "discountLabel": zod.string().nullish(),
+  "discountAmount": zod.number().optional().describe('The discount in dollars against the current amount; its own line on the invoice')
 })
 
 
@@ -2026,15 +3501,24 @@ export const GetJobResponse = zod.object({
   "clientServiceId": zod.int().nullish(),
   "serviceId": zod.int().nullish(),
   "serviceName": zod.string().nullish(),
-  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped']),
+  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped', 'cancelled']),
   "dispatched": zod.boolean(),
   "scheduledDate": zod.string().nullish(),
   "windowStart": zod.string().nullish(),
   "windowEnd": zod.string().nullish(),
   "routeOrder": zod.int().nullish(),
   "assignedToId": zod.int().nullish(),
-  "assignedToName": zod.string().nullish(),
+  "assignedToName": zod.string().nullish().describe('The contractor\'s short display name, never an email address.'),
   "mapNote": zod.string().nullish(),
+  "cancelReason": zod.string().nullish(),
+  "cancelledAt": zod.string().nullish(),
+  "clientEmail": zod.string().nullish(),
+  "clientPhone": zod.string().nullish(),
+  "clientDoNotEmail": zod.boolean().optional(),
+  "clientMapCode": zod.string().nullish(),
+  "clientState": zod.string().nullish().describe('His branch: ID or WA.'),
+  "clientTags": zod.array(zod.string()).optional(),
+  "serviceCode": zod.string().nullish().describe('The service\'s short code, what the waiting list shows (BA7, BACKF, MOWIN).'),
   "clientPropertyData": zod.record(zod.string(), zod.string()).optional().describe('The client\'s saved property details, keyed by field label (Gate Code, Sprinkler Zones, Turf Sqft). Carried on the job so the crew can read access details from the job card without opening the client record, which a contractor cannot do.'),
   "lastServiceDate": zod.string().nullish(),
   "budgetedHours": zod.number().nullish(),
@@ -2048,14 +3532,26 @@ export const GetJobResponse = zod.object({
   "name": zod.string(),
   "price": zod.number(),
   "quantity": zod.number().optional(),
-  "serviceId": zod.int().nullish()
+  "serviceId": zod.int().nullish(),
+  "chargePresetId": zod.int().nullish().describe('Set when the line came from the parts list')
 })).optional(),
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish(),
   "skipReason": zod.string().nullish(),
   "skippedAt": zod.string().nullish(),
   "skipBillable": zod.boolean().nullish().describe('Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.'),
-  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.')
+  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.'),
+  "contractorNote": zod.string().nullish().describe('The assigned service\'s must-read note, when one is in force on this visit\'s day. The contractor must open it before Start unlocks.'),
+  "noteAcknowledgedAt": zod.string().nullish().describe('When the contractor opened the note on this visit'),
+  "clockedMinutes": zod.number().optional().describe('Closed time entries on this job, all crew, in minutes'),
+  "clockOpen": zod.boolean().optional().describe('Someone is still clocked in'),
+  "billingMode": zod.enum(['fixed', 'time']).optional(),
+  "hourlyRate": zod.number().nullish().describe('On a time job: the rate the clock is billed at'),
+  "amountOverridden": zod.boolean().optional().describe('The office set the amount by hand; the clock no longer decides it'),
+  "discountType": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "discountValue": zod.number().nullish(),
+  "discountLabel": zod.string().nullish(),
+  "discountAmount": zod.number().optional().describe('The discount in dollars against the current amount; its own line on the invoice')
 })
 
 
@@ -2067,8 +3563,9 @@ export const UpdateJobParams = zod.object({
 })
 
 export const UpdateJobBody = zod.object({
-  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped']).optional(),
+  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped', 'cancelled']).optional(),
   "skipReason": zod.string().nullish().describe('Why the visit was skipped. Only meaningful with status=skipped.'),
+  "cancelReason": zod.string().nullish().describe('Why the office called it off. Only meaningful with status=cancelled.'),
   "scheduledDate": zod.string().nullish(),
   "routeOrder": zod.int().nullish(),
   "assignedToId": zod.int().nullish(),
@@ -2095,15 +3592,24 @@ export const UpdateJobResponse = zod.object({
   "clientServiceId": zod.int().nullish(),
   "serviceId": zod.int().nullish(),
   "serviceName": zod.string().nullish(),
-  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped']),
+  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped', 'cancelled']),
   "dispatched": zod.boolean(),
   "scheduledDate": zod.string().nullish(),
   "windowStart": zod.string().nullish(),
   "windowEnd": zod.string().nullish(),
   "routeOrder": zod.int().nullish(),
   "assignedToId": zod.int().nullish(),
-  "assignedToName": zod.string().nullish(),
+  "assignedToName": zod.string().nullish().describe('The contractor\'s short display name, never an email address.'),
   "mapNote": zod.string().nullish(),
+  "cancelReason": zod.string().nullish(),
+  "cancelledAt": zod.string().nullish(),
+  "clientEmail": zod.string().nullish(),
+  "clientPhone": zod.string().nullish(),
+  "clientDoNotEmail": zod.boolean().optional(),
+  "clientMapCode": zod.string().nullish(),
+  "clientState": zod.string().nullish().describe('His branch: ID or WA.'),
+  "clientTags": zod.array(zod.string()).optional(),
+  "serviceCode": zod.string().nullish().describe('The service\'s short code, what the waiting list shows (BA7, BACKF, MOWIN).'),
   "clientPropertyData": zod.record(zod.string(), zod.string()).optional().describe('The client\'s saved property details, keyed by field label (Gate Code, Sprinkler Zones, Turf Sqft). Carried on the job so the crew can read access details from the job card without opening the client record, which a contractor cannot do.'),
   "lastServiceDate": zod.string().nullish(),
   "budgetedHours": zod.number().nullish(),
@@ -2117,14 +3623,26 @@ export const UpdateJobResponse = zod.object({
   "name": zod.string(),
   "price": zod.number(),
   "quantity": zod.number().optional(),
-  "serviceId": zod.int().nullish()
+  "serviceId": zod.int().nullish(),
+  "chargePresetId": zod.int().nullish().describe('Set when the line came from the parts list')
 })).optional(),
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish(),
   "skipReason": zod.string().nullish(),
   "skippedAt": zod.string().nullish(),
   "skipBillable": zod.boolean().nullish().describe('Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.'),
-  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.')
+  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.'),
+  "contractorNote": zod.string().nullish().describe('The assigned service\'s must-read note, when one is in force on this visit\'s day. The contractor must open it before Start unlocks.'),
+  "noteAcknowledgedAt": zod.string().nullish().describe('When the contractor opened the note on this visit'),
+  "clockedMinutes": zod.number().optional().describe('Closed time entries on this job, all crew, in minutes'),
+  "clockOpen": zod.boolean().optional().describe('Someone is still clocked in'),
+  "billingMode": zod.enum(['fixed', 'time']).optional(),
+  "hourlyRate": zod.number().nullish().describe('On a time job: the rate the clock is billed at'),
+  "amountOverridden": zod.boolean().optional().describe('The office set the amount by hand; the clock no longer decides it'),
+  "discountType": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "discountValue": zod.number().nullish(),
+  "discountLabel": zod.string().nullish(),
+  "discountAmount": zod.number().optional().describe('The discount in dollars against the current amount; its own line on the invoice')
 })
 
 
@@ -2159,15 +3677,24 @@ export const DispatchJobsResponseItem = zod.object({
   "clientServiceId": zod.int().nullish(),
   "serviceId": zod.int().nullish(),
   "serviceName": zod.string().nullish(),
-  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped']),
+  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped', 'cancelled']),
   "dispatched": zod.boolean(),
   "scheduledDate": zod.string().nullish(),
   "windowStart": zod.string().nullish(),
   "windowEnd": zod.string().nullish(),
   "routeOrder": zod.int().nullish(),
   "assignedToId": zod.int().nullish(),
-  "assignedToName": zod.string().nullish(),
+  "assignedToName": zod.string().nullish().describe('The contractor\'s short display name, never an email address.'),
   "mapNote": zod.string().nullish(),
+  "cancelReason": zod.string().nullish(),
+  "cancelledAt": zod.string().nullish(),
+  "clientEmail": zod.string().nullish(),
+  "clientPhone": zod.string().nullish(),
+  "clientDoNotEmail": zod.boolean().optional(),
+  "clientMapCode": zod.string().nullish(),
+  "clientState": zod.string().nullish().describe('His branch: ID or WA.'),
+  "clientTags": zod.array(zod.string()).optional(),
+  "serviceCode": zod.string().nullish().describe('The service\'s short code, what the waiting list shows (BA7, BACKF, MOWIN).'),
   "clientPropertyData": zod.record(zod.string(), zod.string()).optional().describe('The client\'s saved property details, keyed by field label (Gate Code, Sprinkler Zones, Turf Sqft). Carried on the job so the crew can read access details from the job card without opening the client record, which a contractor cannot do.'),
   "lastServiceDate": zod.string().nullish(),
   "budgetedHours": zod.number().nullish(),
@@ -2181,14 +3708,26 @@ export const DispatchJobsResponseItem = zod.object({
   "name": zod.string(),
   "price": zod.number(),
   "quantity": zod.number().optional(),
-  "serviceId": zod.int().nullish()
+  "serviceId": zod.int().nullish(),
+  "chargePresetId": zod.int().nullish().describe('Set when the line came from the parts list')
 })).optional(),
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish(),
   "skipReason": zod.string().nullish(),
   "skippedAt": zod.string().nullish(),
   "skipBillable": zod.boolean().nullish().describe('Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.'),
-  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.')
+  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.'),
+  "contractorNote": zod.string().nullish().describe('The assigned service\'s must-read note, when one is in force on this visit\'s day. The contractor must open it before Start unlocks.'),
+  "noteAcknowledgedAt": zod.string().nullish().describe('When the contractor opened the note on this visit'),
+  "clockedMinutes": zod.number().optional().describe('Closed time entries on this job, all crew, in minutes'),
+  "clockOpen": zod.boolean().optional().describe('Someone is still clocked in'),
+  "billingMode": zod.enum(['fixed', 'time']).optional(),
+  "hourlyRate": zod.number().nullish().describe('On a time job: the rate the clock is billed at'),
+  "amountOverridden": zod.boolean().optional().describe('The office set the amount by hand; the clock no longer decides it'),
+  "discountType": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "discountValue": zod.number().nullish(),
+  "discountLabel": zod.string().nullish(),
+  "discountAmount": zod.number().optional().describe('The discount in dollars against the current amount; its own line on the invoice')
 })
 export const DispatchJobsResponse = zod.array(DispatchJobsResponseItem)
 
@@ -2215,15 +3754,24 @@ export const CompleteJobResponse = zod.object({
   "clientServiceId": zod.int().nullish(),
   "serviceId": zod.int().nullish(),
   "serviceName": zod.string().nullish(),
-  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped']),
+  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped', 'cancelled']),
   "dispatched": zod.boolean(),
   "scheduledDate": zod.string().nullish(),
   "windowStart": zod.string().nullish(),
   "windowEnd": zod.string().nullish(),
   "routeOrder": zod.int().nullish(),
   "assignedToId": zod.int().nullish(),
-  "assignedToName": zod.string().nullish(),
+  "assignedToName": zod.string().nullish().describe('The contractor\'s short display name, never an email address.'),
   "mapNote": zod.string().nullish(),
+  "cancelReason": zod.string().nullish(),
+  "cancelledAt": zod.string().nullish(),
+  "clientEmail": zod.string().nullish(),
+  "clientPhone": zod.string().nullish(),
+  "clientDoNotEmail": zod.boolean().optional(),
+  "clientMapCode": zod.string().nullish(),
+  "clientState": zod.string().nullish().describe('His branch: ID or WA.'),
+  "clientTags": zod.array(zod.string()).optional(),
+  "serviceCode": zod.string().nullish().describe('The service\'s short code, what the waiting list shows (BA7, BACKF, MOWIN).'),
   "clientPropertyData": zod.record(zod.string(), zod.string()).optional().describe('The client\'s saved property details, keyed by field label (Gate Code, Sprinkler Zones, Turf Sqft). Carried on the job so the crew can read access details from the job card without opening the client record, which a contractor cannot do.'),
   "lastServiceDate": zod.string().nullish(),
   "budgetedHours": zod.number().nullish(),
@@ -2237,14 +3785,26 @@ export const CompleteJobResponse = zod.object({
   "name": zod.string(),
   "price": zod.number(),
   "quantity": zod.number().optional(),
-  "serviceId": zod.int().nullish()
+  "serviceId": zod.int().nullish(),
+  "chargePresetId": zod.int().nullish().describe('Set when the line came from the parts list')
 })).optional(),
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish(),
   "skipReason": zod.string().nullish(),
   "skippedAt": zod.string().nullish(),
   "skipBillable": zod.boolean().nullish().describe('Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.'),
-  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.')
+  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.'),
+  "contractorNote": zod.string().nullish().describe('The assigned service\'s must-read note, when one is in force on this visit\'s day. The contractor must open it before Start unlocks.'),
+  "noteAcknowledgedAt": zod.string().nullish().describe('When the contractor opened the note on this visit'),
+  "clockedMinutes": zod.number().optional().describe('Closed time entries on this job, all crew, in minutes'),
+  "clockOpen": zod.boolean().optional().describe('Someone is still clocked in'),
+  "billingMode": zod.enum(['fixed', 'time']).optional(),
+  "hourlyRate": zod.number().nullish().describe('On a time job: the rate the clock is billed at'),
+  "amountOverridden": zod.boolean().optional().describe('The office set the amount by hand; the clock no longer decides it'),
+  "discountType": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "discountValue": zod.number().nullish(),
+  "discountLabel": zod.string().nullish(),
+  "discountAmount": zod.number().optional().describe('The discount in dollars against the current amount; its own line on the invoice')
 })
 
 
@@ -2259,10 +3819,11 @@ export const AddJobProductParams = zod.object({
 
 
 export const AddJobProductBody = zod.object({
-  "name": zod.string().min(1),
-  "price": zod.number(),
+  "presetId": zod.int().nullish(),
+  "name": zod.string().min(1).optional(),
+  "price": zod.number().optional(),
   "quantity": zod.number().optional()
-})
+}).describe('Either a preset from the parts list (presetId; name and price are copied from it) or a free-text name and price.')
 
 export const AddJobProductResponse = zod.object({
   "id": zod.int(),
@@ -2270,7 +3831,8 @@ export const AddJobProductResponse = zod.object({
   "name": zod.string(),
   "price": zod.number(),
   "quantity": zod.number().optional(),
-  "serviceId": zod.int().nullish()
+  "serviceId": zod.int().nullish(),
+  "chargePresetId": zod.int().nullish().describe('Set when the line came from the parts list')
 })
 
 
@@ -2305,15 +3867,24 @@ export const ListMyJobsResponseItem = zod.object({
   "clientServiceId": zod.int().nullish(),
   "serviceId": zod.int().nullish(),
   "serviceName": zod.string().nullish(),
-  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped']),
+  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped', 'cancelled']),
   "dispatched": zod.boolean(),
   "scheduledDate": zod.string().nullish(),
   "windowStart": zod.string().nullish(),
   "windowEnd": zod.string().nullish(),
   "routeOrder": zod.int().nullish(),
   "assignedToId": zod.int().nullish(),
-  "assignedToName": zod.string().nullish(),
+  "assignedToName": zod.string().nullish().describe('The contractor\'s short display name, never an email address.'),
   "mapNote": zod.string().nullish(),
+  "cancelReason": zod.string().nullish(),
+  "cancelledAt": zod.string().nullish(),
+  "clientEmail": zod.string().nullish(),
+  "clientPhone": zod.string().nullish(),
+  "clientDoNotEmail": zod.boolean().optional(),
+  "clientMapCode": zod.string().nullish(),
+  "clientState": zod.string().nullish().describe('His branch: ID or WA.'),
+  "clientTags": zod.array(zod.string()).optional(),
+  "serviceCode": zod.string().nullish().describe('The service\'s short code, what the waiting list shows (BA7, BACKF, MOWIN).'),
   "clientPropertyData": zod.record(zod.string(), zod.string()).optional().describe('The client\'s saved property details, keyed by field label (Gate Code, Sprinkler Zones, Turf Sqft). Carried on the job so the crew can read access details from the job card without opening the client record, which a contractor cannot do.'),
   "lastServiceDate": zod.string().nullish(),
   "budgetedHours": zod.number().nullish(),
@@ -2327,14 +3898,26 @@ export const ListMyJobsResponseItem = zod.object({
   "name": zod.string(),
   "price": zod.number(),
   "quantity": zod.number().optional(),
-  "serviceId": zod.int().nullish()
+  "serviceId": zod.int().nullish(),
+  "chargePresetId": zod.int().nullish().describe('Set when the line came from the parts list')
 })).optional(),
   "invoiceId": zod.int().nullish(),
   "completedAt": zod.string().nullish(),
   "skipReason": zod.string().nullish(),
   "skippedAt": zod.string().nullish(),
   "skipBillable": zod.boolean().nullish().describe('Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.'),
-  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.')
+  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.'),
+  "contractorNote": zod.string().nullish().describe('The assigned service\'s must-read note, when one is in force on this visit\'s day. The contractor must open it before Start unlocks.'),
+  "noteAcknowledgedAt": zod.string().nullish().describe('When the contractor opened the note on this visit'),
+  "clockedMinutes": zod.number().optional().describe('Closed time entries on this job, all crew, in minutes'),
+  "clockOpen": zod.boolean().optional().describe('Someone is still clocked in'),
+  "billingMode": zod.enum(['fixed', 'time']).optional(),
+  "hourlyRate": zod.number().nullish().describe('On a time job: the rate the clock is billed at'),
+  "amountOverridden": zod.boolean().optional().describe('The office set the amount by hand; the clock no longer decides it'),
+  "discountType": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "discountValue": zod.number().nullish(),
+  "discountLabel": zod.string().nullish(),
+  "discountAmount": zod.number().optional().describe('The discount in dollars against the current amount; its own line on the invoice')
 })
 export const ListMyJobsResponse = zod.array(ListMyJobsResponseItem)
 
@@ -2373,7 +3956,123 @@ export const AddExtraWorkResponse = zod.object({
   "name": zod.string(),
   "price": zod.number(),
   "quantity": zod.number().optional(),
-  "serviceId": zod.int().nullish()
+  "serviceId": zod.int().nullish(),
+  "chargePresetId": zod.int().nullish().describe('Set when the line came from the parts list')
+})
+
+
+/**
+ * @summary Parts and fees (bag fee, sprinkler parts) the office lets the crew add on site
+ */
+export const ListMyProductsResponseItem = zod.object({
+  "id": zod.int(),
+  "label": zod.string(),
+  "price": zod.number(),
+  "unit": zod.string().nullish()
+})
+export const ListMyProductsResponse = zod.array(ListMyProductsResponseItem)
+
+
+/**
+ * @summary Add a preset part or fee with a quantity to an assigned job from the field
+ */
+export const AddMyJobProductParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const addMyJobProductBodyQuantityMin = 0.01;
+
+
+
+export const AddMyJobProductBody = zod.object({
+  "presetId": zod.int(),
+  "quantity": zod.number().min(addMyJobProductBodyQuantityMin).optional()
+})
+
+export const AddMyJobProductResponse = zod.object({
+  "id": zod.int(),
+  "jobId": zod.int(),
+  "name": zod.string(),
+  "price": zod.number(),
+  "quantity": zod.number().optional(),
+  "serviceId": zod.int().nullish(),
+  "chargePresetId": zod.int().nullish().describe('Set when the line came from the parts list')
+})
+
+
+/**
+ * @summary The contractor opened the must-read note on this job; Start unlocks
+ */
+export const AcknowledgeJobNoteParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const AcknowledgeJobNoteResponse = zod.object({
+  "id": zod.int(),
+  "clientId": zod.int(),
+  "clientName": zod.string().nullish(),
+  "clientAddress": zod.string().nullish(),
+  "clientBalance": zod.number().nullish(),
+  "lastInvoiceNumber": zod.int().nullish(),
+  "lastInvoiceBalance": zod.number().nullish(),
+  "lastInvoiceDate": zod.string().nullish(),
+  "clientLat": zod.number().nullish(),
+  "clientLng": zod.number().nullish(),
+  "city": zod.string().nullish(),
+  "clientServiceId": zod.int().nullish(),
+  "serviceId": zod.int().nullish(),
+  "serviceName": zod.string().nullish(),
+  "status": zod.enum(['scheduled', 'on_the_way', 'in_progress', 'completed', 'skipped', 'cancelled']),
+  "dispatched": zod.boolean(),
+  "scheduledDate": zod.string().nullish(),
+  "windowStart": zod.string().nullish(),
+  "windowEnd": zod.string().nullish(),
+  "routeOrder": zod.int().nullish(),
+  "assignedToId": zod.int().nullish(),
+  "assignedToName": zod.string().nullish().describe('The contractor\'s short display name, never an email address.'),
+  "mapNote": zod.string().nullish(),
+  "cancelReason": zod.string().nullish(),
+  "cancelledAt": zod.string().nullish(),
+  "clientEmail": zod.string().nullish(),
+  "clientPhone": zod.string().nullish(),
+  "clientDoNotEmail": zod.boolean().optional(),
+  "clientMapCode": zod.string().nullish(),
+  "clientState": zod.string().nullish().describe('His branch: ID or WA.'),
+  "clientTags": zod.array(zod.string()).optional(),
+  "serviceCode": zod.string().nullish().describe('The service\'s short code, what the waiting list shows (BA7, BACKF, MOWIN).'),
+  "clientPropertyData": zod.record(zod.string(), zod.string()).optional().describe('The client\'s saved property details, keyed by field label (Gate Code, Sprinkler Zones, Turf Sqft). Carried on the job so the crew can read access details from the job card without opening the client record, which a contractor cannot do.'),
+  "lastServiceDate": zod.string().nullish(),
+  "budgetedHours": zod.number().nullish(),
+  "amount": zod.number(),
+  "notes": zod.string().nullish(),
+  "notesImportant": zod.boolean().nullish(),
+  "visibleToContractor": zod.boolean().nullish(),
+  "products": zod.array(zod.object({
+  "id": zod.int(),
+  "jobId": zod.int(),
+  "name": zod.string(),
+  "price": zod.number(),
+  "quantity": zod.number().optional(),
+  "serviceId": zod.int().nullish(),
+  "chargePresetId": zod.int().nullish().describe('Set when the line came from the parts list')
+})).optional(),
+  "invoiceId": zod.int().nullish(),
+  "completedAt": zod.string().nullish(),
+  "skipReason": zod.string().nullish(),
+  "skippedAt": zod.string().nullish(),
+  "skipBillable": zod.boolean().nullish().describe('Whether this skip is chargeable under the one-free-skip-per-year term. Null when the job was never skipped. A flag for the office to bill deliberately; it never raises a charge on its own.'),
+  "skipNotice": zod.string().nullish().describe('Present only on the response to the request that performed the skip. Plain-language verdict to show the person who clicked Skip.'),
+  "contractorNote": zod.string().nullish().describe('The assigned service\'s must-read note, when one is in force on this visit\'s day. The contractor must open it before Start unlocks.'),
+  "noteAcknowledgedAt": zod.string().nullish().describe('When the contractor opened the note on this visit'),
+  "clockedMinutes": zod.number().optional().describe('Closed time entries on this job, all crew, in minutes'),
+  "clockOpen": zod.boolean().optional().describe('Someone is still clocked in'),
+  "billingMode": zod.enum(['fixed', 'time']).optional(),
+  "hourlyRate": zod.number().nullish().describe('On a time job: the rate the clock is billed at'),
+  "amountOverridden": zod.boolean().optional().describe('The office set the amount by hand; the clock no longer decides it'),
+  "discountType": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "discountValue": zod.number().nullish(),
+  "discountLabel": zod.string().nullish(),
+  "discountAmount": zod.number().optional().describe('The discount in dollars against the current amount; its own line on the invoice')
 })
 
 
@@ -2467,19 +4166,28 @@ export const GetMyRouteResponse = zod.object({
 
 export const ListInvoicesQueryParams = zod.object({
   "clientId": zod.coerce.number().int().optional(),
-  "status": zod.enum(['open', 'paid', 'partial', 'void']).optional()
+  "status": zod.enum(['pending', 'open', 'paid', 'partial', 'void']).optional(),
+  "queue": zod.enum(['pending', 'to_email', 'to_print', 'open', 'past_due', 'paid', 'void']).optional().describe('His invoice tabs. pending = completed jobs waiting for him to verify; to_email \/ to_print = verified and not yet sent by that method; open = anything still owed; past_due = open and past its due date (invoice date when the terms are due on receipt).'),
+  "search": zod.coerce.string().optional().describe('Customer name, address or invoice number')
 })
 
 export const ListInvoicesResponseItem = zod.object({
   "id": zod.int(),
   "clientId": zod.int(),
   "clientName": zod.string().nullish(),
+  "clientAddress": zod.string().nullish(),
+  "clientEmail": zod.string().nullish().describe('Where an emailed invoice goes (billing email, else the contact email)'),
+  "clientDoNotEmail": zod.boolean().optional(),
   "jobId": zod.int().nullish(),
   "serviceName": zod.string().nullish(),
-  "status": zod.enum(['open', 'paid', 'partial', 'void']),
+  "status": zod.enum(['pending', 'open', 'paid', 'partial', 'void']),
   "total": zod.number(),
   "amountPaid": zod.number(),
   "balance": zod.number().describe('total minus amountPaid, never negative'),
+  "accountBalance": zod.number().describe('The customer\'s account balance on bills that have actually been issued (checked, emailed or printed), so he can see it next to the invoice balance. Bills still waiting to be verified are left out, along with any money taken at the door for them - this is the figure the printed coupon and the emailed bill quote to the customer.'),
+  "unappliedCredit": zod.number().optional().describe('Credit sitting on the customer\'s account, not yet applied to any invoice'),
+  "daysPastDue": zod.int().describe('Days past the due date (invoice date when due on receipt); 0 when not past due or nothing owed'),
+  "lastPaymentMethod": zod.string().nullish().describe('How this customer last paid, any invoice — his \"how they pay\" column'),
   "notes": zod.string().nullish(),
   "number": zod.int().describe('The number the customer sees; falls back to id on legacy rows'),
   "invoiceDate": zod.string().nullish(),
@@ -2487,6 +4195,11 @@ export const ListInvoicesResponseItem = zod.object({
   "terms": zod.string().nullish(),
   "poNumber": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
+  "verifiedAt": zod.string().nullish(),
+  "verifiedById": zod.int().nullish(),
+  "needsVerification": zod.boolean().describe('The office has not checked this bill yet (verifiedAt is empty, it is not void, and it has never been emailed or printed). Read this, not the status - a bill paid in full at the door is already \"paid\" and still needs checking, while one the customer already holds was checked by the act of going out.'),
+  "deliveryMethod": zod.string().nullish().describe('Snapshot of the customer\'s delivery preference at verify time (email, print, both)'),
+  "printedAt": zod.string().nullish(),
   "lines": zod.array(zod.object({
   "id": zod.int(),
   "invoiceId": zod.int(),
@@ -2495,7 +4208,8 @@ export const ListInvoicesResponseItem = zod.object({
   "quantity": zod.number(),
   "unitPrice": zod.number(),
   "total": zod.number(),
-  "sortOrder": zod.int()
+  "sortOrder": zod.int(),
+  "jobId": zod.int().nullish().describe('The missed job this line was added for; null for the invoice\'s own job or a typed line')
 })),
   "createdAt": zod.string()
 })
@@ -2518,7 +4232,8 @@ export const CreateInvoiceBody = zod.object({
   "description": zod.string().min(1),
   "serviceDate": zod.string().nullish(),
   "quantity": zod.number().default(createInvoiceBodyLinesItemQuantityDefault),
-  "unitPrice": zod.number().default(createInvoiceBodyLinesItemUnitPriceDefault)
+  "unitPrice": zod.number().default(createInvoiceBodyLinesItemUnitPriceDefault),
+  "jobId": zod.int().nullish()
 })).optional()
 })
 
@@ -2526,12 +4241,19 @@ export const CreateInvoiceResponse = zod.object({
   "id": zod.int(),
   "clientId": zod.int(),
   "clientName": zod.string().nullish(),
+  "clientAddress": zod.string().nullish(),
+  "clientEmail": zod.string().nullish().describe('Where an emailed invoice goes (billing email, else the contact email)'),
+  "clientDoNotEmail": zod.boolean().optional(),
   "jobId": zod.int().nullish(),
   "serviceName": zod.string().nullish(),
-  "status": zod.enum(['open', 'paid', 'partial', 'void']),
+  "status": zod.enum(['pending', 'open', 'paid', 'partial', 'void']),
   "total": zod.number(),
   "amountPaid": zod.number(),
   "balance": zod.number().describe('total minus amountPaid, never negative'),
+  "accountBalance": zod.number().describe('The customer\'s account balance on bills that have actually been issued (checked, emailed or printed), so he can see it next to the invoice balance. Bills still waiting to be verified are left out, along with any money taken at the door for them - this is the figure the printed coupon and the emailed bill quote to the customer.'),
+  "unappliedCredit": zod.number().optional().describe('Credit sitting on the customer\'s account, not yet applied to any invoice'),
+  "daysPastDue": zod.int().describe('Days past the due date (invoice date when due on receipt); 0 when not past due or nothing owed'),
+  "lastPaymentMethod": zod.string().nullish().describe('How this customer last paid, any invoice — his \"how they pay\" column'),
   "notes": zod.string().nullish(),
   "number": zod.int().describe('The number the customer sees; falls back to id on legacy rows'),
   "invoiceDate": zod.string().nullish(),
@@ -2539,6 +4261,11 @@ export const CreateInvoiceResponse = zod.object({
   "terms": zod.string().nullish(),
   "poNumber": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
+  "verifiedAt": zod.string().nullish(),
+  "verifiedById": zod.int().nullish(),
+  "needsVerification": zod.boolean().describe('The office has not checked this bill yet (verifiedAt is empty, it is not void, and it has never been emailed or printed). Read this, not the status - a bill paid in full at the door is already \"paid\" and still needs checking, while one the customer already holds was checked by the act of going out.'),
+  "deliveryMethod": zod.string().nullish().describe('Snapshot of the customer\'s delivery preference at verify time (email, print, both)'),
+  "printedAt": zod.string().nullish(),
   "lines": zod.array(zod.object({
   "id": zod.int(),
   "invoiceId": zod.int(),
@@ -2547,10 +4274,50 @@ export const CreateInvoiceResponse = zod.object({
   "quantity": zod.number(),
   "unitPrice": zod.number(),
   "total": zod.number(),
-  "sortOrder": zod.int()
+  "sortOrder": zod.int(),
+  "jobId": zod.int().nullish().describe('The missed job this line was added for; null for the invoice\'s own job or a typed line')
 })),
   "createdAt": zod.string()
 })
+
+
+/**
+ * @summary Email every listed invoice to its customer, one Gmail send each, with the Bison bill template as the body and the PDF attached. Customers marked do-not-email or with no email are skipped, not failed.
+ */
+export const emailInvoicesBodyIdsMax = 500;
+
+
+
+export const EmailInvoicesBody = zod.object({
+  "ids": zod.array(zod.int()).min(1).max(emailInvoicesBodyIdsMax)
+})
+
+export const EmailInvoicesResponse = zod.object({
+  "batchId": zod.string(),
+  "sent": zod.int(),
+  "failed": zod.array(zod.object({
+  "invoiceId": zod.int(),
+  "number": zod.int(),
+  "clientName": zod.string().nullable(),
+  "reason": zod.string().describe('no_email, not_verified, void, already_sent, or the error text. do_not_email is not one of them: that box stops bulk notices, not a customer\'s bill.')
+})),
+  "skipped": zod.array(zod.object({
+  "invoiceId": zod.int(),
+  "number": zod.int(),
+  "clientName": zod.string().nullable(),
+  "reason": zod.string().describe('no_email, not_verified, void, already_sent, or the error text. do_not_email is not one of them: that box stops bulk notices, not a customer\'s bill.')
+}))
+})
+
+
+/**
+ * @summary One PDF holding every listed invoice, and each is stamped printed
+ */
+export const PrintInvoicesQueryParams = zod.object({
+  "ids": zod.coerce.string().describe('Comma-separated invoice ids')
+})
+
+export const PrintInvoicesResponse = zod.unknown()
 
 
 export const GetInvoiceParams = zod.object({
@@ -2561,12 +4328,19 @@ export const GetInvoiceResponse = zod.object({
   "id": zod.int(),
   "clientId": zod.int(),
   "clientName": zod.string().nullish(),
+  "clientAddress": zod.string().nullish(),
+  "clientEmail": zod.string().nullish().describe('Where an emailed invoice goes (billing email, else the contact email)'),
+  "clientDoNotEmail": zod.boolean().optional(),
   "jobId": zod.int().nullish(),
   "serviceName": zod.string().nullish(),
-  "status": zod.enum(['open', 'paid', 'partial', 'void']),
+  "status": zod.enum(['pending', 'open', 'paid', 'partial', 'void']),
   "total": zod.number(),
   "amountPaid": zod.number(),
   "balance": zod.number().describe('total minus amountPaid, never negative'),
+  "accountBalance": zod.number().describe('The customer\'s account balance on bills that have actually been issued (checked, emailed or printed), so he can see it next to the invoice balance. Bills still waiting to be verified are left out, along with any money taken at the door for them - this is the figure the printed coupon and the emailed bill quote to the customer.'),
+  "unappliedCredit": zod.number().optional().describe('Credit sitting on the customer\'s account, not yet applied to any invoice'),
+  "daysPastDue": zod.int().describe('Days past the due date (invoice date when due on receipt); 0 when not past due or nothing owed'),
+  "lastPaymentMethod": zod.string().nullish().describe('How this customer last paid, any invoice — his \"how they pay\" column'),
   "notes": zod.string().nullish(),
   "number": zod.int().describe('The number the customer sees; falls back to id on legacy rows'),
   "invoiceDate": zod.string().nullish(),
@@ -2574,6 +4348,11 @@ export const GetInvoiceResponse = zod.object({
   "terms": zod.string().nullish(),
   "poNumber": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
+  "verifiedAt": zod.string().nullish(),
+  "verifiedById": zod.int().nullish(),
+  "needsVerification": zod.boolean().describe('The office has not checked this bill yet (verifiedAt is empty, it is not void, and it has never been emailed or printed). Read this, not the status - a bill paid in full at the door is already \"paid\" and still needs checking, while one the customer already holds was checked by the act of going out.'),
+  "deliveryMethod": zod.string().nullish().describe('Snapshot of the customer\'s delivery preference at verify time (email, print, both)'),
+  "printedAt": zod.string().nullish(),
   "lines": zod.array(zod.object({
   "id": zod.int(),
   "invoiceId": zod.int(),
@@ -2582,10 +4361,27 @@ export const GetInvoiceResponse = zod.object({
   "quantity": zod.number(),
   "unitPrice": zod.number(),
   "total": zod.number(),
-  "sortOrder": zod.int()
+  "sortOrder": zod.int(),
+  "jobId": zod.int().nullish().describe('The missed job this line was added for; null for the invoice\'s own job or a typed line')
 })),
   "createdAt": zod.string()
 })
+
+
+/**
+ * @summary Delete an invoice outright. Refused once it has been sent or paid unless force=true, in which case any money paid stays on the account as credit. The job it billed goes back to completed-but-not-invoiced.
+ */
+export const DeleteInvoiceParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const deleteInvoiceBodyForceDefault = false;
+
+export const DeleteInvoiceBody = zod.object({
+  "force": zod.boolean().default(deleteInvoiceBodyForceDefault).describe('Delete even though it was sent or paid; any money paid stays on the account as credit')
+})
+
+export const DeleteInvoiceResponse = zod.void()
 
 
 export const UpdateInvoiceParams = zod.object({
@@ -2608,7 +4404,8 @@ export const UpdateInvoiceBody = zod.object({
   "description": zod.string().min(1),
   "serviceDate": zod.string().nullish(),
   "quantity": zod.number().default(updateInvoiceBodyLinesItemQuantityDefault),
-  "unitPrice": zod.number().default(updateInvoiceBodyLinesItemUnitPriceDefault)
+  "unitPrice": zod.number().default(updateInvoiceBodyLinesItemUnitPriceDefault),
+  "jobId": zod.int().nullish()
 })).optional().describe('When present, replaces every line and recomputes the total')
 })
 
@@ -2616,12 +4413,19 @@ export const UpdateInvoiceResponse = zod.object({
   "id": zod.int(),
   "clientId": zod.int(),
   "clientName": zod.string().nullish(),
+  "clientAddress": zod.string().nullish(),
+  "clientEmail": zod.string().nullish().describe('Where an emailed invoice goes (billing email, else the contact email)'),
+  "clientDoNotEmail": zod.boolean().optional(),
   "jobId": zod.int().nullish(),
   "serviceName": zod.string().nullish(),
-  "status": zod.enum(['open', 'paid', 'partial', 'void']),
+  "status": zod.enum(['pending', 'open', 'paid', 'partial', 'void']),
   "total": zod.number(),
   "amountPaid": zod.number(),
   "balance": zod.number().describe('total minus amountPaid, never negative'),
+  "accountBalance": zod.number().describe('The customer\'s account balance on bills that have actually been issued (checked, emailed or printed), so he can see it next to the invoice balance. Bills still waiting to be verified are left out, along with any money taken at the door for them - this is the figure the printed coupon and the emailed bill quote to the customer.'),
+  "unappliedCredit": zod.number().optional().describe('Credit sitting on the customer\'s account, not yet applied to any invoice'),
+  "daysPastDue": zod.int().describe('Days past the due date (invoice date when due on receipt); 0 when not past due or nothing owed'),
+  "lastPaymentMethod": zod.string().nullish().describe('How this customer last paid, any invoice — his \"how they pay\" column'),
   "notes": zod.string().nullish(),
   "number": zod.int().describe('The number the customer sees; falls back to id on legacy rows'),
   "invoiceDate": zod.string().nullish(),
@@ -2629,6 +4433,11 @@ export const UpdateInvoiceResponse = zod.object({
   "terms": zod.string().nullish(),
   "poNumber": zod.string().nullish(),
   "sentAt": zod.string().nullish(),
+  "verifiedAt": zod.string().nullish(),
+  "verifiedById": zod.int().nullish(),
+  "needsVerification": zod.boolean().describe('The office has not checked this bill yet (verifiedAt is empty, it is not void, and it has never been emailed or printed). Read this, not the status - a bill paid in full at the door is already \"paid\" and still needs checking, while one the customer already holds was checked by the act of going out.'),
+  "deliveryMethod": zod.string().nullish().describe('Snapshot of the customer\'s delivery preference at verify time (email, print, both)'),
+  "printedAt": zod.string().nullish(),
   "lines": zod.array(zod.object({
   "id": zod.int(),
   "invoiceId": zod.int(),
@@ -2637,7 +4446,8 @@ export const UpdateInvoiceResponse = zod.object({
   "quantity": zod.number(),
   "unitPrice": zod.number(),
   "total": zod.number(),
-  "sortOrder": zod.int()
+  "sortOrder": zod.int(),
+  "jobId": zod.int().nullish().describe('The missed job this line was added for; null for the invoice\'s own job or a typed line')
 })),
   "createdAt": zod.string()
 })
@@ -2671,9 +4481,161 @@ export const SendInvoiceResponse = zod.object({
 })
 
 
+/**
+ * @summary He has checked the invoice. Stamps verifiedAt, snapshots the customer's delivery preference (email / print / both) and moves it from pending to open, so it shows up in the to-email or to-print queue. The due date is worked out again from the day it is verified (the invoice date stays the day of the work), so a bill sent at month end is not already past due.
+ */
+export const VerifyInvoiceParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const VerifyInvoiceResponse = zod.object({
+  "id": zod.int(),
+  "clientId": zod.int(),
+  "clientName": zod.string().nullish(),
+  "clientAddress": zod.string().nullish(),
+  "clientEmail": zod.string().nullish().describe('Where an emailed invoice goes (billing email, else the contact email)'),
+  "clientDoNotEmail": zod.boolean().optional(),
+  "jobId": zod.int().nullish(),
+  "serviceName": zod.string().nullish(),
+  "status": zod.enum(['pending', 'open', 'paid', 'partial', 'void']),
+  "total": zod.number(),
+  "amountPaid": zod.number(),
+  "balance": zod.number().describe('total minus amountPaid, never negative'),
+  "accountBalance": zod.number().describe('The customer\'s account balance on bills that have actually been issued (checked, emailed or printed), so he can see it next to the invoice balance. Bills still waiting to be verified are left out, along with any money taken at the door for them - this is the figure the printed coupon and the emailed bill quote to the customer.'),
+  "unappliedCredit": zod.number().optional().describe('Credit sitting on the customer\'s account, not yet applied to any invoice'),
+  "daysPastDue": zod.int().describe('Days past the due date (invoice date when due on receipt); 0 when not past due or nothing owed'),
+  "lastPaymentMethod": zod.string().nullish().describe('How this customer last paid, any invoice — his \"how they pay\" column'),
+  "notes": zod.string().nullish(),
+  "number": zod.int().describe('The number the customer sees; falls back to id on legacy rows'),
+  "invoiceDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "terms": zod.string().nullish(),
+  "poNumber": zod.string().nullish(),
+  "sentAt": zod.string().nullish(),
+  "verifiedAt": zod.string().nullish(),
+  "verifiedById": zod.int().nullish(),
+  "needsVerification": zod.boolean().describe('The office has not checked this bill yet (verifiedAt is empty, it is not void, and it has never been emailed or printed). Read this, not the status - a bill paid in full at the door is already \"paid\" and still needs checking, while one the customer already holds was checked by the act of going out.'),
+  "deliveryMethod": zod.string().nullish().describe('Snapshot of the customer\'s delivery preference at verify time (email, print, both)'),
+  "printedAt": zod.string().nullish(),
+  "lines": zod.array(zod.object({
+  "id": zod.int(),
+  "invoiceId": zod.int(),
+  "description": zod.string(),
+  "serviceDate": zod.string().nullish().describe('Date-only (YYYY-MM-DD) of the visit this line bills'),
+  "quantity": zod.number(),
+  "unitPrice": zod.number(),
+  "total": zod.number(),
+  "sortOrder": zod.int(),
+  "jobId": zod.int().nullish().describe('The missed job this line was added for; null for the invoice\'s own job or a typed line')
+})),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Add a completed job that was missed (never invoiced) to this invoice as its own lines, and mark the job invoiced.
+ */
+export const AttachJobToInvoiceParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const AttachJobToInvoiceBody = zod.object({
+  "jobId": zod.int()
+})
+
+export const AttachJobToInvoiceResponse = zod.object({
+  "id": zod.int(),
+  "clientId": zod.int(),
+  "clientName": zod.string().nullish(),
+  "clientAddress": zod.string().nullish(),
+  "clientEmail": zod.string().nullish().describe('Where an emailed invoice goes (billing email, else the contact email)'),
+  "clientDoNotEmail": zod.boolean().optional(),
+  "jobId": zod.int().nullish(),
+  "serviceName": zod.string().nullish(),
+  "status": zod.enum(['pending', 'open', 'paid', 'partial', 'void']),
+  "total": zod.number(),
+  "amountPaid": zod.number(),
+  "balance": zod.number().describe('total minus amountPaid, never negative'),
+  "accountBalance": zod.number().describe('The customer\'s account balance on bills that have actually been issued (checked, emailed or printed), so he can see it next to the invoice balance. Bills still waiting to be verified are left out, along with any money taken at the door for them - this is the figure the printed coupon and the emailed bill quote to the customer.'),
+  "unappliedCredit": zod.number().optional().describe('Credit sitting on the customer\'s account, not yet applied to any invoice'),
+  "daysPastDue": zod.int().describe('Days past the due date (invoice date when due on receipt); 0 when not past due or nothing owed'),
+  "lastPaymentMethod": zod.string().nullish().describe('How this customer last paid, any invoice — his \"how they pay\" column'),
+  "notes": zod.string().nullish(),
+  "number": zod.int().describe('The number the customer sees; falls back to id on legacy rows'),
+  "invoiceDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "terms": zod.string().nullish(),
+  "poNumber": zod.string().nullish(),
+  "sentAt": zod.string().nullish(),
+  "verifiedAt": zod.string().nullish(),
+  "verifiedById": zod.int().nullish(),
+  "needsVerification": zod.boolean().describe('The office has not checked this bill yet (verifiedAt is empty, it is not void, and it has never been emailed or printed). Read this, not the status - a bill paid in full at the door is already \"paid\" and still needs checking, while one the customer already holds was checked by the act of going out.'),
+  "deliveryMethod": zod.string().nullish().describe('Snapshot of the customer\'s delivery preference at verify time (email, print, both)'),
+  "printedAt": zod.string().nullish(),
+  "lines": zod.array(zod.object({
+  "id": zod.int(),
+  "invoiceId": zod.int(),
+  "description": zod.string(),
+  "serviceDate": zod.string().nullish().describe('Date-only (YYYY-MM-DD) of the visit this line bills'),
+  "quantity": zod.number(),
+  "unitPrice": zod.number(),
+  "total": zod.number(),
+  "sortOrder": zod.int(),
+  "jobId": zod.int().nullish().describe('The missed job this line was added for; null for the invoice\'s own job or a typed line')
+})),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Everything that happened to this invoice and its payments, newest first
+ */
+export const ListInvoiceAuditParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ListInvoiceAuditResponseItem = zod.object({
+  "id": zod.int(),
+  "clientId": zod.int().nullish(),
+  "clientName": zod.string().nullish(),
+  "actorName": zod.string().nullish(),
+  "action": zod.string(),
+  "description": zod.string(),
+  "entityType": zod.string().nullish().describe('Which record the event is about (invoice, payment, job); null on older rows'),
+  "entityId": zod.int().nullish(),
+  "createdAt": zod.string()
+})
+export const ListInvoiceAuditResponse = zod.array(ListInvoiceAuditResponseItem)
+
+
+/**
+ * @summary Undo a completion. The job goes back to scheduled (on the board, or on the waiting list), its lines come off the invoice, and the invoice is voided if nothing is left on it.
+ */
+export const UncompleteJobParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const uncompleteJobBodySendToDefault = `board`;
+
+export const UncompleteJobBody = zod.object({
+  "sendTo": zod.enum(['board', 'waiting_list']).default(uncompleteJobBodySendToDefault).describe('Back onto the day it was scheduled, or onto the waiting list with no day')
+})
+
+export const UncompleteJobResponse = zod.object({
+  "jobId": zod.int(),
+  "invoiceId": zod.int().nullable(),
+  "invoiceNumber": zod.int().nullish(),
+  "invoiceVoided": zod.boolean().describe('true when the job\'s lines were the whole invoice, so the invoice was voided')
+})
+
+
 export const ListPaymentsQueryParams = zod.object({
   "clientId": zod.coerce.number().int().optional(),
-  "unapplied": zod.coerce.boolean().optional().describe('Only payments not attached to an invoice (credit on account)')
+  "unapplied": zod.coerce.boolean().optional().describe('Only payments not attached to an invoice (credit on account)'),
+  "search": zod.coerce.string().optional().describe('Customer name, reference \/ check number, amount or invoice number'),
+  "from": zod.coerce.string().optional().describe('Payment date from (YYYY-MM-DD)'),
+  "to": zod.coerce.string().optional().describe('Payment date to (YYYY-MM-DD)'),
+  "method": zod.enum(['check', 'venmo', 'zelle', 'credit_card', 'cash', 'other']).optional()
 })
 
 export const ListPaymentsResponseItem = zod.object({
@@ -2681,6 +4643,7 @@ export const ListPaymentsResponseItem = zod.object({
   "clientId": zod.int(),
   "clientName": zod.string().nullish(),
   "invoiceId": zod.int().nullish(),
+  "invoiceNumber": zod.int().nullish().describe('The number of the invoice it is applied to, for the payments list'),
   "jobId": zod.int().nullish(),
   "amount": zod.number(),
   "cardFee": zod.number().optional(),
@@ -2709,6 +4672,7 @@ export const CreatePaymentResponse = zod.object({
   "clientId": zod.int(),
   "clientName": zod.string().nullish(),
   "invoiceId": zod.int().nullish(),
+  "invoiceNumber": zod.int().nullish().describe('The number of the invoice it is applied to, for the payments list'),
   "jobId": zod.int().nullish(),
   "amount": zod.number(),
   "cardFee": zod.number().optional(),
@@ -3210,6 +5174,232 @@ export const RejectSuggestedActionResponse = zod.object({
 
 
 /**
+ * @summary The "N days after X, send Y" email rules
+ */
+export const listAutomationRulesResponseConditionsLookbackDaysMin = 0;
+export const listAutomationRulesResponseConditionsLookbackDaysMax = 3650;
+
+
+
+export const ListAutomationRulesResponseItem = zod.object({
+  "id": zod.int(),
+  "name": zod.string(),
+  "enabled": zod.boolean(),
+  "trigger": zod.enum(['invoice_past_due', 'invoice_sent', 'estimate_sent', 'job_completed', 'client_added', 'fixed_date', 'after_rule']),
+  "offsetDays": zod.int(),
+  "monthDay": zod.string().nullish(),
+  "templateId": zod.int().nullish(),
+  "templateName": zod.string().nullish(),
+  "afterRuleName": zod.string().nullish(),
+  "serviceName": zod.string().nullish(),
+  "conditions": zod.object({
+  "stillUnpaid": zod.boolean().optional(),
+  "noResponse": zod.boolean().optional(),
+  "serviceId": zod.int().nullish(),
+  "afterRuleId": zod.int().nullish(),
+  "lookbackDays": zod.int().min(listAutomationRulesResponseConditionsLookbackDaysMin).max(listAutomationRulesResponseConditionsLookbackDaysMax).optional()
+}),
+  "sentTotal": zod.int(),
+  "lastRunAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListAutomationRulesResponse = zod.array(ListAutomationRulesResponseItem)
+
+
+
+export const createAutomationRuleBodyOffsetDaysMin = 0;
+export const createAutomationRuleBodyOffsetDaysMax = 3650;
+
+export const createAutomationRuleBodyMonthDayRegExp = new RegExp('^\\d{2}-\\d{2}$');
+export const createAutomationRuleBodyConditionsLookbackDaysMin = 0;
+export const createAutomationRuleBodyConditionsLookbackDaysMax = 3650;
+
+
+
+export const CreateAutomationRuleBody = zod.object({
+  "name": zod.string().min(1),
+  "enabled": zod.boolean().optional(),
+  "trigger": zod.enum(['invoice_past_due', 'invoice_sent', 'estimate_sent', 'job_completed', 'client_added', 'fixed_date', 'after_rule']),
+  "offsetDays": zod.int().min(createAutomationRuleBodyOffsetDaysMin).max(createAutomationRuleBodyOffsetDaysMax).optional(),
+  "monthDay": zod.string().regex(createAutomationRuleBodyMonthDayRegExp).nullish(),
+  "templateId": zod.int().nullish(),
+  "conditions": zod.object({
+  "stillUnpaid": zod.boolean().optional(),
+  "noResponse": zod.boolean().optional(),
+  "serviceId": zod.int().nullish(),
+  "afterRuleId": zod.int().nullish(),
+  "lookbackDays": zod.int().min(createAutomationRuleBodyConditionsLookbackDaysMin).max(createAutomationRuleBodyConditionsLookbackDaysMax).optional()
+}).optional()
+})
+
+export const createAutomationRuleResponseConditionsLookbackDaysMin = 0;
+export const createAutomationRuleResponseConditionsLookbackDaysMax = 3650;
+
+
+
+export const CreateAutomationRuleResponse = zod.object({
+  "id": zod.int(),
+  "name": zod.string(),
+  "enabled": zod.boolean(),
+  "trigger": zod.enum(['invoice_past_due', 'invoice_sent', 'estimate_sent', 'job_completed', 'client_added', 'fixed_date', 'after_rule']),
+  "offsetDays": zod.int(),
+  "monthDay": zod.string().nullish(),
+  "templateId": zod.int().nullish(),
+  "templateName": zod.string().nullish(),
+  "afterRuleName": zod.string().nullish(),
+  "serviceName": zod.string().nullish(),
+  "conditions": zod.object({
+  "stillUnpaid": zod.boolean().optional(),
+  "noResponse": zod.boolean().optional(),
+  "serviceId": zod.int().nullish(),
+  "afterRuleId": zod.int().nullish(),
+  "lookbackDays": zod.int().min(createAutomationRuleResponseConditionsLookbackDaysMin).max(createAutomationRuleResponseConditionsLookbackDaysMax).optional()
+}),
+  "sentTotal": zod.int(),
+  "lastRunAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary When the daily email run fires, plus the recent run log
+ */
+export const GetEmailAutomationStatusResponse = zod.object({
+  "enabled": zod.boolean(),
+  "runAtLocalTime": zod.string(),
+  "timeZone": zod.string(),
+  "today": zod.string(),
+  "runs": zod.array(zod.object({
+  "id": zod.int(),
+  "trigger": zod.enum(['scheduled', 'manual']),
+  "status": zod.enum(['running', 'succeeded', 'failed']),
+  "day": zod.string().nullish(),
+  "considered": zod.int(),
+  "sent": zod.int(),
+  "summary": zod.string().nullish(),
+  "error": zod.string().nullish(),
+  "triggeredBy": zod.string().nullish(),
+  "startedAt": zod.string(),
+  "finishedAt": zod.string().nullish()
+}))
+})
+
+
+/**
+ * @summary Run every switched-on rule right now instead of waiting for the daily run
+ */
+export const RunAutomationRulesNowResponse = zod.object({
+  "runId": zod.int(),
+  "summary": zod.string(),
+  "outcomes": zod.array(zod.object({
+  "ruleId": zod.int(),
+  "ruleName": zod.string(),
+  "considered": zod.int(),
+  "sent": zod.int(),
+  "skipped": zod.int(),
+  "failed": zod.int(),
+  "batchId": zod.string().nullish(),
+  "problem": zod.string().nullish()
+}))
+})
+
+
+export const UpdateAutomationRuleParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+
+export const updateAutomationRuleBodyOffsetDaysMin = 0;
+export const updateAutomationRuleBodyOffsetDaysMax = 3650;
+
+export const updateAutomationRuleBodyMonthDayRegExp = new RegExp('^\\d{2}-\\d{2}$');
+export const updateAutomationRuleBodyConditionsLookbackDaysMin = 0;
+export const updateAutomationRuleBodyConditionsLookbackDaysMax = 3650;
+
+
+
+export const UpdateAutomationRuleBody = zod.object({
+  "name": zod.string().min(1).optional(),
+  "enabled": zod.boolean().optional(),
+  "trigger": zod.enum(['invoice_past_due', 'invoice_sent', 'estimate_sent', 'job_completed', 'client_added', 'fixed_date', 'after_rule']).optional(),
+  "offsetDays": zod.int().min(updateAutomationRuleBodyOffsetDaysMin).max(updateAutomationRuleBodyOffsetDaysMax).optional(),
+  "monthDay": zod.string().regex(updateAutomationRuleBodyMonthDayRegExp).nullish(),
+  "templateId": zod.int().nullish(),
+  "conditions": zod.object({
+  "stillUnpaid": zod.boolean().optional(),
+  "noResponse": zod.boolean().optional(),
+  "serviceId": zod.int().nullish(),
+  "afterRuleId": zod.int().nullish(),
+  "lookbackDays": zod.int().min(updateAutomationRuleBodyConditionsLookbackDaysMin).max(updateAutomationRuleBodyConditionsLookbackDaysMax).optional()
+}).optional()
+})
+
+export const updateAutomationRuleResponseConditionsLookbackDaysMin = 0;
+export const updateAutomationRuleResponseConditionsLookbackDaysMax = 3650;
+
+
+
+export const UpdateAutomationRuleResponse = zod.object({
+  "id": zod.int(),
+  "name": zod.string(),
+  "enabled": zod.boolean(),
+  "trigger": zod.enum(['invoice_past_due', 'invoice_sent', 'estimate_sent', 'job_completed', 'client_added', 'fixed_date', 'after_rule']),
+  "offsetDays": zod.int(),
+  "monthDay": zod.string().nullish(),
+  "templateId": zod.int().nullish(),
+  "templateName": zod.string().nullish(),
+  "afterRuleName": zod.string().nullish(),
+  "serviceName": zod.string().nullish(),
+  "conditions": zod.object({
+  "stillUnpaid": zod.boolean().optional(),
+  "noResponse": zod.boolean().optional(),
+  "serviceId": zod.int().nullish(),
+  "afterRuleId": zod.int().nullish(),
+  "lookbackDays": zod.int().min(updateAutomationRuleResponseConditionsLookbackDaysMin).max(updateAutomationRuleResponseConditionsLookbackDaysMax).optional()
+}),
+  "sentTotal": zod.int(),
+  "lastRunAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+export const DeleteAutomationRuleParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const DeleteAutomationRuleResponse = zod.void()
+
+
+/**
+ * @summary Dry run — who this rule would email today, without sending anything
+ */
+export const PreviewAutomationRuleParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const PreviewAutomationRuleResponse = zod.object({
+  "ruleId": zod.int(),
+  "ruleName": zod.string(),
+  "templateName": zod.string().nullish(),
+  "today": zod.string(),
+  "count": zod.int().describe('How many would actually be emailed'),
+  "recipients": zod.array(zod.object({
+  "clientId": zod.int(),
+  "clientName": zod.string(),
+  "email": zod.string().nullish(),
+  "subjectLabel": zod.string(),
+  "wouldSkip": zod.union([zod.literal('no_email'),zod.literal('do_not_email'),zod.literal(null)]).nullish()
+})),
+  "sample": zod.union([zod.object({
+  "clientName": zod.string(),
+  "subject": zod.string().nullish(),
+  "body": zod.string()
+}),zod.null()]).optional(),
+  "problem": zod.string().nullish()
+})
+
+
+/**
  * @summary Admin dashboard totals
  */
 export const GetDashboardSummaryResponse = zod.object({
@@ -3235,6 +5425,8 @@ export const GetRecentActivityResponseItem = zod.object({
   "actorName": zod.string().nullish(),
   "action": zod.string(),
   "description": zod.string(),
+  "entityType": zod.string().nullish().describe('Which record the event is about (invoice, payment, job); null on older rows'),
+  "entityId": zod.int().nullish(),
   "createdAt": zod.string()
 })
 export const GetRecentActivityResponse = zod.array(GetRecentActivityResponseItem)
@@ -3255,6 +5447,56 @@ export const GetContractorEarningsResponseItem = zod.object({
   "completedCount": zod.int().optional()
 })
 export const GetContractorEarningsResponse = zod.array(GetContractorEarningsResponseItem)
+
+
+/**
+ * @summary What needs a look today - estimates accepted, invoices sent today, new web requests, failed emails
+ */
+export const GetDashboardAlertsResponse = zod.object({
+  "estimatesAccepted": zod.object({
+  "count": zod.int(),
+  "items": zod.array(zod.object({
+  "id": zod.int(),
+  "clientId": zod.int(),
+  "clientName": zod.string(),
+  "total": zod.number(),
+  "at": zod.string().nullish()
+}))
+}),
+  "invoicesSentToday": zod.object({
+  "count": zod.int(),
+  "items": zod.array(zod.object({
+  "id": zod.int(),
+  "number": zod.int(),
+  "clientId": zod.int(),
+  "clientName": zod.string(),
+  "total": zod.number(),
+  "at": zod.string().nullish()
+}))
+}),
+  "webRequests": zod.object({
+  "count": zod.int(),
+  "items": zod.array(zod.object({
+  "id": zod.int(),
+  "name": zod.string().nullish(),
+  "address": zod.string().nullish(),
+  "message": zod.string().nullish(),
+  "at": zod.string().nullish()
+}))
+}),
+  "failedEmails": zod.object({
+  "count": zod.int(),
+  "items": zod.array(zod.object({
+  "id": zod.int(),
+  "clientId": zod.int().nullish(),
+  "clientName": zod.string().nullish(),
+  "toEmail": zod.string().nullish(),
+  "subject": zod.string().nullish(),
+  "error": zod.string().nullish(),
+  "at": zod.string().nullish()
+}))
+})
+})
 
 
 /**
@@ -3683,6 +5925,65 @@ export const ListClientPhotosResponse = zod.array(ListClientPhotosResponseItem)
 
 
 /**
+ * The office's "save it to the customer profile" — a photo from the field forwarded by text, a backflow test form, a photo of the gate. Same limits as a job photo; stored with no job behind it.
+ * @summary Attach a photo or PDF straight to the customer, with no job
+ */
+export const UploadClientPhotoParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const uploadClientPhotoBodyKindDefault = `other`;
+
+export const UploadClientPhotoBody = zod.object({
+  "contentType": zod.enum(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']),
+  "dataBase64": zod.string().describe('The file, base64 encoded'),
+  "kind": zod.enum(['before', 'after', 'other']).default(uploadClientPhotoBodyKindDefault),
+  "caption": zod.string().nullish()
+})
+
+export const UploadClientPhotoResponse = zod.object({
+  "id": zod.int(),
+  "jobId": zod.int().nullish(),
+  "clientId": zod.int(),
+  "uploadedById": zod.int().nullish(),
+  "uploadedByName": zod.string().nullish(),
+  "contentType": zod.string(),
+  "byteSize": zod.int(),
+  "kind": zod.enum(['before', 'after', 'other']),
+  "caption": zod.string().nullish(),
+  "takenAt": zod.string(),
+  "url": zod.string().describe('Authenticated path to the bytes')
+})
+
+
+/**
+ * @summary Relabel a photo (before / after / other) or change its caption
+ */
+export const UpdatePhotoParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const UpdatePhotoBody = zod.object({
+  "kind": zod.enum(['before', 'after', 'other']).optional(),
+  "caption": zod.string().nullish()
+})
+
+export const UpdatePhotoResponse = zod.object({
+  "id": zod.int(),
+  "jobId": zod.int().nullish(),
+  "clientId": zod.int(),
+  "uploadedById": zod.int().nullish(),
+  "uploadedByName": zod.string().nullish(),
+  "contentType": zod.string(),
+  "byteSize": zod.int(),
+  "kind": zod.enum(['before', 'after', 'other']),
+  "caption": zod.string().nullish(),
+  "takenAt": zod.string(),
+  "url": zod.string().describe('Authenticated path to the bytes')
+})
+
+
+/**
  * @summary Delete a photo and the bytes behind it
  */
 export const DeletePhotoParams = zod.object({
@@ -3816,16 +6117,123 @@ export const AskReportQuestionResponse = zod.object({
   "reportKey": zod.string().nullish(),
   "reportTitle": zod.string().nullish(),
   "answer": zod.string(),
-  "rows": zod.array(zod.object({
+  "columns": zod.array(zod.object({
   "key": zod.string(),
   "label": zod.string(),
-  "jobs": zod.int(),
-  "measuredJobs": zod.int().describe('How many of those jobs have a closed clock entry. Everything derived from actual hours rests on this number.'),
-  "revenue": zod.number(),
-  "budgetedHours": zod.number().nullish(),
-  "actualHours": zod.number().nullish().describe('Null means the work was never clocked, which is not the same as zero hours'),
-  "varianceHours": zod.number().nullish().describe('actual minus budgeted; positive means it took longer than it was priced for'),
-  "revenuePerHour": zod.number().nullish()
+  "kind": zod.enum(['text', 'money', 'number', 'hours', 'date', 'sqft', 'link'])
+})),
+  "rows": zod.array(zod.record(zod.string(), zod.unknown()).describe('One row of a curated report; the keys are the report\'s column keys')),
+  "totals": zod.union([zod.record(zod.string(), zod.number()).describe('Totals for the columns the report marks summable'),zod.null()]).optional(),
+  "assistantUsed": zod.boolean().describe('False when the question was routed on its words alone, with no model summary')
+})
+
+
+/**
+ * @summary Every report the page can open, with the sentences the picker shows
+ */
+export const GetReportCatalogueResponse = zod.object({
+  "assistantAvailable": zod.boolean(),
+  "reports": zod.array(zod.object({
+  "key": zod.string(),
+  "title": zod.string(),
+  "describes": zod.string(),
+  "asks": zod.array(zod.string()),
+  "columns": zod.array(zod.object({
+  "key": zod.string(),
+  "label": zod.string(),
+  "kind": zod.enum(['text', 'money', 'number', 'hours', 'date', 'sqft', 'link'])
+}))
+}))
+})
+
+
+/**
+ * @summary One curated report over a date range (format=csv returns a file)
+ */
+export const GetReportQueryParams = zod.object({
+  "key": zod.coerce.string(),
+  "from": zod.coerce.string(),
+  "to": zod.coerce.string(),
+  "format": zod.enum(['json', 'csv']).optional()
+})
+
+export const GetReportResponse = zod.object({
+  "key": zod.string(),
+  "title": zod.string(),
+  "from": zod.string(),
+  "to": zod.string(),
+  "columns": zod.array(zod.object({
+  "key": zod.string(),
+  "label": zod.string(),
+  "kind": zod.enum(['text', 'money', 'number', 'hours', 'date', 'sqft', 'link'])
+})),
+  "rows": zod.array(zod.record(zod.string(), zod.unknown()).describe('One row of a curated report; the keys are the report\'s column keys')),
+  "totals": zod.union([zod.record(zod.string(), zod.number()).describe('Totals for the columns the report marks summable'),zod.null()]).optional()
+})
+
+
+/**
+ * @summary One box across clients (including former), tickets, invoices, payments and jobs by address
+ */
+export const globalSearchQueryQMin = 2;
+
+
+
+export const GlobalSearchQueryParams = zod.object({
+  "q": zod.coerce.string().min(globalSearchQueryQMin)
+})
+
+export const GlobalSearchResponse = zod.object({
+  "q": zod.string(),
+  "clients": zod.array(zod.object({
+  "id": zod.int(),
+  "name": zod.string(),
+  "status": zod.enum(['lead', 'client', 'former_client']),
+  "serviceAddress": zod.string().nullish(),
+  "city": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "mapCode": zod.string().nullish()
+})),
+  "tickets": zod.array(zod.object({
+  "id": zod.int(),
+  "title": zod.string(),
+  "status": zod.string(),
+  "dueDate": zod.string().nullish(),
+  "clientId": zod.int().nullish(),
+  "clientName": zod.string().nullish()
+})),
+  "invoices": zod.array(zod.object({
+  "id": zod.int(),
+  "number": zod.int(),
+  "status": zod.string(),
+  "total": zod.number(),
+  "balance": zod.number(),
+  "invoiceDate": zod.string().nullish(),
+  "poNumber": zod.string().nullish(),
+  "clientId": zod.int(),
+  "clientName": zod.string()
+})),
+  "payments": zod.array(zod.object({
+  "id": zod.int(),
+  "amount": zod.number(),
+  "method": zod.string(),
+  "reference": zod.string().nullish(),
+  "invoiceId": zod.int().nullish(),
+  "createdAt": zod.string(),
+  "clientId": zod.int(),
+  "clientName": zod.string()
+})),
+  "jobs": zod.array(zod.object({
+  "id": zod.int(),
+  "status": zod.string(),
+  "scheduledDate": zod.string().nullish(),
+  "amount": zod.number(),
+  "clientId": zod.int(),
+  "clientName": zod.string(),
+  "address": zod.string().nullish(),
+  "city": zod.string().nullish(),
+  "serviceName": zod.string().nullish()
 }))
 })
 
@@ -3842,12 +6250,264 @@ export const BulkAssignJobsBody = zod.object({
   "assignedToId": zod.int().nullish().describe('Crew to assign. Omit to leave alone; null to unassign.'),
   "scheduledDate": zod.string().nullish().describe('yyyy-mm-dd. Omit to leave alone.'),
   "dispatched": zod.boolean().nullish().describe('Omit to leave alone. True moves waiting-list work onto the board.'),
-  "routeOrderFrom": zod.int().nullish().describe('Number the selection sequentially from here, in the order the ids were given, so the dispatcher\'s own ordering is what gets written.')
+  "routeOrderFrom": zod.int().nullish().describe('Number the selection sequentially from here, in the order the ids were given, so the dispatcher\'s own ordering is what gets written.'),
+  "clearRouteOrder": zod.boolean().optional().describe('Wipe the route numbers off these jobs. This is the first half of \"set route order\": clear, then click the stops in the order they should be driven.')
 })
 
 export const BulkAssignJobsResponse = zod.object({
   "updated": zod.int(),
   "jobIds": zod.array(zod.int()).optional()
+})
+
+
+/**
+ * The bulk actions bar. Tick some rows (or select all), pick what to do, and it happens to every one of them in one transaction. A job that cannot take the action — a completed job cannot be cancelled, sent back to the waiting list or deleted, because its invoice already exists — is left alone and reported in `skippedIds` rather than failing the whole batch.
+ * @summary Do one thing to every selected job on the board or the waiting list
+ */
+
+
+
+export const BulkJobActionBody = zod.object({
+  "jobIds": zod.array(zod.int()).min(1),
+  "action": zod.enum(['move', 'assign', 'dispatch', 'waiting_list', 'cancel', 'skip', 'delete', 'add_note']).describe('move = change the date; assign = change the contractor (null unassigns); dispatch = waiting list onto the board for a date; waiting_list = off the board, back to waiting; cancel \/ skip = terminal statuses with a reason; delete = gone; add_note = append a note to each job, e.g. \"NO EMAIL - call or text\".'),
+  "scheduledDate": zod.string().nullish().describe('yyyy-mm-dd. Needed by move and dispatch.'),
+  "assignedToId": zod.int().nullish().describe('Needed by assign (null = unassign); optional on dispatch.'),
+  "reason": zod.string().nullish().describe('Why, for cancel and skip. Shown on the row.'),
+  "note": zod.string().nullish().describe('The text add_note appends to each job\'s notes.'),
+  "notesImportant": zod.boolean().optional().describe('With add_note: flag the note so it shows red on the board.')
+})
+
+export const BulkJobActionResponse = zod.object({
+  "action": zod.string(),
+  "updated": zod.int(),
+  "jobIds": zod.array(zod.int()).describe('The jobs the action was applied to.'),
+  "skippedIds": zod.array(zod.int()).describe('Jobs left alone because the action does not apply to them (completed jobs, mostly).'),
+  "skipNotices": zod.array(zod.string()).optional().describe('For skip: the free-or-chargeable verdict per job, in plain words.')
+})
+
+
+/**
+ * @summary A contractor's phone says where it is, while they are on a job
+ */
+export const reportMyLocationBodyLatMin = -90;
+export const reportMyLocationBodyLatMax = 90;
+
+export const reportMyLocationBodyLngMin = -180;
+export const reportMyLocationBodyLngMax = 180;
+
+
+
+export const ReportMyLocationBody = zod.object({
+  "lat": zod.number().min(reportMyLocationBodyLatMin).max(reportMyLocationBodyLatMax),
+  "lng": zod.number().min(reportMyLocationBodyLngMin).max(reportMyLocationBodyLngMax),
+  "accuracyM": zod.number().nullish(),
+  "heading": zod.number().nullish(),
+  "speedMps": zod.number().nullish(),
+  "jobId": zod.int().nullish().describe('The job the phone thinks it is working; ignored unless that job is assigned to the sender'),
+  "recordedAt": zod.string().nullish().describe('When the phone took the fix (ISO); server time when omitted')
+})
+
+export const ReportMyLocationResponse = zod.void()
+
+
+/**
+ * @summary Where each contractor last was, and whether they are at a job, on the way, or idle
+ */
+export const ListTeamLocationsQueryParams = zod.object({
+  "date": zod.coerce.string().optional().describe('The dispatch day to judge \"at a job\" against; today when omitted')
+})
+
+export const ListTeamLocationsResponseItem = zod.object({
+  "userId": zod.int(),
+  "userName": zod.string(),
+  "lat": zod.number().nullable(),
+  "lng": zod.number().nullable(),
+  "accuracyM": zod.number().nullish(),
+  "recordedAt": zod.string().nullable(),
+  "ageSeconds": zod.int().nullable(),
+  "source": zod.enum(['live', 'clock', 'none']),
+  "status": zod.enum(['at_job', 'en_route', 'idle', 'stale', 'unknown']),
+  "jobId": zod.int().nullish(),
+  "jobStatus": zod.string().nullish(),
+  "jobClientName": zod.string().nullish(),
+  "jobAddress": zod.string().nullish()
+})
+export const ListTeamLocationsResponse = zod.array(ListTeamLocationsResponseItem)
+
+
+/**
+ * @summary Whether texting is switched on, which numbers it uses, and what it takes to turn on
+ */
+export const GetSmsStatusResponse = zod.object({
+  "configured": zod.boolean(),
+  "provider": zod.enum(['none', 'twilio']),
+  "officeNumber": zod.string().nullable(),
+  "myNumber": zod.string().nullable(),
+  "numbersAssigned": zod.int(),
+  "webhookUrl": zod.string(),
+  "envKeys": zod.array(zod.object({
+  "key": zod.string(),
+  "set": zod.boolean(),
+  "note": zod.string()
+}))
+})
+
+
+/**
+ * @summary Every text to or from this customer, newest last
+ */
+export const ListClientSmsParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ListClientSmsResponseItem = zod.object({
+  "id": zod.int(),
+  "direction": zod.enum(['outbound', 'inbound']),
+  "clientId": zod.int().nullable(),
+  "userId": zod.int().nullable(),
+  "userName": zod.string().nullish(),
+  "jobId": zod.int().nullable(),
+  "fromNumber": zod.string(),
+  "toNumber": zod.string(),
+  "body": zod.string(),
+  "status": zod.enum(['queued', 'sent', 'delivered', 'failed', 'received', 'forwarded']),
+  "error": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListClientSmsResponse = zod.array(ListClientSmsResponseItem)
+
+
+/**
+ * @summary Office texts a customer, from the office number or a contractor's masked number
+ */
+export const SendClientSmsParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const sendClientSmsBodyBodyMax = 1000;
+
+export const sendClientSmsBodyToPhoneMax = 40;
+
+
+
+export const SendClientSmsBody = zod.object({
+  "body": zod.string().min(1).max(sendClientSmsBodyBodyMax),
+  "toPhone": zod.string().max(sendClientSmsBodyToPhoneMax).nullish(),
+  "fromUserId": zod.int().nullish()
+})
+
+export const SendClientSmsResponse = zod.object({
+  "sent": zod.boolean(),
+  "to": zod.string(),
+  "from": zod.string(),
+  "messageId": zod.int(),
+  "error": zod.string().nullish()
+})
+
+
+/**
+ * @summary The contractor on a job texts its customer from their masked number
+ */
+export const SendJobSmsParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const sendJobSmsBodyBodyMax = 1000;
+
+
+
+export const SendJobSmsBody = zod.object({
+  "body": zod.string().min(1).max(sendJobSmsBodyBodyMax)
+})
+
+export const SendJobSmsResponse = zod.object({
+  "sent": zod.boolean(),
+  "to": zod.string(),
+  "from": zod.string(),
+  "messageId": zod.int(),
+  "error": zod.string().nullish()
+})
+
+
+/**
+ * @summary Give a person the masked texting number customers will see, or take it away
+ */
+export const SetUserSmsNumberParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const setUserSmsNumberBodySmsProxyNumberMax = 40;
+
+
+
+export const SetUserSmsNumberBody = zod.object({
+  "smsProxyNumber": zod.string().max(setUserSmsNumberBodySmsProxyNumberMax).nullable()
+})
+
+export const SetUserSmsNumberResponse = zod.object({
+  "id": zod.int(),
+  "clerkId": zod.string(),
+  "name": zod.string(),
+  "fullName": zod.string().optional(),
+  "displayName": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "role": zod.enum(['admin', 'contractor']),
+  "roleSource": zod.enum(['provisioned', 'owner', 'owner_assigned']).optional(),
+  "accessLevel": zod.enum(['full', 'office', 'mobile']).describe('full = every office screen; office = day-to-day screens plus whatever is granted; mobile = the phone app only'),
+  "permissions": zod.array(zod.string()),
+  "areas": zod.array(zod.enum(['dispatch', 'clients', 'invoices', 'quickbooks', 'reports', 'settings', 'team', 'documents']).describe('A part of the office app a person can be let into or kept out of')),
+  "active": zod.boolean(),
+  "phone": zod.string().nullish(),
+  "birthday": zod.string().nullish(),
+  "hireDate": zod.string().nullish(),
+  "baseAddress": zod.string().nullish(),
+  "baseLat": zod.number().nullish(),
+  "baseLng": zod.number().nullish(),
+  "jobCount": zod.int().optional(),
+  "historyCount": zod.int().optional(),
+  "smsProxyNumber": zod.string().nullish()
+})
+
+
+/**
+ * @summary Public webhook the texting provider posts customer replies to; authenticated by the provider's request signature
+ */
+export const ReceiveInboundSmsBody = zod.object({
+  "From": zod.string(),
+  "To": zod.string(),
+  "Body": zod.string().optional(),
+  "MessageSid": zod.string().optional(),
+  "NumMedia": zod.string().optional()
+})
+
+export const ReceiveInboundSmsResponse = zod.unknown()
+
+
+/**
+ * @summary Whether the customer of this job can be emailed that the crew is on the way
+ */
+export const GetOnTheWayNoticeParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const GetOnTheWayNoticeResponse = zod.object({
+  "canSend": zod.boolean(),
+  "reason": zod.union([zod.literal('no_email'),zod.literal('do_not_email'),zod.literal('already_sent'),zod.literal('not_on_the_way'),zod.literal(null)]).nullable(),
+  "sentAt": zod.string().nullable(),
+  "templateName": zod.string()
+})
+
+
+/**
+ * @summary Email the customer the "on the way" document for this job
+ */
+export const SendOnTheWayNoticeParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const SendOnTheWayNoticeResponse = zod.object({
+  "sent": zod.boolean(),
+  "reason": zod.string().nullable()
 })
 
 

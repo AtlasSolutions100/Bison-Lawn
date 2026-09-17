@@ -8,6 +8,8 @@ import {
   timestamp,
   jsonb,
   uniqueIndex,
+  index,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
@@ -25,6 +27,22 @@ export const usersTable = pgTable("users", {
   baseAddress: text("base_address"),
   baseLat: doublePrecision("base_lat"),
   baseLng: doublePrecision("base_lng"),
+  /**
+   * 2026-09-15 walkthrough. Adam wants a short name on the dispatch board (not
+   * an email address), the basics an office keeps on a person, and access
+   * that can be narrower than "everything": a second full user who never sees
+   * QuickBooks, a crew lead, a mobile-only contractor.
+   */
+  displayName: text("display_name"),
+  birthday: text("birthday"),
+  hireDate: text("hire_date"),
+  active: boolean("active").notNull().default(true),
+  // full | office | mobile — see artifacts/api-server/src/lib/access.ts
+  accessLevel: text("access_level").notNull().default("full"),
+  // extra grants or denials on top of the level, e.g. ["quickbooks"] or ["!quickbooks"]
+  permissions: jsonb("permissions").$type<string[]>().notNull().default([]),
+  // the masked texting number customers see for this person, once a provider is on
+  smsProxyNumber: text("sms_proxy_number"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 export const insertUserSchema = createInsertSchema(usersTable).omit({ id: true, createdAt: true });
@@ -118,6 +136,25 @@ export const clientsTable = pgTable("clients", {
    * same tag rather than two that look identical in a filter.
    */
   tags: jsonb("tags").$type<string[]>().notNull().default([]),
+  /**
+   * 2026-09-15 walkthrough. A property manager is a MASTER account: each
+   * property under it keeps its own invoices, the master sees the total.
+   * `doNotEmail` is his checkbox that stops every bulk email (board, waiting
+   * list, automations) without deleting the address. Source / referred-by
+   * are his Sales tab.
+   */
+  parentClientId: integer("parent_client_id").references((): AnyPgColumn => clientsTable.id, {
+    onDelete: "set null",
+  }),
+  doNotEmail: boolean("do_not_email").notNull().default(false),
+  source: text("source"),
+  referredByClientId: integer("referred_by_client_id").references((): AnyPgColumn => clientsTable.id, {
+    onDelete: "set null",
+  }),
+  // "How they pay you" on his Billing tab: check | venmo | zelle | credit_card |
+  // cash | ach | other. The same words payments.method uses, so recording a
+  // payment can default to it.
+  preferredPaymentMethod: text("preferred_payment_method"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 export const insertClientSchema = createInsertSchema(clientsTable).omit({ id: true, createdAt: true });
@@ -130,19 +167,38 @@ export const clientNotesTable = pgTable("client_notes", {
   clientId: integer("client_id").notNull().references(() => clientsTable.id, { onDelete: "cascade" }),
   body: text("body").notNull(),
   authorName: text("author_name"),
+  /**
+   * 2026-09-15 walkthrough. His current CRM asks "open or closed?" on every
+   * note. An OPEN note is something still waiting on him — "call back about
+   * the gate", "check the backflow paperwork" — and it stays on the dashboard
+   * until he closes it. Most notes are just a record and start closed.
+   */
+  // open | closed
+  status: text("status").notNull().default("closed"),
+  closedAt: timestamp("closed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 export type ClientNote = typeof clientNotesTable.$inferSelect;
 
 // ---------- audit events ----------
-export const auditEventsTable = pgTable("audit_events", {
-  id: serial("id").primaryKey(),
-  clientId: integer("client_id").references(() => clientsTable.id, { onDelete: "cascade" }),
-  actorName: text("actor_name"),
-  action: text("action").notNull(),
-  description: text("description").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+export const auditEventsTable = pgTable(
+  "audit_events",
+  {
+    id: serial("id").primaryKey(),
+    clientId: integer("client_id").references(() => clientsTable.id, { onDelete: "cascade" }),
+    actorName: text("actor_name"),
+    action: text("action").notNull(),
+    description: text("description").notNull(),
+    // 2026-09-15 walkthrough: "audit trail on the invoice". Which record the
+    // event is about — 'invoice' | 'payment' | 'job' — so an invoice can show
+    // its own history without parsing "#4901" back out of the sentence. Null
+    // on rows written before this existed.
+    entityType: text("entity_type"),
+    entityId: integer("entity_id"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("audit_events_entity_idx").on(t.entityType, t.entityId)],
+);
 export type AuditEvent = typeof auditEventsTable.$inferSelect;
 
 // ---------- services ----------
@@ -196,6 +252,23 @@ export const servicesTable = pgTable("services", {
   // invoices the office. Those jobs are never worked by our own crew, so they are
   // completed in bulk from the vendor's own invoice rather than from a phone.
   vendorName: text("vendor_name"),
+  /**
+   * 2026-09-15 walkthrough. In his current CRM a service carries a short CODE
+   * (what the waiting list shows: BA7, BACKF, MOWIN), an INVOICE DESCRIPTION
+   * (what prints on the bill) and the customer-facing description already in
+   * `description`. `billingMode` is his split between set-price work (mowing,
+   * aeration, sprinkler turn-on / blowout / backflow / timer) and work billed
+   * on time (clean-ups, pruning, sprinkler repair) where the start/stop on the
+   * job sets the price and the office adjusts it afterwards.
+   */
+  code: text("code"),
+  invoiceDescription: text("invoice_description"),
+  // fixed | time
+  billingMode: text("billing_mode").notNull().default("fixed"),
+  // His "28 mows a season": the estimate multiplies the band rate by this so
+  // the customer sees the season total and the number of visits behind it.
+  // Null means one visit — a blow-out or an aeration, not a season of mowing.
+  visitsPerSeason: integer("visits_per_season"),
   // Which property measurement drives this service's pricing equations. Null
   // means turf square footage, which is what every equation meant before this
   // column existed — so existing services keep behaving exactly as they did.
@@ -214,11 +287,28 @@ export type Service = typeof servicesTable.$inferSelect;
 // inherit. Assigning a package copies these onto each client_services row by
 // value, so editing the package later never rewrites work already scheduled for
 // a client, and the office can still customise quantity/dates per client.
+/**
+ * One entry in a package. The same service can be in a package more than
+ * once — his Sprinkler package has "Sprinkler timer adjustment" four times,
+ * each in its own month, and "core aeration" is Aeration twice. The label
+ * tells the two apart on the account ("Timer adjustment — June"), and the
+ * window, when set, beats the package-wide start/end for that entry only.
+ */
+export type PackageItem = {
+  serviceId: number;
+  label?: string | null;
+  windowStart?: string | null;
+  windowEnd?: string | null;
+};
+
 export const packagesTable = pgTable("packages", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
+  // Kept in step with `items` (one id per entry, repeats included) so anything
+  // that still reads the plain id list keeps working.
   serviceIds: jsonb("service_ids").$type<number[]>().notNull().default([]),
+  items: jsonb("items").$type<PackageItem[]>().notNull().default([]),
   // Inherited scheduling defaults (all optional; null means "ask at assign time")
   scheduleType: text("schedule_type"), // window | recurring | one_time
   startDate: text("start_date"),
@@ -249,6 +339,19 @@ export const chargePresetsTable = pgTable("charge_presets", {
   id: serial("id").primaryKey(),
   label: text("label").notNull(),
   defaultPrice: doublePrecision("default_price").notNull().default(0),
+  /**
+   * 2026-09-15 walkthrough. The same table also holds his parts and fees
+   * (bag fee, sprinkler parts): kind 'product' rows are what a contractor
+   * can add to a job with a quantity, and the total flows onto the invoice.
+   * `contractorCanAdd` is the office's say on which ones the crew may add
+   * without asking.
+   */
+  // charge (estimate one-off) | product (job part / fee)
+  kind: text("kind").notNull().default("charge"),
+  // bag, each, ft — shown next to the quantity box
+  unit: text("unit"),
+  contractorCanAdd: boolean("contractor_can_add").notNull().default(false),
+  sortOrder: integer("sort_order"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 export type ChargePreset = typeof chargePresetsTable.$inferSelect;
@@ -260,6 +363,33 @@ export type EstimateLine = {
   label: string;
   value: string;
   calculatedPrice?: number | null;
+  /**
+   * 2026-09-15 walkthrough. His estimate math is the SA one: the band rate
+   * (looked up from the property's Turf Sqft or zone count) times the quantity
+   * times the visits — "I type 28 mows and the customer sees the quantity so
+   * they can divide the total by the visits". `unitPrice` is that band rate,
+   * per visit; `calculatedPrice` is the season total. Null means one, which is
+   * what every line saved before these existed meant.
+   */
+  unitPrice?: number | null;
+  quantity?: number | null;
+  visits?: number | null;
+  /**
+   * Time-billed services only (clean-ups, pruning): the hours one visit is
+   * budgeted for. `unitPrice` is those hours at his hourly rate, so the
+   * customer sees what the visit costs instead of a bare rate per hour.
+   */
+  hours?: number | null;
+  /**
+   * Lines added together from one package carry the same `packageKey`, so the
+   * customer's response page shows the package as ONE line they accept or
+   * decline as a whole ("Sprinkler Package — $180"), while the estimate still
+   * lists every service inside it. The name is a snapshot: renaming the package
+   * later must not change what a customer was sent.
+   */
+  packageId?: number | null;
+  packageKey?: string | null;
+  packageName?: string | null;
 };
 
 export const estimatesTable = pgTable("estimates", {
@@ -273,6 +403,15 @@ export const estimatesTable = pgTable("estimates", {
   // When true the estimate document spells out what each quoted service includes,
   // using the service descriptions as they read at send time.
   includeServiceDescriptions: boolean("include_service_descriptions").notNull().default(false),
+  // 2026-09-15 walkthrough (P6). The estimate document from his "estimate"
+  // folder that leads the quote — his proposal letter with the customer's
+  // name and address merged in — rendered above the priced lines in the PDF
+  // and the email. Rendered at send time, like the contract, so an edit to the
+  // document reaches every estimate not yet sent. Null keeps the plain
+  // greeting and the typed cover note.
+  coverTemplateId: integer("cover_template_id").references(() => documentTemplatesTable.id, {
+    onDelete: "set null",
+  }),
   lines: jsonb("lines").$type<EstimateLine[]>().notNull().default([]),
   // Optimistic-concurrency counter for admin edits: every accepted edit of the
   // draft's contents bumps it, so a PATCH built from an older snapshot fails.
@@ -310,6 +449,9 @@ export const clientServicesTable = pgTable("client_services", {
   clientId: integer("client_id").notNull().references(() => clientsTable.id, { onDelete: "cascade" }),
   serviceId: integer("service_id").notNull().references(() => servicesTable.id),
   packageId: integer("package_id"),
+  // The package entry's own label ("Timer adjustment — June"), so two rows for
+  // the same service from one package can be told apart on the account.
+  label: text("label"),
   quantity: doublePrecision("quantity").notNull().default(1),
   amount: doublePrecision("amount").notNull().default(0),
   scheduleType: text("schedule_type").notNull(), // window | recurring | one_time
@@ -324,6 +466,50 @@ export const clientServicesTable = pgTable("client_services", {
   // glance who has already been carried into the new year and who still has last
   // year's price.
   lastRenewedAt: timestamp("last_renewed_at"),
+  /**
+   * 2026-09-15 walkthrough. An assigned service is his "job on the account":
+   * it has a contractor so it is always on that person's board, a cadence
+   * (weekly, bi-weekly on odd or even weeks, monthly in week N), a discount
+   * that prints as its own line on the invoice, notes the contractor must read
+   * before starting (with a date range they apply to), and it can be paused
+   * until a date or until the balance is paid.
+   */
+  assignedToId: integer("assigned_to_id").references(() => usersTable.id, { onDelete: "set null" }),
+  // weekly | biweekly | monthly — frequencyWeeks stays for older rows
+  frequency: text("frequency"),
+  // 0-6 (Sunday-Saturday) for weekly / biweekly
+  weekday: integer("weekday"),
+  // odd | even — ISO week parity for biweekly
+  weekParity: text("week_parity"),
+  // 1-4 for monthly: "the first week", "the fourth week"
+  monthlyWeek: integer("monthly_week"),
+  // amount | percent
+  discountType: text("discount_type"),
+  discountValue: doublePrecision("discount_value"),
+  discountLabel: text("discount_label"),
+  contractorNote: text("contractor_note"),
+  noteStartDate: text("note_start_date"),
+  noteEndDate: text("note_end_date"),
+  pausedAt: timestamp("paused_at"),
+  pauseUntil: text("pause_until"),
+  resumeWhenPaid: boolean("resume_when_paid").notNull().default(false),
+  active: boolean("active").notNull().default(true),
+  // Why it was paused, in the office's words, so the crew and the office both
+  // see "waiting on payment" instead of a bare paused badge.
+  pauseReason: text("pause_reason"),
+  // Off means "call to renew": the row stays on the account but the nightly
+  // rollover leaves it alone when its season ends.
+  autoRenew: boolean("auto_renew").notNull().default(true),
+  // Where the price came from when the matrix filled it in ("Turf Sqft",
+  // 6200). His old CRM left the rate blank and he had to go look; showing the
+  // source next to the number is the fix.
+  pricedFromLabel: text("priced_from_label"),
+  pricedFromValue: doublePrecision("priced_from_value"),
+  // A contract is an annual amount split over 8 or 12 monthly invoice lines.
+  // Both set means "this row is a contract": one job a month, each for
+  // contractTotal / contractMonths, that the office completes to bill it.
+  contractMonths: integer("contract_months"),
+  contractTotal: doublePrecision("contract_total"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 export type ClientService = typeof clientServicesTable.$inferSelect;
@@ -334,17 +520,24 @@ export const jobsTable = pgTable("jobs", {
   clientId: integer("client_id").notNull().references(() => clientsTable.id, { onDelete: "cascade" }),
   clientServiceId: integer("client_service_id").references(() => clientServicesTable.id, { onDelete: "set null" }),
   serviceId: integer("service_id").references(() => servicesTable.id),
-  // scheduled | on_the_way | in_progress | completed | skipped
+  // scheduled | on_the_way | in_progress | completed | skipped | cancelled
   //
   // "skipped" means the crew was there (or was due) and deliberately did not do
   // the work — too wet, gate locked, dog out. It is terminal for this visit but
   // explicitly NOT completed: no invoice is raised, so a skipped job must never
   // go through the complete endpoint.
+  //
+  // "cancelled" is the office calling the visit off before anyone went: the
+  // customer moved, the window passed, the package changed. Also terminal and
+  // never invoiced, but it is not a skip — it counts against nobody's free
+  // skip and the contractor never sees it on their phone.
   status: text("status").notNull().default("scheduled"),
   // Why it was skipped, and when. Kept on the job rather than in a note because
   // the office needs to see it on the dispatch board without opening anything.
   skipReason: text("skip_reason"),
   skippedAt: timestamp("skipped_at"),
+  cancelReason: text("cancel_reason"),
+  cancelledAt: timestamp("cancelled_at"),
   /**
    * Whether this skip is still chargeable under his one-free-skip-a-year rule.
    *
@@ -374,6 +567,26 @@ export const jobsTable = pgTable("jobs", {
   visibleToContractor: boolean("visible_to_contractor").notNull().default(true),
   invoiceId: integer("invoice_id"),
   completedAt: timestamp("completed_at"),
+  /**
+   * Copied by value from the assigned service when the visit is generated,
+   * like `amount` is, so editing the service later never restates a visit
+   * that already happened. The discount prints as its own line on the
+   * invoice; a percent is worked out against the visit's final amount at
+   * completion so a time-billed job discounts the real hours.
+   */
+  // amount | percent
+  discountType: text("discount_type"),
+  discountValue: doublePrecision("discount_value"),
+  discountLabel: text("discount_label"),
+  // fixed | time. A time job's invoice line is hours x hourlyRate, worked out
+  // from the clock entries when it completes — unless the office already set
+  // the amount by hand, which `amountOverridden` records.
+  billingMode: text("billing_mode").notNull().default("fixed"),
+  hourlyRate: doublePrecision("hourly_rate"),
+  amountOverridden: boolean("amount_overridden").notNull().default(false),
+  // When the contractor opened the must-read note on this visit. Null with a
+  // note in force means Start is locked on the job card.
+  noteAcknowledgedAt: timestamp("note_acknowledged_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 export type Job = typeof jobsTable.$inferSelect;
@@ -387,6 +600,9 @@ export const jobProductsTable = pgTable("job_products", {
   quantity: doublePrecision("quantity").notNull().default(1),
   // set when the line came from a contractor adding offerable extra work on site
   serviceId: integer("service_id").references(() => servicesTable.id, { onDelete: "set null" }),
+  // set when the line came from a parts/fees preset (bag fee, sprinkler part),
+  // so a report can group by part; the name and price are still a copy
+  chargePresetId: integer("charge_preset_id").references(() => chargePresetsTable.id, { onDelete: "set null" }),
 });
 export type JobProduct = typeof jobProductsTable.$inferSelect;
 
@@ -395,7 +611,11 @@ export const invoicesTable = pgTable("invoices", {
   id: serial("id").primaryKey(),
   clientId: integer("client_id").notNull().references(() => clientsTable.id, { onDelete: "cascade" }),
   jobId: integer("job_id"),
-  status: text("status").notNull().default("open"), // open | paid | partial | void
+  // pending | open | paid | partial | void
+  // "pending" is a completed job's invoice the office has not verified yet. It
+  // is a real status, not a flag, so nothing can email or print it by accident;
+  // recalcInvoice leaves it alone until Verify moves it to open.
+  status: text("status").notNull().default("open"),
   total: doublePrecision("total").notNull().default(0),
   amountPaid: doublePrecision("amount_paid").notNull().default(0),
   notes: text("notes"),
@@ -423,6 +643,17 @@ export const invoicesTable = pgTable("invoices", {
   // accounts will not pay an invoice that omits it.
   poNumber: text("po_number"),
   sentAt: timestamp("sent_at"),
+  /**
+   * 2026-09-15 walkthrough. A completed job makes an invoice he VERIFIES
+   * before it goes anywhere; once verified it waits in "to email" or "to
+   * print" by the customer's delivery preference. `verifiedAt` is that
+   * press; `deliveryMethod` is the snapshot (email | print | both);
+   * `printedAt` is the print-side equivalent of sentAt.
+   */
+  verifiedAt: timestamp("verified_at"),
+  verifiedById: integer("verified_by_id").references(() => usersTable.id, { onDelete: "set null" }),
+  deliveryMethod: text("delivery_method"),
+  printedAt: timestamp("printed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 export type Invoice = typeof invoicesTable.$inferSelect;
@@ -456,6 +687,12 @@ export const invoiceLineItemsTable = pgTable("invoice_line_items", {
    */
   total: doublePrecision("total").notNull().default(0),
   sortOrder: integer("sort_order").notNull().default(0),
+  // The job this line bills, when a missed job was added to an invoice after
+  // the fact. Null means the line belongs to the invoice's own job (or was
+  // typed by hand), so "pull this job back off the invoice" knows which lines
+  // to take with it. No FK on purpose, like invoices.jobId: a deleted job must
+  // not take a customer's bill with it.
+  jobId: integer("job_id"),
 });
 export type InvoiceLineItem = typeof invoiceLineItemsTable.$inferSelect;
 
@@ -649,6 +886,11 @@ export const invitationsTable = pgTable("invitations", {
   // equality check rather than a case-folding comparison at read time.
   email: text("email").notNull().unique(),
   role: text("role").notNull().default("contractor"), // admin | contractor
+  // The level and extras the person starts with on first sign-in, so Adam
+  // picks "office, no QuickBooks" once when inviting instead of fixing it
+  // after they are already in. Same values as users.accessLevel / permissions.
+  accessLevel: text("access_level").notNull().default("mobile"),
+  permissions: jsonb("permissions").$type<string[]>().notNull().default([]),
   invitedById: integer("invited_by_id").references(() => usersTable.id, { onDelete: "set null" }),
   invitedByName: text("invited_by_name"),
   note: text("note"),
@@ -759,6 +1001,8 @@ export const documentTemplatesTable = pgTable("document_templates", {
   // Seeded rows are marked so a future update can tell "the office wrote this"
   // from "we shipped this", and never overwrite the former.
   isSeeded: boolean("is_seeded").notNull().default(false),
+  // client | marketing | estimate — his folders; automations pick from them
+  category: text("category").notNull().default("client"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 export type DocumentTemplate = typeof documentTemplatesTable.$inferSelect;
@@ -886,3 +1130,144 @@ export const jobPhotosTable = pgTable("job_photos", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 export type JobPhoto = typeof jobPhotosTable.$inferSelect;
+
+// ---------- 2026-09-15 walkthrough: shared tables ----------
+
+/**
+ * Extra people on an account: the CPA who gets the bill, the HOA contact,
+ * a spouse. His current CRM keeps these apart from the client's own phone
+ * and email, and so do we.
+ */
+export const clientContactsTable = pgTable("client_contacts", {
+  id: serial("id").primaryKey(),
+  clientId: integer("client_id").notNull().references(() => clientsTable.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  role: text("role"),
+  phone: text("phone"),
+  email: text("email"),
+  birthday: text("birthday"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type ClientContact = typeof clientContactsTable.$inferSelect;
+
+/**
+ * One row per email the app sends to a customer, whatever sent it: the
+ * board, the waiting list, the client page, an automation, an invoice.
+ * He reads "42 of 44 sent" and "30 delivered, 21 opened" off this table.
+ * `openToken` backs the tracking pixel; `batchId` groups one bulk send.
+ */
+export const emailSendsTable = pgTable(
+  "email_sends",
+  {
+    id: serial("id").primaryKey(),
+    clientId: integer("client_id").references(() => clientsTable.id, { onDelete: "set null" }),
+    templateId: integer("template_id").references(() => documentTemplatesTable.id, { onDelete: "set null" }),
+    sentById: integer("sent_by_id").references(() => usersTable.id, { onDelete: "set null" }),
+    // dispatch | waiting_list | client_page | automation | invoice | estimate | letter | crew
+    source: text("source").notNull(),
+    batchId: text("batch_id"),
+    toEmail: text("to_email"),
+    subject: text("subject"),
+    // sent | failed | skipped
+    status: text("status").notNull(),
+    // why a skipped row was skipped: no_email | do_not_email
+    skipReason: text("skip_reason"),
+    error: text("error"),
+    gmailMessageId: text("gmail_message_id"),
+    openToken: text("open_token").unique(),
+    openedAt: timestamp("opened_at"),
+    openCount: integer("open_count").notNull().default(0),
+    sentAt: timestamp("sent_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("email_sends_client_idx").on(t.clientId), index("email_sends_batch_idx").on(t.batchId)],
+);
+export type EmailSend = typeof emailSendsTable.$inferSelect;
+
+/**
+ * His automations are all one shape: N days after an EVENT, send a DOCUMENT
+ * to the customer, unless a CONDITION clears it. Past due at 2 days, final
+ * notice 15 days after that, estimate follow-up at 2 and 7, a seasonal
+ * notice on a fixed date every year.
+ */
+export const automationRulesTable = pgTable("automation_rules", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  // invoice_past_due | invoice_sent | estimate_sent | job_completed | fixed_date | client_added
+  trigger: text("trigger").notNull(),
+  offsetDays: integer("offset_days").notNull().default(0),
+  // MM-DD for fixed_date triggers
+  monthDay: text("month_day"),
+  templateId: integer("template_id").references(() => documentTemplatesTable.id, { onDelete: "set null" }),
+  // free-form guards the runner understands, e.g. {"stillUnpaid":true,"noResponse":true,"serviceId":12}
+  conditions: jsonb("conditions").$type<Record<string, unknown>>().notNull().default({}),
+  lastRunAt: timestamp("last_run_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type AutomationRule = typeof automationRulesTable.$inferSelect;
+
+/** What each rule already did, so a customer is never sent the same notice twice. */
+export const automationSendsTable = pgTable(
+  "automation_sends",
+  {
+    id: serial("id").primaryKey(),
+    ruleId: integer("rule_id").notNull().references(() => automationRulesTable.id, { onDelete: "cascade" }),
+    // the thing the trigger fired on: invoice id, estimate id, client id, or a date for fixed_date
+    subjectKey: text("subject_key").notNull(),
+    emailSendId: integer("email_send_id").references(() => emailSendsTable.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("automation_sends_rule_subject_idx").on(t.ruleId, t.subjectKey)],
+);
+
+/**
+ * Where a contractor's phone last said they were. The office answers
+ * "where's my guy" from this instead of calling someone who is driving.
+ * Rows older than a week are pruned; this is not a tracking archive.
+ */
+export const userLocationsTable = pgTable(
+  "user_locations",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+    lat: doublePrecision("lat").notNull(),
+    lng: doublePrecision("lng").notNull(),
+    accuracyM: doublePrecision("accuracy_m"),
+    heading: doublePrecision("heading"),
+    speedMps: doublePrecision("speed_mps"),
+    jobId: integer("job_id").references(() => jobsTable.id, { onDelete: "set null" }),
+    recordedAt: timestamp("recorded_at").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("user_locations_user_time_idx").on(t.userId, t.recordedAt)],
+);
+export type UserLocation = typeof userLocationsTable.$inferSelect;
+
+/**
+ * Every text in or out. Outbound rows are sent from the office number or a
+ * contractor's masked number; inbound rows are what a customer wrote back,
+ * forwarded to the contractor the number belongs to.
+ */
+export const smsMessagesTable = pgTable(
+  "sms_messages",
+  {
+    id: serial("id").primaryKey(),
+    // outbound | inbound
+    direction: text("direction").notNull(),
+    clientId: integer("client_id").references(() => clientsTable.id, { onDelete: "set null" }),
+    userId: integer("user_id").references(() => usersTable.id, { onDelete: "set null" }),
+    jobId: integer("job_id").references(() => jobsTable.id, { onDelete: "set null" }),
+    fromNumber: text("from_number").notNull(),
+    toNumber: text("to_number").notNull(),
+    body: text("body").notNull(),
+    // queued | sent | delivered | failed | received | forwarded
+    status: text("status").notNull(),
+    providerMessageId: text("provider_message_id"),
+    error: text("error"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("sms_messages_client_idx").on(t.clientId)],
+);
+export type SmsMessage = typeof smsMessagesTable.$inferSelect;

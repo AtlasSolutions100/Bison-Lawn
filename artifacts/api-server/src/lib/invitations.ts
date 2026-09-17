@@ -1,6 +1,7 @@
 import { db, invitationsTable, usersTable, type Invitation } from "@workspace/db";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { Tx } from "./userAccounts";
+import { isAccessLevel, roleForLevel, type AccessLevel } from "./access";
 
 export type InvitationRole = "admin" | "contractor";
 
@@ -32,6 +33,8 @@ export async function findUserByEmailKey(emailKey: string) {
 export async function upsertInvitation(input: {
   email: string;
   role: InvitationRole;
+  accessLevel: string;
+  permissions: string[];
   note: string | null;
   invitedById: number;
   invitedByName: string;
@@ -41,6 +44,8 @@ export async function upsertInvitation(input: {
     .values({
       email: input.email,
       role: input.role,
+      accessLevel: input.accessLevel,
+      permissions: input.permissions,
       note: input.note,
       invitedById: input.invitedById,
       invitedByName: input.invitedByName,
@@ -49,6 +54,8 @@ export async function upsertInvitation(input: {
       target: invitationsTable.email,
       set: {
         role: input.role,
+        accessLevel: input.accessLevel,
+        permissions: input.permissions,
         note: input.note,
         invitedById: input.invitedById,
         invitedByName: input.invitedByName,
@@ -72,22 +79,36 @@ export async function resolveNewAccountAccess(
   tx: Tx,
   emailKey: string,
   fallback: { role: string; roleSource: string },
-): Promise<{ role: string; roleSource: string }> {
-  if (fallback.roleSource === "owner") return fallback;
+): Promise<{ role: string; roleSource: string; accessLevel: string; permissions: string[] }> {
+  // The owner is a full user with everything; someone who signed up on their
+  // own with no invitation is a contractor, so mobile-only.
+  if (fallback.roleSource === "owner") return { ...fallback, accessLevel: "full", permissions: [] };
 
   const [invitation] = await tx
     .select()
     .from(invitationsTable)
     .where(and(eq(invitationsTable.email, emailKey), isNull(invitationsTable.acceptedAt)));
-  if (!invitation) return fallback;
+  if (!invitation) return { ...fallback, accessLevel: "mobile", permissions: [] };
 
+  // The level and the role have to agree, because the app reads both: the
+  // role decides which app they land in and the level decides what is turned
+  // on once they are there. An invitation sent before levels existed carries
+  // the level the column was added with, so an office person invited back then
+  // reads as {admin, mobile} — the office shell with every screen switched
+  // off. Someone invited as an admin is a full user; otherwise the level
+  // decides the role.
+  const level = isAccessLevel(invitation.accessLevel) ? invitation.accessLevel : "mobile";
+  const accessLevel: AccessLevel = invitation.role === "admin" && level === "mobile" ? "full" : level;
   // Mirrors the PATCH /users/:id convention: "owner_assigned" marks a
   // deliberate admin grant. Contractor is the unprivileged floor role, so an
   // invited contractor is just "provisioned" like anyone who signed up
   // unassigned — there is no access difference to mark.
+  const role = roleForLevel(accessLevel);
   return {
-    role: invitation.role,
-    roleSource: invitation.role === "admin" ? "owner_assigned" : "provisioned",
+    role,
+    roleSource: role === "admin" ? "owner_assigned" : "provisioned",
+    accessLevel,
+    permissions: invitation.permissions ?? [],
   };
 }
 

@@ -23,6 +23,13 @@ export interface Estimate {
   /** @nullable */
   coverNote?: string | null;
   includeServiceDescriptions?: boolean;
+  /**
+     * The estimate document (his 'estimate' folder) rendered above the quote in the PDF and email; null keeps the plain greeting
+     * @nullable
+     */
+  coverTemplateId?: number | null;
+  /** @nullable */
+  coverTemplateName?: string | null;
   lines: EstimateLine[];
   createdAt: string;
   /** @nullable */

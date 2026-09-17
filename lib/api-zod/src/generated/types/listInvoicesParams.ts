@@ -5,9 +5,18 @@
  * Bison Lawn Care CRM API
  * OpenAPI spec version: 0.1.0
  */
+import type { ListInvoicesQueue } from './listInvoicesQueue';
 import type { ListInvoicesStatus } from './listInvoicesStatus';
 
 export type ListInvoicesParams = {
 clientId?: number;
 status?: ListInvoicesStatus;
+/**
+ * His invoice tabs. pending = completed jobs waiting for him to verify; to_email / to_print = verified and not yet sent by that method; open = anything still owed; past_due = open and past its due date (invoice date when the terms are due on receipt).
+ */
+queue?: ListInvoicesQueue;
+/**
+ * Customer name, address or invoice number
+ */
+search?: string;
 };

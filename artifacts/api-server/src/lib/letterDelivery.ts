@@ -313,9 +313,16 @@ export type SpringLetterSendOutcome = {
 export async function deliverSpringLetters(clientIds: number[]) {
   const uniqueIds = [...new Set(clientIds)];
   const knownClients = uniqueIds.length
-    ? await db.select({ id: clientsTable.id, name: clientsTable.name }).from(clientsTable).where(inArray(clientsTable.id, uniqueIds))
+    ? await db
+        .select({ id: clientsTable.id, name: clientsTable.name, doNotEmail: clientsTable.doNotEmail })
+        .from(clientsTable)
+        .where(inArray(clientsTable.id, uniqueIds))
     : [];
   const names = new Map(knownClients.map((client) => [client.id, client.name]));
+  // His Do not email switch stops every bulk email, and the spring letter is
+  // the biggest bulk email of the year. Decided before anything is rendered or
+  // sent, and recorded by name so the run report says who was left out and why.
+  const doNotEmail = new Set(knownClients.filter((client) => client.doNotEmail).map((client) => client.id));
   const outcomes: SpringLetterSendOutcome[] = [];
 
   // Deliberately sequential: each customer is an independent, recorded attempt.
@@ -330,10 +337,13 @@ export async function deliverSpringLetters(clientIds: number[]) {
     let subject = "";
     let toEmail: string | null = null;
     let error: string | null = null;
+    const skipped = doNotEmail.has(clientId);
 
     try {
-      const rendered = await renderSpringLetter(clientId);
-      if (!rendered) {
+      const rendered = skipped ? null : await renderSpringLetter(clientId);
+      if (skipped) {
+        error = "Do not email is on for this customer — bulk emails skip them";
+      } else if (!rendered) {
         error = "Client not found";
       } else {
         clientName = rendered.clientName;
@@ -362,7 +372,7 @@ export async function deliverSpringLetters(clientIds: number[]) {
       await db.insert(letterSendsTable).values({
         clientId,
         subject: subject || "Spring letter",
-        status: error ? "failed" : "sent",
+        status: skipped ? "skipped" : error ? "failed" : "sent",
         error,
         sentToEmail: toEmail,
       });

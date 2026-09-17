@@ -8,7 +8,9 @@ import {
   servicesTable,
   packagesTable,
   jobsTable,
+  invoicesTable,
   paymentsTable,
+  type PackageItem,
 } from "@workspace/db";
 import { and, desc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import {
@@ -19,20 +21,115 @@ import {
   UpdateClientServiceBody,
   EmailClientBody,
 } from "@workspace/api-zod";
-import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
+import { requireAuth } from "../middlewares/requireAuth";
+import { requireArea } from "../lib/access";
 import { logAudit, calculatePrice, type Executor } from "../lib/helpers";
 import { sendClientEmailViaGmail } from "../lib/clientEmail";
 
 const router: IRouter = Router();
 
-router.use(["/clients", "/client-services"], requireAuth, requireAdmin);
+router.use(["/clients", "/client-services"], requireAuth, requireArea("clients"));
 
+/**
+ * One round trip per customer, the same as it always was: the list route calls
+ * this once for each of the 709 rows, so the master-account figures ride along
+ * in the credit query as scalar subselects rather than adding two more trips.
+ *
+ * relatedBalanceTotal is the property manager's number — his own balance plus
+ * every property under him — because "the master sees the total balance" is
+ * the whole reason master accounts exist. Each property still owns its own
+ * invoices; nothing here moves money between accounts.
+ */
 async function hydrateClient<T extends typeof clientsTable.$inferSelect>(client: T) {
-  const [credit] = await db
-    .select({ total: sql<number>`coalesce(sum(${paymentsTable.amount}), 0)` })
-    .from(paymentsTable)
-    .where(and(eq(paymentsTable.clientId, client.id), isNull(paymentsTable.invoiceId)));
-  return { ...client, unappliedCredit: Number(credit?.total ?? 0) };
+  // Raw SQL with an explicit outer alias: inside a drizzle select, a column
+  // reference in a sql`` fragment renders unqualified ("id", not "clients"."id"),
+  // so a correlated subselect on the same table silently compared the inner
+  // row to itself and every master read as owing nothing.
+  const result = await db.execute(sql`
+    select
+      coalesce((select sum(p.amount) from payments p where p.client_id = o.id and p.invoice_id is null), 0) as "unappliedCredit",
+      (select m.name from clients m where m.id = o.parent_client_id) as "parentClientName",
+      (select r.name from clients r where r.id = o.referred_by_client_id) as "referredByClientName",
+      (select count(*) from clients c where c.parent_client_id = o.id) as "relatedPropertyCount",
+      o.account_balance + coalesce((select sum(c.account_balance) from clients c where c.parent_client_id = o.id), 0) as "relatedBalanceTotal"
+    from clients o
+    where o.id = ${client.id}
+  `);
+  const extra = result.rows[0] as
+    | {
+        unappliedCredit: string | number;
+        parentClientName: string | null;
+        referredByClientName: string | null;
+        relatedPropertyCount: string | number;
+        relatedBalanceTotal: string | number;
+      }
+    | undefined;
+  return {
+    ...client,
+    unappliedCredit: Number(extra?.unappliedCredit ?? 0),
+    parentClientName: extra?.parentClientName ?? null,
+    referredByClientName: extra?.referredByClientName ?? null,
+    relatedPropertyCount: Number(extra?.relatedPropertyCount ?? 0),
+    relatedBalanceTotal: Number(extra?.relatedBalanceTotal ?? client.accountBalance),
+  };
+}
+
+/**
+ * The links one customer can carry to another, checked before anything is
+ * written. Master accounts go one level deep and no further: a property under
+ * a master cannot be a master itself, and a master with properties cannot be
+ * tucked under someone else. Deeper than that and "what does this manager owe
+ * in all" stops having one answer.
+ */
+async function clientLinkError(
+  body: { parentClientId?: number | null; referredByClientId?: number | null },
+  selfId: number | null,
+): Promise<string | null> {
+  if (body.parentClientId != null) {
+    if (body.parentClientId === selfId) return "A customer cannot be their own master account.";
+    const [master] = await db
+      .select({ id: clientsTable.id, name: clientsTable.name, parentClientId: clientsTable.parentClientId })
+      .from(clientsTable)
+      .where(eq(clientsTable.id, body.parentClientId));
+    if (!master) return "That master account does not exist.";
+    if (master.parentClientId != null) {
+      return `${master.name} is already a property under another master account — a property cannot be a master.`;
+    }
+    if (selfId != null) {
+      const [own] = await db
+        .select({ count: sql<string>`count(*)` })
+        .from(clientsTable)
+        .where(eq(clientsTable.parentClientId, selfId));
+      if (Number(own?.count ?? 0) > 0) {
+        return "This account is a master with properties under it. Take those properties off first.";
+      }
+    }
+  }
+  if (body.referredByClientId != null) {
+    if (body.referredByClientId === selfId) return "A customer cannot refer themselves.";
+    const [referrer] = await db
+      .select({ id: clientsTable.id })
+      .from(clientsTable)
+      .where(eq(clientsTable.id, body.referredByClientId));
+    if (!referrer) return "That referring customer does not exist.";
+  }
+  return null;
+}
+
+/**
+ * A mistyped pin sends a crew to the wrong side of the world. Both halves must
+ * be given together: a latitude with no longitude is not half a location.
+ */
+function coordinateError(body: { lat?: number | null; lng?: number | null }): string | null {
+  const hasLat = "lat" in body;
+  const hasLng = "lng" in body;
+  if (!hasLat && !hasLng) return null;
+  const lat = body.lat ?? null;
+  const lng = body.lng ?? null;
+  if ((lat == null) !== (lng == null)) return "Latitude and longitude go together — give both, or clear both.";
+  if (lat != null && (lat < -90 || lat > 90)) return "Latitude must be between -90 and 90.";
+  if (lng != null && (lng < -180 || lng > 180)) return "Longitude must be between -180 and 180.";
+  return null;
 }
 
 router.get("/clients", async (req, res) => {
@@ -69,6 +166,10 @@ router.get("/clients", async (req, res) => {
 
 router.post("/clients", async (req, res) => {
   const body = CreateClientBody.parse(req.body);
+  const linkProblem = await clientLinkError(body, null);
+  if (linkProblem) return res.status(400).json({ error: linkProblem });
+  const pinProblem = coordinateError(body);
+  if (pinProblem) return res.status(400).json({ error: pinProblem });
   const [client] = await db.insert(clientsTable).values(body).returning();
   await logAudit({
     clientId: client.id,
@@ -76,7 +177,22 @@ router.post("/clients", async (req, res) => {
     action: "client_created",
     description: `Created ${client.status === "lead" ? "lead" : "client"} "${client.name}"`,
   });
-  return res.status(201).json(client);
+  return res.status(201).json(await hydrateClient(client));
+});
+
+// Ahead of /clients/:id, or Express reads "sources" as a customer id.
+//
+// The list is the customers' own answers, not a settings screen: his old system
+// made him maintain a Client Source list, and the map-code precedent here
+// (values come from the rows) has worked better. Typing a new source on one
+// customer is what adds it to the list everyone else is offered.
+router.get("/clients/sources", async (_req, res) => {
+  const rows = await db
+    .selectDistinct({ source: clientsTable.source })
+    .from(clientsTable)
+    .where(sql`${clientsTable.source} is not null and ${clientsTable.source} <> ''`)
+    .orderBy(clientsTable.source);
+  return res.json(rows.map((r) => r.source));
 });
 
 router.get("/clients/:id", async (req, res) => {
@@ -149,7 +265,27 @@ const CLIENT_FIELD_LABELS: Record<string, string> = {
   mapNote: "map / crew note",
   mapCode: "map code",
   waterDistrict: "water district",
-  propertyData: "property details",
+  propertyData: "custom fields",
+  officeNote: "office note",
+  nameOnInvoice: "name on invoice",
+  billingAddressLine1: "billing address",
+  billingAddressLine2: "billing address line 2",
+  billingCity: "billing city",
+  billingState: "billing state",
+  billingPostalCode: "billing ZIP",
+  billingEmail: "billing email",
+  accountNumber: "account number",
+  billingTerms: "terms",
+  invoiceFrequency: "how often invoiced",
+  invoiceDelivery: "how invoices are sent",
+  accountType: "account type",
+  preferredPaymentMethod: "how they pay",
+  parentClientId: "master account",
+  doNotEmail: "do not email",
+  referredByClientId: "referred by",
+  lat: "latitude",
+  lng: "longitude",
+  email: "notification email",
 };
 
 /**
@@ -159,26 +295,147 @@ const CLIENT_FIELD_LABELS: Record<string, string> = {
  */
 router.patch("/clients/:id", async (req, res) => {
   const body = UpdateClientBody.parse(req.body);
-  const [client] = await db
-    .update(clientsTable)
-    .set(body)
-    .where(eq(clientsTable.id, Number(req.params.id)))
-    .returning();
+  const id = Number(req.params.id);
+  const [current] = await db.select().from(clientsTable).where(eq(clientsTable.id, id));
+  if (!current) return res.status(404).json({ error: "Client not found" });
+
+  const linkProblem = await clientLinkError(body, id);
+  if (linkProblem) return res.status(400).json({ error: linkProblem });
+  const pinProblem = coordinateError(body);
+  if (pinProblem) return res.status(400).json({ error: pinProblem });
+
+  // An invoice set to go by email with nowhere to send it sits in "to email"
+  // forever. Checked only when the office actually changes the delivery or an
+  // address: hundreds of imported rows already break this rule, and saving a
+  // map code — or a phone number on a card that resends the email box
+  // untouched — must not be refused for a problem it did not create.
+  const deliveryKeys = ["invoiceDelivery", "billingEmail", "email"] as const;
+  const touchesDelivery = deliveryKeys.some(
+    (k) => k in body && (body as Record<string, unknown>)[k] !== (current as Record<string, unknown>)[k],
+  );
+  if (touchesDelivery) {
+    const merged = { ...current, ...body };
+    const delivery = merged.invoiceDelivery;
+    const hasAddress = Boolean(merged.billingEmail?.trim() || merged.email?.trim());
+    if ((delivery === "email" || delivery === "both") && !hasAddress) {
+      return res.status(400).json({
+        error: "Sending invoices by email needs a billing email or a notification email. Add one, or switch to Print.",
+      });
+    }
+  }
+
+  const [client] = await db.update(clientsTable).set(body).where(eq(clientsTable.id, id)).returning();
   if (!client) return res.status(404).json({ error: "Client not found" });
+
+  // The master link and the do-not-email switch get their own lines: "Updated
+  // master account" does not say which way it went, and both are the kind of
+  // change the office asks about later ("who took them off the HOA?").
+  if ("parentClientId" in body && body.parentClientId !== current.parentClientId) {
+    const nameOf = async (clientId: number | null) => {
+      if (clientId == null) return null;
+      const [row] = await db.select({ name: clientsTable.name }).from(clientsTable).where(eq(clientsTable.id, clientId));
+      return row?.name ?? `#${clientId}`;
+    };
+    const was = await nameOf(current.parentClientId);
+    const now = await nameOf(client.parentClientId);
+    await logAudit({
+      clientId: client.id,
+      actorName: req.appUser?.name,
+      action: now ? "master_account_set" : "master_account_removed",
+      description: now
+        ? `Put this property under master account "${now}"${was ? ` (was "${was}")` : ""}`
+        : `Took this property off master account "${was}"`,
+    });
+    if (now && client.parentClientId != null) {
+      await logAudit({
+        clientId: client.parentClientId,
+        actorName: req.appUser?.name,
+        action: "related_property_added",
+        description: `Added "${client.name}" as a property under this master account`,
+      });
+    }
+    if (was && current.parentClientId != null) {
+      await logAudit({
+        clientId: current.parentClientId,
+        actorName: req.appUser?.name,
+        action: "related_property_removed",
+        description: `Took "${client.name}" off this master account`,
+      });
+    }
+  }
+  if ("doNotEmail" in body && body.doNotEmail !== current.doNotEmail) {
+    await logAudit({
+      clientId: client.id,
+      actorName: req.appUser?.name,
+      action: client.doNotEmail ? "do_not_email_on" : "do_not_email_off",
+      description: client.doNotEmail
+        ? "Turned on Do not email — bulk emails skip this customer, invoices still go out"
+        : "Turned off Do not email — bulk emails reach this customer again",
+    });
+  }
+
   const changed = Object.keys(body)
+    .filter((field) => !(field === "parentClientId" || field === "doNotEmail"))
     .map((field) => CLIENT_FIELD_LABELS[field] ?? field)
     .join(", ");
-  await logAudit({
-    clientId: client.id,
-    actorName: req.appUser?.name,
-    action: "client_updated",
-    description: `Updated ${changed || "client"}`,
-  });
-  return res.json(client);
+  if (changed) {
+    await logAudit({
+      clientId: client.id,
+      actorName: req.appUser?.name,
+      action: "client_updated",
+      description: `Updated ${changed}`,
+    });
+  }
+  return res.json(await hydrateClient(client));
+});
+
+/**
+ * The properties under a master account, each with its own balance. Each one
+ * is a full customer — its own invoices, its own jobs — so the master page
+ * links through rather than trying to show everything in one place.
+ */
+router.get("/clients/:id/related", async (req, res) => {
+  const id = Number(req.params.id);
+  const [master] = await db.select({ id: clientsTable.id }).from(clientsTable).where(eq(clientsTable.id, id));
+  if (!master) return res.status(404).json({ error: "Client not found" });
+  const rows = await db
+    .select()
+    .from(clientsTable)
+    .where(eq(clientsTable.parentClientId, id))
+    .orderBy(clientsTable.name);
+  return res.json(await Promise.all(rows.map(hydrateClient)));
 });
 
 router.delete("/clients/:id", async (req, res) => {
-  await db.delete(clientsTable).where(eq(clientsTable.id, Number(req.params.id)));
+  const id = Number(req.params.id);
+  const [existing] = await db.select().from(clientsTable).where(eq(clientsTable.id, id));
+  if (!existing) return res.status(404).json({ error: "Client not found" });
+
+  // Money history has to stay: an invoice or a payment on the books belongs to
+  // the year's numbers, and deleting the customer would cascade it away. The
+  // customer who is really gone gets marked Former instead.
+  const [{ invoices }] = await db
+    .select({ invoices: sql<number>`count(*)::int` })
+    .from(invoicesTable)
+    .where(eq(invoicesTable.clientId, id));
+  const [{ payments }] = await db
+    .select({ payments: sql<number>`count(*)::int` })
+    .from(paymentsTable)
+    .where(eq(paymentsTable.clientId, id));
+  if (invoices > 0 || payments > 0) {
+    return res.status(409).json({
+      error: `${existing.name} has invoices or payments on the books, so they can't be deleted. Set status to Former instead.`,
+    });
+  }
+
+  await db.delete(clientsTable).where(eq(clientsTable.id, id));
+  // No clientId on this line: the row it would point at is gone, and the audit
+  // table drops its events with the customer.
+  await logAudit({
+    actorName: req.appUser?.name,
+    action: "client_deleted",
+    description: `Deleted customer ${existing.name}`,
+  });
   return res.status(204).end();
 });
 
@@ -196,7 +453,8 @@ router.post("/clients/:id/notes", async (req, res) => {
   const clientId = Number(req.params.id);
   const [note] = await db
     .insert(clientNotesTable)
-    .values({ clientId, body: body.body, authorName: req.appUser?.name ?? null })
+    // Open means "still waiting on me"; it stays on the dashboard until closed.
+    .values({ clientId, body: body.body, authorName: req.appUser?.name ?? null, status: body.status ?? "closed" })
     .returning();
   await logAudit({
     clientId,
@@ -219,264 +477,7 @@ router.get("/clients/:id/audit", async (req, res) => {
 });
 
 // ---- client services ----
-
-async function clientServiceWithName(cs: typeof clientServicesTable.$inferSelect) {
-  const [svc] = await db.select().from(servicesTable).where(eq(servicesTable.id, cs.serviceId));
-  let packageName: string | null = null;
-  if (cs.packageId) {
-    const [p] = await db.select().from(packagesTable).where(eq(packagesTable.id, cs.packageId));
-    packageName = p?.name ?? null;
-  }
-  return { ...cs, serviceName: svc?.name ?? null, packageName };
-}
-
-router.get("/clients/:id/client-services", async (req, res) => {
-  const rows = await db
-    .select()
-    .from(clientServicesTable)
-    .where(eq(clientServicesTable.clientId, Number(req.params.id)));
-  return res.json(await Promise.all(rows.map(clientServiceWithName)));
-});
-
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-/**
- * Reject anything that is not a real yyyy-mm-dd calendar date. Null and empty are
- * allowed — the caller decides which fields are required. Without this an invalid
- * string reaches `new Date(...)` during job generation and throws mid-write.
- */
-function dateFieldError(label: string, value: string | null | undefined): string | null {
-  if (value == null || value === "") return null;
-  if (!ISO_DATE_RE.test(value)) return `${label} must be a date in yyyy-mm-dd format`;
-  const parsed = new Date(`${value}T00:00:00Z`);
-  // Round-tripping also rejects real-looking but impossible dates like 2026-02-31.
-  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
-    return `${label} is not a real calendar date`;
-  }
-  return null;
-}
-
-/** Create jobs for a client-service based on its schedule type. */
-async function generateJobs(
-  cs: typeof clientServicesTable.$inferSelect,
-  tx: Executor = db,
-) {
-  if (cs.scheduleType === "window") {
-    // Waiting list entry: not dispatched, has a window
-    await tx.insert(jobsTable).values({
-      clientId: cs.clientId,
-      clientServiceId: cs.id,
-      serviceId: cs.serviceId,
-      dispatched: false,
-      windowStart: cs.startDate,
-      windowEnd: cs.endDate,
-      amount: cs.amount,
-      budgetedHours: cs.budgetedHours,
-    });
-  } else if (cs.scheduleType === "recurring") {
-    if (!cs.firstServiceDate || !cs.frequencyWeeks) {
-      throw new Error("Recurring services require a first service date and frequency in weeks");
-    }
-    // Defensive: a non-positive interval would step backwards (or never advance)
-    // and fill the board with 60 wrong jobs. The route validates this too.
-    if (!Number.isInteger(cs.frequencyWeeks) || cs.frequencyWeeks < 1) {
-      throw new Error("Recurring frequency must be a whole number of weeks of at least 1");
-    }
-    // Generate occurrences straight to the dispatch board until season end (cap 60)
-    const end = cs.seasonEndDate ? new Date(cs.seasonEndDate) : null;
-    let d = new Date(cs.firstServiceDate);
-    let count = 0;
-    while (count < 60 && (!end || d <= end)) {
-      await tx.insert(jobsTable).values({
-        clientId: cs.clientId,
-        clientServiceId: cs.id,
-        serviceId: cs.serviceId,
-        dispatched: true,
-        scheduledDate: d.toISOString().slice(0, 10),
-        amount: cs.amount,
-        budgetedHours: cs.budgetedHours,
-      });
-      d = new Date(d.getTime() + cs.frequencyWeeks * 7 * 24 * 3600 * 1000);
-      count++;
-      if (!end && count >= 1) break; // no season end: only create the first occurrence
-    }
-  } else {
-    // one_time
-    await tx.insert(jobsTable).values({
-      clientId: cs.clientId,
-      clientServiceId: cs.id,
-      serviceId: cs.serviceId,
-      dispatched: !!cs.firstServiceDate,
-      scheduledDate: cs.firstServiceDate,
-      amount: cs.amount,
-      budgetedHours: cs.budgetedHours,
-    });
-  }
-}
-
-router.post("/clients/:id/client-services", async (req, res) => {
-  const body = CreateClientServiceBody.parse(req.body);
-  const clientId = Number(req.params.id);
-
-  let serviceIds: number[] = [];
-  let pkg: typeof packagesTable.$inferSelect | null = null;
-  if (body.packageId) {
-    [pkg] = await db.select().from(packagesTable).where(eq(packagesTable.id, body.packageId));
-    if (!pkg) return res.status(404).json({ error: "Package not found" });
-    serviceIds = pkg.serviceIds;
-  } else if (body.serviceId) {
-    serviceIds = [body.serviceId];
-  } else {
-    return res.status(400).json({ error: "serviceId or packageId is required" });
-  }
-
-  // Resolve and validate every row before writing anything. A half-created package
-  // assignment is worse than a rejected one: the office sees some of the services
-  // appear with no indication which ones are missing.
-  const planned: {
-    svc: typeof servicesTable.$inferSelect;
-    values: typeof clientServicesTable.$inferInsert;
-  }[] = [];
-
-  for (const serviceId of serviceIds) {
-    const [svc] = await db.select().from(servicesTable).where(eq(servicesTable.id, serviceId));
-    if (!svc) continue;
-    let amount = body.amount ?? null;
-    // The band that priced this job also carries how long that size of job
-    // takes. Captured here rather than re-derived later: an explicit amount, or
-    // a later change to the matrix, would otherwise leave the hours pointing at
-    // a band this job was never priced from.
-    let tierBudgetedHours: number | null = null;
-    if (body.sqft != null && svc.pricingEquations.length > 0) {
-      const priced = calculatePrice(svc.pricingEquations, body.sqft);
-      tierBudgetedHours = priced.equationIndex == null
-        ? null
-        : svc.pricingEquations[priced.equationIndex]?.budgetedHours ?? null;
-      if (amount == null) amount = priced.price;
-    }
-    if (amount == null) {
-      amount = svc.rate * (body.quantity ?? svc.quantity ?? 1);
-    }
-    const inherited = <K extends keyof typeof body>(
-      key: K,
-      packageValue: (typeof body)[K],
-    ) => (Object.prototype.hasOwnProperty.call(req.body, key) ? body[key] : packageValue);
-    const scheduleType = inherited("scheduleType", pkg?.scheduleType as typeof body.scheduleType);
-    const startDate = inherited("startDate", pkg?.startDate ?? null);
-    const firstServiceDate = inherited(
-      "firstServiceDate",
-      scheduleType === "recurring" ? pkg?.startDate ?? null : null,
-    );
-    const frequencyWeeks = inherited("frequencyWeeks", pkg?.frequencyWeeks ?? null);
-    const seasonEndDate = inherited("seasonEndDate", pkg?.seasonEndDate ?? null);
-    const renewDate = inherited("renewDate", pkg?.renewDate ?? null);
-    const endDate = inherited("endDate", pkg?.endDate ?? null);
-    if (!scheduleType) {
-      return res.status(400).json({
-        error: "scheduleType is required, and this package does not set one of its own",
-      });
-    }
-    for (const [label, value] of [
-      ["Start date", startDate],
-      ["End date", endDate],
-      ["First service date", firstServiceDate],
-      ["Season end date", seasonEndDate],
-      ["Renew date", renewDate],
-    ] as const) {
-      const problem = dateFieldError(label, value);
-      if (problem) return res.status(400).json({ error: problem });
-    }
-    if (scheduleType === "recurring") {
-      if (!firstServiceDate || !frequencyWeeks) {
-        return res.status(400).json({
-          error: "Recurring services require a first service date and frequency in weeks",
-        });
-      }
-      // A zero or negative interval steps backwards and would silently fill the
-      // dispatch board with 60 wrong jobs.
-      if (!Number.isInteger(frequencyWeeks) || frequencyWeeks < 1) {
-        return res.status(400).json({
-          error: "Recurring frequency must be a whole number of weeks of at least 1",
-        });
-      }
-      // Safe as strings: both are validated yyyy-mm-dd.
-      if (seasonEndDate && seasonEndDate < firstServiceDate) {
-        return res.status(400).json({
-          error: "Season end date cannot be before the first service date",
-        });
-      }
-    }
-
-    planned.push({
-      svc,
-      values: {
-        clientId,
-        serviceId,
-        packageId: body.packageId ?? null,
-        quantity: body.quantity ?? 1,
-        amount,
-        scheduleType,
-        startDate,
-        endDate,
-        frequencyWeeks,
-        firstServiceDate,
-        seasonEndDate,
-        renewDate,
-        // Most specific estimate first: what the office typed, then the matrix
-        // band this property actually falls in, then the service-wide figure.
-        budgetedHours: body.budgetedHours ?? tierBudgetedHours ?? svc.billableHours ?? null,
-      },
-    });
-  }
-
-  if (planned.length === 0) {
-    return res.status(400).json({ error: "No matching services were found to assign" });
-  }
-
-  // One transaction for the whole assignment: a failure part-way through a
-  // multi-service package must leave nothing behind.
-  const created = await db.transaction(async (tx) => {
-    const rows: { cs: typeof clientServicesTable.$inferSelect; name: string }[] = [];
-    for (const { svc, values } of planned) {
-      const [cs] = await tx.insert(clientServicesTable).values(values).returning();
-      await generateJobs(cs, tx);
-      rows.push({ cs, name: svc.name });
-    }
-    return rows;
-  });
-
-  for (const { cs, name } of created) {
-    await logAudit({
-      clientId,
-      actorName: req.appUser?.name,
-      action: "service_assigned",
-      description: `Assigned service "${name}" ($${cs.amount})`,
-    });
-  }
-  return res.status(201).json(
-    await Promise.all(created.map(({ cs }) => clientServiceWithName(cs))),
-  );
-});
-
-router.patch("/client-services/:id", async (req, res) => {
-  const body = UpdateClientServiceBody.parse(req.body);
-  const [cs] = await db
-    .update(clientServicesTable)
-    .set(body)
-    .where(eq(clientServicesTable.id, Number(req.params.id)))
-    .returning();
-  if (!cs) return res.status(404).json({ error: "Client service not found" });
-  return res.json(await clientServiceWithName(cs));
-});
-
-router.delete("/client-services/:id", async (req, res) => {
-  const id = Number(req.params.id);
-  // remove not-yet-completed jobs tied to this client-service
-  await db
-    .delete(jobsTable)
-    .where(and(eq(jobsTable.clientServiceId, id), eq(jobsTable.status, "scheduled")));
-  await db.delete(clientServicesTable).where(eq(clientServicesTable.id, id));
-  return res.status(204).end();
-});
+// Assigned services moved to routes/client-services.ts (2026-09-15 walkthrough):
+// cadence, contractor, discount, crew notes, pause/resume, renewals.
 
 export default router;

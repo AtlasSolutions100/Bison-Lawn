@@ -7,6 +7,7 @@
  */
 import type { ClientUpdateAccountType } from './clientUpdateAccountType';
 import type { ClientUpdateInvoiceDelivery } from './clientUpdateInvoiceDelivery';
+import type { ClientUpdatePreferredPaymentMethod } from './clientUpdatePreferredPaymentMethod';
 import type { ClientUpdatePropertyData } from './clientUpdatePropertyData';
 import type { ClientUpdateStatus } from './clientUpdateStatus';
 
@@ -77,4 +78,16 @@ export interface ClientUpdate {
   officeNote?: string | null;
   tags?: string[];
   propertyData?: ClientUpdatePropertyData;
+  /**
+     * Put this property under a master account; null takes it out again
+     * @nullable
+     */
+  parentClientId?: number | null;
+  doNotEmail?: boolean;
+  /** @nullable */
+  source?: string | null;
+  /** @nullable */
+  referredByClientId?: number | null;
+  /** @nullable */
+  preferredPaymentMethod?: ClientUpdatePreferredPaymentMethod;
 }

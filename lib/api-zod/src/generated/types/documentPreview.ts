@@ -10,6 +10,8 @@ export interface DocumentPreview {
   /** @nullable */
   subject: string | null;
   body: string;
+  /** The letter inside the branded email shell, as the customer sees it */
+  html?: string;
   /** @nullable */
   clientName?: string | null;
   unknownTokens: string[];

@@ -15,5 +15,10 @@ export interface EstimateUpdateInput {
   /** @nullable */
   coverNote?: string | null;
   includeServiceDescriptions?: boolean;
+  /**
+     * Omit to leave unchanged; null clears it
+     * @nullable
+     */
+  coverTemplateId?: number | null;
   lines: EstimateLine[];
 }

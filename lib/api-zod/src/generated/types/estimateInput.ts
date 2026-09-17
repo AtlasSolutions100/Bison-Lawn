@@ -17,6 +17,11 @@ export interface EstimateInput {
   coverNote?: string | null;
   /** Spell out what each quoted service includes, using the service descriptions at send time */
   includeServiceDescriptions?: boolean;
+  /**
+     * Estimate document to lead the quote with; must be a document_templates id
+     * @nullable
+     */
+  coverTemplateId?: number | null;
   /** Write the entered field values back to the client's saved property details, matched by field label */
   savePropertyData?: boolean;
   lines: EstimateLine[];

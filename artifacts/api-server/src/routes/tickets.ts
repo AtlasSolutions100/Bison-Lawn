@@ -3,6 +3,7 @@ import { db, ticketsTable, clientsTable, usersTable } from "@workspace/db";
 import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { CreateTicketBody, UpdateTicketBody } from "@workspace/api-zod";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
+import { shownName } from "../lib/userAccounts";
 
 const router: IRouter = Router();
 
@@ -17,7 +18,7 @@ async function hydrate(rows: (typeof ticketsTable.$inferSelect)[]) {
     userIds.length ? db.select().from(usersTable).where(inArray(usersTable.id, userIds)) : Promise.resolve([]),
   ]);
   const cMap = new Map(clients.map((c) => [c.id, c.name]));
-  const uMap = new Map(users.map((u) => [u.id, u.name]));
+  const uMap = new Map(users.map((u) => [u.id, shownName(u)]));
   return rows.map((r) => ({
     ...r,
     clientName: r.clientId ? (cMap.get(r.clientId) ?? null) : null,

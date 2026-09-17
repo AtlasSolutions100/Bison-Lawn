@@ -16,4 +16,15 @@ status?: ListJobsStatus;
 city?: string;
 serviceId?: number;
 clientId?: number;
+mapCode?: string;
+/**
+ * The client's state: ID or WA.
+ */
+branch?: string;
+tag?: string;
+/**
+ * Matches the client name or service address, any part of it.
+ */
+search?: string;
+hasNotes?: boolean;
 };
