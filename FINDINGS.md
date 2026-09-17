@@ -1294,3 +1294,62 @@ defects, not to neutralise character.
 One customer has an address typed into the water district field
 ("800 Block-N Second St, Coeur D Alene"). One row out of the eight that have a
 district at all, so a typo rather than a mapping fault — his field to correct.
+
+## 2026-09-16 — building the 2026-09-15 walkthrough
+
+Adam spent 67 minutes walking through Service Autopilot and saying what this
+app has to do. The recording arrived with no transcript, so it was transcribed
+locally and all 402 screen frames were read; the spec that came out of it is in
+`docs/walkthrough-2026-09-15`, and it is the thing to argue with, not this file.
+
+### The fixture problem again, in a new shape
+
+Twelve builders worked in parallel and each verified its own track against the
+local database — which holds 18 customers, 4 jobs and 2 invoices. Production
+holds 709, 35 and 2. Every track passed its own tests and the whole suite went
+green, and the first thing production did was fail four startup tasks in a row.
+
+Nothing was wrong with the code. `deploy.sh` starts the new container before the
+schema push, so the app booted against the old database: the assigned-services
+tick, the user-account reconcile, the document-template seeding and the
+automation-rule seeding all threw on columns that did not exist yet. They are
+idempotent and a restart fixed all four, but nothing retries a seeder on its
+own, so an unnoticed deploy would have left Adam with no automation rules and no
+document folders and no sign that anything had gone wrong. DEPLOY.md now says to
+restart after a schema push and to count errors in a 90-second window — wider
+than that and the pre-restart errors fool you into thinking it is still broken.
+
+### Reviewing our own work found more than building it did
+
+Fifty defects survived an adversarial check across the twelve diffs. The ones
+worth naming, because they share a shape:
+
+- The customer edit form kept its values when you moved between customers, so
+  Save could write one person's phone number onto another. React reuses the
+  component; only the data changes.
+- A job's date box wrote on every keystroke, so typing a year moved the job to
+  the year 0002 and it vanished off the board.
+- Auto-renew rolled a contract forward and deleted the months it still owed.
+- Saving any existing contractor on the Team page promoted them to full admin.
+- A dozen date bugs in one family: UTC where Idaho was meant. After 5pm local
+  the app disagreed with the office about what day it was.
+
+Three of the five are invisible until someone does the ordinary thing twice in a
+row — open one customer, then another. Tests that set up one record and assert
+on it cannot see them.
+
+### Said plainly rather than quietly skipped
+
+Texting is built to the edge of the provider and switched off: masked numbers
+per contractor need a paid account and an A2P registration that takes days. The
+settings card says that, with the real costs, instead of showing a dead button.
+The matrix does not learn its hours from past jobs yet either — the job-cost
+report puts budgeted next to actual so the numbers are visible before anything
+starts changing prices on its own.
+
+### Still open, and honestly so
+
+Four of his items were not touched: importing a matrix from Excel, custom
+parameters on the parallel cells, offline access for contractors, and bold text
+in descriptions and documents. Five more are marked "where this stands" because
+part of what he asked for is built and part is not, and the note says which.

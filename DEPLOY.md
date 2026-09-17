@@ -72,6 +72,27 @@ database and will happily drop a column to make them match. Running it by hand
 on each deploy, after reading what it says it will do, is the safeguard until
 real migration files exist.
 
+**Restart the app after a push that added anything.** `deploy.sh` starts the new
+container before you get a chance to push, so on a schema-changing deploy the
+app boots against the old database and every startup task that touches a new
+column fails: the assigned-services tick, the user-account reconcile, the
+document-template seeding and the automation-rule seeding all threw on the
+2026-09-15 deploy. They are idempotent, so the fix is one command, but nothing
+retries the seeders until something restarts them:
+
+```bash
+docker compose --env-file .env.deploy restart app
+```
+
+Then confirm the window is closed rather than assuming it:
+
+```bash
+docker compose --env-file .env.deploy logs app --since 90s | grep -c '"level":50'
+```
+
+Zero is the answer you want. Anything else, read them — the errors from before
+the restart stay in the log and will fool a wider `--since`.
+
 **Never run `push-force`.** `--force` auto-accepts every destructive statement
 `push` would otherwise ask about, including a table truncate. This is not
 hypothetical: adding the `invoices.number` column made `push` offer to

@@ -130,3 +130,33 @@ answering them is the cheapest progress available.
 3. `PATCH /api/feedback/<id>` with `status: "done"` and an `adminNote` that says
    what was built, in his words, and names anything you decided differently.
    That note is his progress report — it is the only part he reads.
+
+## After the 2026-09-16 pass: **104 Done, 5 Read, 4 New**
+
+The 2026-09-15 walkthrough (`docs/walkthrough-2026-09-15`) was built and
+deployed as `24ad022`. Every item that pass touched is closed in the app with a
+note in his words; that note is still the only part he reads.
+
+### The four that are genuinely open
+
+| id | Item | Why it is still open |
+|---|---|---|
+| 42 | Import a matrix from Excel | Nobody has started it. Needs a column-mapping step, since his sheets are not all shaped alike. |
+| 45 | Custom parameters for the parallel cells | Needs a conversation about what the parameters are before it can be built. |
+| 74 | Offline access for contractors | A web app cannot do this properly; it is the one item that argues for a native app. |
+| 90 | Bold and emphasis in descriptions and documents | The template body and the service description are both plain text today. |
+
+### The five marked "where this stands"
+
+19 (photos are kept on the account but cannot ride along on the email), 52 (the
+job-cost report shows budgeted against actual, but the matrix does not update
+its own hours), 58 (every filter he listed except distance and priority), 60
+(select-all and filters are in; choosing your own filter list and sorting by the
+money columns are not), 87 (letters go to the notification email and take extra
+addresses; the separate services document does not exist yet).
+
+### Worth knowing before the next pass
+
+Texting is built up to the provider call and switched off. Turning it on is an
+account, an A2P registration and four env keys — no more code. The settings card
+spells out the cost.
