@@ -86,8 +86,10 @@ async function loadCandidates(
   const conds = [
     eq(jobsTable.dispatched, false),
     // A cancelled waiting-list job (a window that passed and was cleared in
-    // bulk) is not a stop for anyone; nor is one already done.
-    sql`${jobsTable.status} not in ('cancelled', 'completed')`,
+    // bulk) is not a stop for anyone; nor is one already done, nor one the
+    // customer skipped. A skip is retired when the job is moved to a new day,
+    // so a skipped job sitting off the board is one nobody owes a visit.
+    sql`${jobsTable.status} not in ('cancelled', 'completed', 'skipped')`,
   ];
   if (filters.serviceId != null) conds.push(eq(jobsTable.serviceId, filters.serviceId));
 
