@@ -3,9 +3,9 @@
 You are one of thirteen builders working IN PARALLEL in the same working tree. Each builder owns a track. Read this whole file first; it is the only place the shared rules and contracts live.
 
 Repo: `C:\Users\kobys\OneDrive\Desktop\OptionallyWorking\BisonLawn\Bison-Lawn-Care-Adam-Johnson` (git repo; pnpm monorepo).
-Requirements: `C:\Users\kobys\AppData\Local\Temp\claude\C--Users-kobys-OneDrive-Desktop-OptionallyWorking-BisonLawn\81dbc634-1aaf-4290-92a4-0607dc9b3ce8\scratchpad\meeting\requirements.md`
-Survey of what already exists, per area (read yours fully; it has file:line evidence and a concrete approach): `...\scratchpad\meeting\survey\*.md`
-What his current CRM's screens look like, by timestamp (grep it for the screen you are rebuilding): `...\scratchpad\meeting\screens.md`
+Requirements: `docs/walkthrough-2026-09-15/requirements.md`
+Survey of what already exists, per area (read yours fully; it has file:line evidence and a concrete approach): `docs/walkthrough-2026-09-15/survey/*.md`
+What his current CRM's screens look like, by timestamp (grep it for the screen you are rebuilding): `docs/walkthrough-2026-09-15/screens.md`
 His feedback items live in the `feedback` table; ids are referenced in requirements.md.
 
 ## Who Adam is
