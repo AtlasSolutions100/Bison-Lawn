@@ -931,3 +931,47 @@ test("today on the board is his own Pacific date, not the weather scheduler's Ce
   const get = (type: string) => parts.find((x) => x.type === type)?.value ?? "";
   assert.equal(todayLocal(), `${get("year")}-${get("month")}-${get("day")}`);
 });
+
+// ---- work an outside company does ----
+
+test("a vendor service assigned by hand goes on the account but puts no stops on the board", async () => {
+  // Accepting an estimate already knew that Acme Spray's applications are not
+  // stops a sub drives to — they are completed in bulk from the vendor's own
+  // invoice. Assigning the same service by hand did not, and put six phantom
+  // fertilizer visits on the board.
+  const [vendorSvc] = await db
+    .insert(servicesTable)
+    .values({ name: `Fertilizer ${Date.now()}`, rate: 75, vendorName: "Acme Spray" })
+    .returning();
+  ids.services.push(vendorSvc.id);
+
+  const res = await post(`/clients/${client.id}/client-services`, admin.id, {
+    serviceId: vendorSvc.id,
+    scheduleType: "recurring",
+    firstServiceDate: `${YEAR}-09-20`,
+    seasonEndDate: `${YEAR}-10-31`,
+    frequency: "weekly",
+    amount: 75,
+  });
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  const row = res.body[0];
+
+  assert.equal((await jobsFor(row.id)).length, 0, "an outside company's work is not a stop on our board");
+
+  // Changing the schedule must not conjure them either.
+  const saved = await patch(`/client-services/${row.id}`, admin.id, { frequency: "biweekly", weekParity: "odd" });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  assert.equal((await jobsFor(row.id)).length, 0, "still nothing on the board after a cadence change");
+
+  // Our own crew's work is unaffected: same shape, no vendor.
+  const ours = await post(`/clients/${client.id}/client-services`, admin.id, {
+    serviceId: mowing.id,
+    scheduleType: "recurring",
+    firstServiceDate: `${YEAR}-09-20`,
+    seasonEndDate: `${YEAR}-10-31`,
+    frequency: "weekly",
+    amount: 45,
+  });
+  assert.equal(ours.status, 201, JSON.stringify(ours.body));
+  assert.ok((await jobsFor(ours.body[0].id)).length > 0, "our own crew still gets visits");
+});

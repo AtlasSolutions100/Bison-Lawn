@@ -319,8 +319,22 @@ export function contractorNoteFor(
 
 // ---- generation ----
 
-/** A service puts visits on the board only while it is switched on and not paused. */
-export function generatesJobs(cs: Pick<ClientService, "active" | "pausedAt">): boolean {
+/**
+ * A service puts visits on the board only while it is switched on and not
+ * paused — and only when our own crew is the one doing the work.
+ *
+ * An outside company's service (`services.vendorName`, e.g. Acme Spray on the
+ * fertilizer applications) has no stop a sub can drive to: those visits are
+ * completed in bulk from the vendor's own invoice on the Spray Runs screen.
+ * Accepting an estimate already knew this; assigning the same service by hand
+ * from the customer's account did not, and put six phantom fertilizer stops on
+ * the board in a probe. The rule belongs here, where every path goes through.
+ */
+export function generatesJobs(
+  cs: Pick<ClientService, "active" | "pausedAt">,
+  svc?: Pick<Service, "vendorName"> | null,
+): boolean {
+  if (svc && svc.vendorName != null) return false;
   return cs.active && cs.pausedAt == null;
 }
 
@@ -347,11 +361,11 @@ function visitValues(cs: ClientService, svc: Pick<Service, "billingMode">) {
  */
 export async function generateJobs(
   cs: ClientService,
-  svc: Pick<Service, "billingMode">,
+  svc: Pick<Service, "billingMode" | "vendorName">,
   tx: Executor = db,
   opts: { from?: string | null } = {},
 ): Promise<(typeof jobsTable.$inferSelect)[]> {
-  if (!generatesJobs(cs)) return [];
+  if (!generatesJobs(cs, svc)) return [];
   const from = opts.from ?? null;
   const base = visitValues(cs, svc);
 
@@ -430,7 +444,7 @@ function futureScheduledVisits(csId: number, from: string) {
  */
 export async function regenerateFutureJobs(
   cs: ClientService,
-  svc: Pick<Service, "billingMode">,
+  svc: Pick<Service, "billingMode" | "vendorName">,
   tx: Executor = db,
   opts: { from?: string } = {},
 ): Promise<number> {
