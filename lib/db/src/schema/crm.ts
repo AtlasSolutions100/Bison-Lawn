@@ -43,6 +43,14 @@ export const usersTable = pgTable("users", {
   permissions: jsonb("permissions").$type<string[]>().notNull().default([]),
   // the masked texting number customers see for this person, once a provider is on
   smsProxyNumber: text("sms_proxy_number"),
+  /**
+   * The colour this person's stops take on the board and the map. His words:
+   * "it will show up in a different color that I've designated for that
+   * contractor, so I can see whose jobs are whose" — designated by him, so it
+   * is stored rather than derived from the id. Null falls back to a stable
+   * colour picked from the palette, so a new sub is never colourless.
+   */
+  color: text("color"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 export const insertUserSchema = createInsertSchema(usersTable).omit({ id: true, createdAt: true });

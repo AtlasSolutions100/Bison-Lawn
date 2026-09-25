@@ -38,6 +38,7 @@ export const GetCurrentUserResponse = zod.object({
   "baseAddress": zod.string().nullish(),
   "baseLat": zod.number().nullish(),
   "baseLng": zod.number().nullish(),
+  "color": zod.string().nullish(),
   "jobCount": zod.int().optional(),
   "historyCount": zod.int().optional(),
   "smsProxyNumber": zod.string().nullish()
@@ -70,6 +71,7 @@ export const ListUsersResponseItem = zod.object({
   "baseAddress": zod.string().nullish(),
   "baseLat": zod.number().nullish(),
   "baseLng": zod.number().nullish(),
+  "color": zod.string().nullish(),
   "jobCount": zod.int().optional(),
   "historyCount": zod.int().optional(),
   "smsProxyNumber": zod.string().nullish()
@@ -84,6 +86,9 @@ export const UpdateUserParams = zod.object({
   "id": zod.coerce.number().int()
 })
 
+export const updateUserBodyColorRegExp = new RegExp('^#[0-9a-fA-F]{6}$');
+
+
 export const UpdateUserBody = zod.object({
   "name": zod.string().optional(),
   "displayName": zod.string().nullish(),
@@ -96,7 +101,8 @@ export const UpdateUserBody = zod.object({
   "hireDate": zod.string().nullish(),
   "baseAddress": zod.string().nullish(),
   "baseLat": zod.number().nullish(),
-  "baseLng": zod.number().nullish()
+  "baseLng": zod.number().nullish(),
+  "color": zod.string().regex(updateUserBodyColorRegExp).nullish()
 })
 
 export const UpdateUserResponse = zod.object({
@@ -118,6 +124,7 @@ export const UpdateUserResponse = zod.object({
   "baseAddress": zod.string().nullish(),
   "baseLat": zod.number().nullish(),
   "baseLng": zod.number().nullish(),
+  "color": zod.string().nullish(),
   "jobCount": zod.int().optional(),
   "historyCount": zod.int().optional(),
   "smsProxyNumber": zod.string().nullish()
@@ -6463,6 +6470,7 @@ export const SetUserSmsNumberResponse = zod.object({
   "baseAddress": zod.string().nullish(),
   "baseLat": zod.number().nullish(),
   "baseLng": zod.number().nullish(),
+  "color": zod.string().nullish(),
   "jobCount": zod.int().optional(),
   "historyCount": zod.int().optional(),
   "smsProxyNumber": zod.string().nullish()

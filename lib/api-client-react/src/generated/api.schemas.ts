@@ -715,6 +715,8 @@ export interface AppUser {
   baseLat?: number | null;
   /** @nullable */
   baseLng?: number | null;
+  /** @nullable */
+  color?: string | null;
   jobCount?: number;
   historyCount?: number;
   /** @nullable */
@@ -749,6 +751,11 @@ export interface AppUserUpdate {
   baseLat?: number | null;
   /** @nullable */
   baseLng?: number | null;
+  /**
+     * @nullable
+     * @pattern ^#[0-9a-fA-F]{6}$
+     */
+  color?: string | null;
 }
 
 export type InvitationRole = typeof InvitationRole[keyof typeof InvitationRole];

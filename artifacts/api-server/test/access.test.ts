@@ -297,6 +297,25 @@ test("the office routers open for an office user and stay shut for a mobile one"
   assert.equal((await api("/waiting-list/build-route", mobile.id, { method: "POST", body: "{}" })).status, 403);
 });
 
+test("the colour a contractor's stops take is his to pick, and a bad one is refused", async () => {
+  // "It will show up in a different color that I've designated for that
+  // contractor. So I can see whose jobs are whose."
+  const set = await patch(`/users/${mobile.id}`, owner.id, { color: "#16a34a" });
+  assert.equal(set.status, 200, JSON.stringify(set.body));
+  assert.equal(set.body.color, "#16a34a");
+
+  const listed = await api("/users?includeInactive=true", owner.id);
+  assert.equal(listed.body.find((u: any) => u.id === mobile.id)?.color, "#16a34a");
+
+  // Back to the automatic colour.
+  const cleared = await patch(`/users/${mobile.id}`, owner.id, { color: null });
+  assert.equal(cleared.status, 200, JSON.stringify(cleared.body));
+  assert.equal(cleared.body.color, null);
+
+  // Anything that is not a hex colour would render as nothing at all.
+  assert.equal((await patch(`/users/${mobile.id}`, owner.id, { color: "greenish" })).status, 400);
+});
+
 test("a contractor can clock in and open job photos: no office guard leaks onto the phone app", async () => {
   // automation.ts used to guard every request that fell through it, which
   // turned a clock-in into "Admin access required". Its guard is scoped now;

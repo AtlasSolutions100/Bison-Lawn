@@ -3999,6 +3999,8 @@ components:
         baseAddress: { type: ["string", "null"] }
         baseLat: { type: ["number", "null"] }
         baseLng: { type: ["number", "null"] }
+        # The colour the office picked for this person's stops, as #rrggbb
+        color: { type: ["string", "null"] }
         jobCount: { type: integer }
         # Everything the database still holds against this person (jobs plus notes, tickets and reviewed
         # suggestions). Anything above zero means they can only be turned off, never deleted.
@@ -4022,6 +4024,8 @@ components:
         baseAddress: { type: ["string", "null"] }
         baseLat: { type: ["number", "null"] }
         baseLng: { type: ["number", "null"] }
+        # #rrggbb, or null to go back to the automatic colour
+        color: { type: ["string", "null"], pattern: "^#[0-9a-fA-F]{6}$" }
     Invitation:
       type: object
       required: [id, email, role, accessLevel, permissions, createdAt]

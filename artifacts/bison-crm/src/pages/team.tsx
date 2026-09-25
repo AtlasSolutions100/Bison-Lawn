@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog';
 import { Edit2, Mail, Trash2, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { COLOR_CHOICES, contractorColor, initialsOf } from '@/lib/contractor-color';
 import { AREAS, AREA_LABELS, LEVELS, OFFICE_BASE, useMe, type Area } from '@/lib/access';
 import { SmsNumberField } from '@/components/sms-status-card';
 
@@ -229,6 +230,7 @@ function EditPersonDialog({ user, onClose }: { user: AppUser; onClose: () => voi
   const [baseAddress, setBaseAddress] = useState(user.baseAddress || '');
   const [birthday, setBirthday] = useState(user.birthday || '');
   const [hireDate, setHireDate] = useState(user.hireDate || '');
+  const [color, setColor] = useState(user.color || '');
   const [level, setLevel] = useState<AccessLevel>(user.accessLevel);
   const [allowed, setAllowed] = useState<Set<Area>>(() => allowedAreas(user.accessLevel, user.permissions ?? []));
   const [active, setActive] = useState(user.active);
@@ -256,6 +258,7 @@ function EditPersonDialog({ user, onClose }: { user: AppUser; onClose: () => voi
         baseAddress: baseAddress.trim() || null,
         birthday: birthday || null,
         hireDate: hireDate || null,
+        color: color || null,
         accessLevel: level,
         permissions: permissionsFor(level, allowed),
         active,
@@ -306,6 +309,40 @@ function EditPersonDialog({ user, onClose }: { user: AppUser; onClose: () => voi
             <Label htmlFor="displayName">Name shown on the board</Label>
             <Input id="displayName" value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder={user.fullName || user.name} data-testid="edit-display-name" />
             <p className="text-xs text-muted-foreground">Short and friendly — this is what the dispatch board and job cards show instead of an email.</p>
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label>Colour on the board</Label>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {COLOR_CHOICES.map((choice) => (
+                <button
+                  key={choice}
+                  type="button"
+                  onClick={() => setColor(choice)}
+                  className={`h-7 w-7 rounded-full border-2 transition ${color.toLowerCase() === choice.toLowerCase() ? 'border-foreground scale-110' : 'border-transparent hover:scale-105'}`}
+                  style={{ background: choice }}
+                  aria-label={`Use ${choice}`}
+                  aria-pressed={color.toLowerCase() === choice.toLowerCase()}
+                  data-testid={`edit-color-${choice.replace('#', '')}`}
+                />
+              ))}
+              <span className="ml-1 inline-flex items-center gap-2 text-xs text-muted-foreground">
+                <span
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                  style={{ background: color || contractorColor(user.id) }}
+                >
+                  {initialsOf(displayName.trim() || user.fullName || user.name)}
+                </span>
+                {color ? (
+                  <button type="button" className="underline" onClick={() => setColor('')} data-testid="edit-color-clear">
+                    Use the automatic colour
+                  </button>
+                ) : (
+                  'Picked for you — choose one to change it'
+                )}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground">Their stops, pins and route numbers use this colour, so you can see whose jobs are whose at a glance.</p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

@@ -37,6 +37,8 @@ export interface AppUser {
   baseLat?: number | null;
   /** @nullable */
   baseLng?: number | null;
+  /** @nullable */
+  color?: string | null;
   jobCount?: number;
   historyCount?: number;
   /** @nullable */

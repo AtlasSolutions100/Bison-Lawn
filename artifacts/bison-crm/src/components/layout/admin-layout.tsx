@@ -21,6 +21,8 @@ import { useState } from 'react';
 import { FeedbackButton } from '@/components/feedback-button';
 import GlobalSearch from '@/components/global-search';
 import { canOpen, useMe, type Area } from '@/lib/access';
+import { useListUsers } from '@workspace/api-client-react';
+import { registerContractorColors } from '@/lib/contractor-color';
 
 // `area` is the part of the app the link opens; a person who cannot open it
 // does not see the link. Entries without one are open to every office user.
@@ -51,6 +53,15 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { data: me } = useMe();
   const nav = ADMIN_NAV.filter((item) => !item.area || canOpen(me, item.area));
+
+  // The colours he picked for his contractors, put where every screen inside
+  // the shell can read them. One shared query (React Query hands the same
+  // result to the pages that ask for it), registered during render so the
+  // board below draws its dots in his colours on the first pass, not the
+  // second. A contractor's own layout never gets here, which is fine: they
+  // only ever see their own work.
+  const { data: team } = useListUsers({ includeInactive: true });
+  registerContractorColors(team);
 
   return (
     <div className="min-h-[100dvh] flex flex-col md:flex-row bg-background">

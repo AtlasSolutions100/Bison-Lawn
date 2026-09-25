@@ -28,4 +28,9 @@ export interface AppUserUpdate {
   baseLat?: number | null;
   /** @nullable */
   baseLng?: number | null;
+  /**
+     * @nullable
+     * @pattern ^#[0-9a-fA-F]{6}$
+     */
+  color?: string | null;
 }
