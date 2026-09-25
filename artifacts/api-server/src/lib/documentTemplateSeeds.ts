@@ -277,7 +277,7 @@ Dear [clientfname],
 
 This is our final notice for invoice #[invoicenumber] in the amount of [invoicebalance], which was due on [invoiceduedate] and is now [daysoverdue] days past due.
 
-Per our payment disclosure, a late fee of 3% may be applied to the outstanding balance for each month it remains unpaid, and service may be suspended until the balance is settled. If payment is not received within 10 days of this notice, the account may be referred for collections, and any collection costs become the responsibility of the account holder.
+Per our payment disclosure, a late fee of 3% may be applied to the outstanding balance for each month it remains unpaid, and service may be suspended until the balance is settled. If payment is not received within two weeks of this notice, the account may be referred for collections, and any collection costs become the responsibility of the account holder.
 
 We would much rather sort this out with you directly. Please send payment, or reply to this email or call us at [companyphonenumber] to make arrangements.
 

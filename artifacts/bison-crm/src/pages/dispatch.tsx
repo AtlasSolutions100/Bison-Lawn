@@ -43,9 +43,10 @@ function monthRange(ym: string): { from: string; to: string } | null {
 }
 
 /**
- * "Set route order" on the board: wipe the numbers, then click the stops in
- * driving order and save. `scope` is the jobs being renumbered (one sub's day,
- * or whatever was ticked); `order` is the click order so far.
+ * "Set route order" on the board: click the stops in driving order, then save.
+ * `scope` is the jobs being renumbered (one sub's day, or whatever was ticked);
+ * `order` is the click order so far. Nothing is written until Save, so the
+ * numbers he already has survive a mistaken press.
  */
 export type RenumberState = { scope: number[]; order: number[] };
 
@@ -100,17 +101,14 @@ export default function Dispatch() {
   // --- set route order -----------------------------------------------------------
   const startRenumber = (scope: number[]) => {
     if (scope.length === 0) return;
-    bulkAssign.mutate(
-      { data: { jobIds: scope, clearRouteOrder: true } },
-      {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: ['/api/jobs'] });
-          setRenumber({ scope, order: [] });
-          setSelectedIds([]);
-        },
-        onError: (error) => toast({ title: 'Could not clear the route order', description: error instanceof Error ? error.message : undefined, variant: 'destructive' }),
-      },
-    );
+    // Nothing is written until Save. His current CRM clears the numbers the
+    // moment the button is pressed — "if I push this set route order, it will
+    // reset all of them and then I have to go back in and click on them and
+    // number them again" — so pressing it by mistake costs him the route he
+    // already built. Here the old numbers stay on screen while he picks, and
+    // Cancel leaves the day exactly as it was.
+    setRenumber({ scope, order: [] });
+    setSelectedIds([]);
   };
   const pickForRenumber = (id: number) =>
     setRenumber((cur) => {
@@ -119,16 +117,29 @@ export default function Dispatch() {
     });
   const saveRenumber = () => {
     if (!renumber || renumber.order.length === 0) return;
-    bulkAssign.mutate(
-      { data: { jobIds: renumber.order, routeOrderFrom: 1 } },
-      {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: ['/api/jobs'] });
-          toast({ title: `Route order set for ${renumber.order.length} stop${renumber.order.length === 1 ? '' : 's'}` });
-          setRenumber(null);
+    const picked = renumber.order;
+    const skipped = renumber.scope.filter((id) => !picked.includes(id));
+    const fail = (error: unknown) =>
+      toast({ title: 'Could not save the order', description: error instanceof Error ? error.message : undefined, variant: 'destructive' });
+    const numberThePicked = () =>
+      bulkAssign.mutate(
+        { data: { jobIds: picked, routeOrderFrom: 1 } },
+        {
+          onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['/api/jobs'] });
+            toast({ title: `Route order set for ${picked.length} stop${picked.length === 1 ? '' : 's'}` });
+            setRenumber(null);
+          },
+          onError: fail,
         },
-        onError: (error) => toast({ title: 'Could not save the order', description: error instanceof Error ? error.message : undefined, variant: 'destructive' }),
-      },
+      );
+    // A stop he left out of the run loses its old number, or the board would
+    // show yesterday's 4 sitting between today's 3 and 5. Cleared first so no
+    // two stops ever read the same number, even for the moment in between.
+    if (skipped.length === 0) return numberThePicked();
+    bulkAssign.mutate(
+      { data: { jobIds: skipped, clearRouteOrder: true } },
+      { onSuccess: numberThePicked, onError: fail },
     );
   };
 
@@ -234,13 +245,13 @@ export default function Dispatch() {
         <div className="sticky top-0 z-20 flex flex-wrap items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm shadow-sm" data-testid="renumber-bar">
           <ListOrdered className="h-4 w-4 text-amber-700" />
           <span>
-            <strong>Setting route order.</strong> Click the rows or the pins in driving order — {renumber.order.length} of {renumber.scope.length} numbered.
+            <strong>Setting route order.</strong> Click the rows or the pins in driving order — {renumber.order.length} of {renumber.scope.length} picked. Nothing changes until you save.
           </span>
           <Button size="sm" onClick={saveRenumber} disabled={renumber.order.length === 0 || bulkAssign.isPending} data-testid="renumber-save">
             Save order
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setRenumber(null)} data-testid="renumber-cancel">
-            Stop (leave blank)
+            Cancel
           </Button>
         </div>
       ) : (
@@ -904,8 +915,13 @@ function DispatchRow({
       </TableCell>
       <TableCell hidden={!show('order')} className="p-1 text-center">
         {inScope ? (
-          <span className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold ${pending >= 0 ? 'bg-amber-600 text-white' : 'border border-dashed text-muted-foreground'}`}>
-            {pending >= 0 ? pending + 1 : '?'}
+          <span
+            className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold ${pending >= 0 ? 'bg-amber-600 text-white' : 'border border-dashed text-muted-foreground'}`}
+            title={pending >= 0 ? `Stop ${pending + 1}` : job.routeOrder ? `Was stop ${job.routeOrder}; click to pick it again` : 'Not numbered yet'}
+          >
+            {/* Until he saves, a stop he has not picked still shows the number
+                it has today, so he can see the run he is replacing. */}
+            {pending >= 0 ? pending + 1 : job.routeOrder || '·'}
           </span>
         ) : (
           <Input

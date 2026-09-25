@@ -651,6 +651,17 @@ test("global search finds former clients, invoices by number, payments by refere
   assert.equal(byAddress.body.jobs[0].serviceName, `Report Mowing ${STAMP}`);
   assert.ok(byAddress.body.jobs.length <= 8, "capped per group");
 
+  // He does not use one-time jobs at all today because of this: "waiting list
+  // or one-time jobs will get lost because there's no way for me to search
+  // those." Looking for a stray job he types the customer, or the service.
+  const jobsByCustomer = await api(`/search?q=Zzreport Mowing ${STAMP}`, admin.id);
+  assert.ok(jobsByCustomer.body.jobs.length >= 1, "a job is findable by its customer's name");
+  assert.ok(jobsByCustomer.body.jobs.every((j: any) => j.clientId === mowClient.id));
+
+  const jobsByService = await api(`/search?q=Report Mowing ${STAMP}`, admin.id);
+  assert.ok(jobsByService.body.jobs.length >= 1, "a job is findable by its service name");
+  assert.equal(jobsByService.body.jobs[0].serviceName, `Report Mowing ${STAMP}`);
+
   const byTicket = await api(`/search?q=sprinkler head ${STAMP}`, admin.id);
   assert.equal(byTicket.body.tickets[0].clientName, `Zzreport Former ${STAMP}`);
 

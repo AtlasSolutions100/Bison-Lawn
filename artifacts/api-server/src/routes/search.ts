@@ -132,7 +132,19 @@ router.get("/search", async (req, res) => {
       .from(jobsTable)
       .innerJoin(clientsTable, eq(clientsTable.id, jobsTable.clientId))
       .leftJoin(servicesTable, eq(servicesTable.id, jobsTable.serviceId))
-      .where(or(ilike(clientsTable.serviceAddress, like), ilike(jobsTable.mapNote, like), ilike(jobsTable.notes, like)))
+      // Customer name and service name are in here because of the reason he
+      // gave for not using one-time jobs at all: "waiting list or one-time jobs
+      // will get lost because there's no way for me to search those." Looking
+      // for a stray clean-up, he types the customer's name, not their street.
+      .where(
+        or(
+          ilike(clientsTable.name, like),
+          ilike(clientsTable.serviceAddress, like),
+          ilike(servicesTable.name, like),
+          ilike(jobsTable.mapNote, like),
+          ilike(jobsTable.notes, like),
+        ),
+      )
       .orderBy(desc(jobsTable.scheduledDate))
       .limit(PER_GROUP),
   ]);
