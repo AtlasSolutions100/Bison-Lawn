@@ -22,9 +22,9 @@ C4. Send a document email to the selected customers from the waiting list ("you 
 ## D. Dispatch board (19:34-29:37)
 D1. Dispatched vs not-yet-dispatched shown per job (calendar icon on not-dispatched); complete / cancel / skip from the board; completing puts the job on the customer account for billing.
 D2. Change the date of one job or of the whole selection; change contractor for the selection. Feedback 78, 116, 117.
-D3. Map with a colour per contractor; date range on the board (15th-17th) with the date shown on each row.
+D3. Map with a colour per contractor — a colour HE designates per person, not one we assign ("a different color that I've designated for that contractor"). NOT BUILT that way: the colour is derived from the user id. Date range on the board (15th-17th) with the date shown on each row. date range on the board (15th-17th) with the date shown on each row.
 D4. Filters: branch, resource (contractor), service, map code, address/city, tags, notes-present. Feedback 58, 60, 61.
-D5. Show route order numbers; "set route order" resets and lets him renumber.
+D5. Show route order numbers. CAREFUL: "set route order" resetting everything was his COMPLAINT, not a request — "it will reset all of them and then I have to go back in and click on them and number them again". Ours holds the change until Save.
 D6. Special notes on a job such as "no email - call/text instead"; when a bulk email goes out it reports "42 of 44 sent" so he knows who lacks an email. Feedback 94.
 D7. Send a document email to the selected jobs' customers from the board (e.g. "Sprinkler blowout day" with the date filled in). Feedback 59.
 D8. Customisable columns: ALREADY DONE, he thanked us.
@@ -61,7 +61,7 @@ J4. Alerts: estimate accepted, invoices sent, customer unsubscribed.
 K1. Property-manager MASTER account with related properties: each property has its own invoices, the master sees the total balance. Feedback 96.
 K2. Notification email vs billing email (CPA). Do-not-email checkbox that stops every bulk email. Additional contacts (name, phone, email, birthday). Feedback 118, 96.
 K3. Sales details: source (with add-a-source), referred by (a client).
-K4. Billing: billing email required for email delivery, else print/both; how they pay; terms net 15 / net 30 / due on receipt; invoice frequency (daily/weekly/bi-weekly/monthly); billing address copies from service address until changed; map code; branch (Idaho/Washington).
+K4. Billing: billing email required for email delivery, else print/both; how they pay; terms net 15 / net 30 / due on receipt; invoice frequency (he named daily, weekly, monthly — bi-weekly came from a truncated transcription); billing address copies from service address until changed; map code; branch (Idaho/Washington).
 K5. Latitude/longitude tag for new-construction addresses so contractors can navigate. Feedback 26.
 K6. Office notes on the front of the account; custom fields per property (Turf sqft etc.). Tags.
 
@@ -77,8 +77,8 @@ M5. Activity timeline (visits, events, transactions) with date range; notes open
 
 ## N. Assigning services to a client (58:19-64:37)
 N1. Recurring job: weekly, bi-weekly (odd/even weeks), MONTHLY (week 1 / week 4); assigned contractor so it is always on their board; rate; notes the contractor sees first. Feedback 28, 29, 82.
-N2. Waiting-list job: date window, contractor optional, price auto-fills from the client field via the matrix (SA fails to populate; ours must).
-N3. Active/assigned services auto-renew each year; window can be rescheduled; edit price and billable hours; a DISCOUNT that shows as its own line on the invoice; package notes with a date range; per-service history and upcoming; retail total vs discounted total; pause/suspend a service or package (restart when paid or on a date). Feedback 102, 107, 108, 109, 110.
+N2. Waiting-list job: date window, contractor optional, price auto-fills from the client field via the matrix — in SA this one WORKS ("this will autofill as long as the client field is filled"). The rate that fails to populate, and annoys him, is on PACKAGE jobs: "the rate I don't know why it doesn't populate... so I have to go in and click on these every time I create a new one".
+N3. PACKAGE jobs auto-renew each year (the official transcript says "Package jobs"; the local one misheard "Active jobs", and the spec then generalised it to every assigned service); window can be rescheduled; edit price and billable hours; a DISCOUNT that shows as its own line on the invoice; package notes with a date range; per-service history and upcoming; retail total vs discounted total; pause/suspend a service or package (restart when paid or on a date). Feedback 102, 107, 108, 109, 110.
 N4. Time-billed services (cleanups, pruning, sprinkler repair): start/stop time on the job, price adjusted afterwards; fixed-price services (mowing, aeration, sprinkler turn-on/blowout/backflow/timer) keep their rate.
 
 ## O. Packages
@@ -112,3 +112,52 @@ P21. Copy a matrix from one service to another; use one matrix with the base mul
 P22. Rate matrix rule: $X per 1000 sqft up to Y; Bison application: $X per 500 up to Y. Feedback 36.
 P23. Jobs board for additional work not yet assigned to contractors, with admin limit/filter on access.
 P24. Click the service row to open it instead of hunting for the edit pen.
+
+## Q. Corrections and declines, from the platform's official transcript (added 2026-09-25)
+
+The spec above was written from a local whisper transcription, before the
+meeting platform's own transcript existed. Read against the official one, these
+are the differences worth knowing.
+
+Q1. **He declined satellite measuring, twice.** He raised that "some contractors
+use the satellite view because they can measure properties from here", then:
+"I don't do that because it's very inaccurate... my numbers are too far off",
+and after the Google commercial-licence cost came up, "Nope. Don't worry about
+it." His reasons for preferring to measure on site: "One, I'm more accurate. And
+two, I am actually out in the field and I'm meeting people... adds way more
+value." Pulling square footage from city permit records was his *condition* for
+satellite measuring being useful, and died with it. He did endorse it as a paid
+add-on for OTHER companies on the platform: "having that option for people like
+myself to purchase and add that fee onto your guys' subscription... even at
+1,200 bucks, that's actually pretty cheap." A product idea, not a Bison feature.
+
+Q2. **He has no use for the HR record in section P9.** P9 came from his written
+doc; on the call he said of the employee fields "This is going to be useful
+information for people that have employees. I have no use for it, but I can see
+where down the road somebody would use it", and of timesheets and payroll, "I
+don't do any of that because I don't have any employees." Build it for the
+platform, not for him.
+
+Q3. **Lukewarm, do not spend a track on these.** Assets/equipment on a job
+("if they have certain mowers and stuff, this could be handy"); My Day ("I
+really don't use"); the website builder ("I already have one"); target hours on
+a service ("we haven't got that far into our business"); sales priority and
+salesperson ("since I'm the only salesperson, I don't really use this" — but he
+DOES use source and referred-by from that same panel).
+
+Q4. **Two numbers to confirm with him rather than guess.**
+- The past-due trigger. He said both "two days after the bill is being sent" and
+  "two days after it's due" within four sentences. We built it off the due date.
+  With Net 15 those are thirteen days apart.
+- The spring sprinkler notice date. He gave a date only for the fall notice
+  ("We'd like that to be like September 1st"); for spring he said only "in the
+  spring and in the kind of late early summer". The seeded rule guesses 06-15.
+  It ships switched off, so no letter has gone out on a date he did not choose.
+
+Q5. **Where the official transcript is the wrong one.** It renders his recurring
+options as "On the weekly, it's either odd or even"; the local transcription has
+"bi-weekly or weekly. On the bi-weekly, it's either odd or even", which is
+plainly right, since odd/even weeks only mean anything for bi-weekly. N1 stands.
+The official transcript also captures none of his Google Doc, so P1-P24 rest on
+the screen frames alone — check them against the Doc in his Drive before
+building from them.

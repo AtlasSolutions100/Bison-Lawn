@@ -7,7 +7,8 @@ the thing to argue with when a feature here looks wrong.
 
 | File | What it is |
 |---|---|
-| `requirements.md` | The spec. Sections A–P, each item tied to a timestamp in the call and to the feedback ids it answers. Section P is his own written checklist, the Google Doc he showed near the end. |
+| `requirements.md` | The spec. **Read section Q first** — it records what the official transcript corrected, and the things he explicitly declined, so nobody builds them by mistake. Sections A–P, each item tied to a timestamp in the call and to the feedback ids it answers. Section P is his own written checklist, the Google Doc he showed near the end. |
+| `transcript-official.txt` | The meeting platform's own transcript, with speaker labels. It arrived ten days after the call. Where it and `transcript.txt` disagree, section Q of `requirements.md` says which to believe — the official one is machine-generated too, and in places it is the worse of the two. |
 | `transcript.txt` | The call, timestamped. The recording came with no transcript, so it was transcribed locally (faster-whisper, small.en on CPU — CUDA fails on this machine on a missing cuBLAS DLL, do not retry it). |
 | `screens.md` | Every Service Autopilot screen he shared, by timestamp, with its columns, fields, menus and sample data. Read from 402 frames cropped to the shared-screen region. Grep it for the screen you are rebuilding. |
 | `survey/*.md` | What this app already did in each area before the build, with file:line evidence. Stale the moment it was written, but it is why each decision went the way it did. |

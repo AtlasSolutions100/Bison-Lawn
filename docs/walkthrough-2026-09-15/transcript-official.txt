@@ -1,0 +1,319 @@
+Work Optional Demo (Bison Lawn Care LLC) - 2026/09/15 10:54 CDT - Transcript
+Attendees
+Bison Lawn Care LLC, Koby Stull
+Transcript
+Koby Stull: Hey, how are you doing? Hey. Yeah.
+Bison Lawn Care LLC: Put a face to the name,…
+Bison Lawn Care LLC: I love it.
+Koby Stull: Yeah, there we go. Let me see if I can fix my Sir, let me see. I'm having a little bit of headset issues here. Let me see if I can All right, that should be better. All right. Can you hear me? Okay. All right.
+00:05:00
+Bison Lawn Care LLC:
+Bison Lawn Care LLC: Yes, sir. Whoa, you're in a spaceship.
+Koby Stull: Yeah.
+Bison Lawn Care LLC: I like it.
+Koby Stull: They had to take me off of Earth and yes, sir. All righty. So, the main goal for today would mainly just kind of be to, have you kind of go through it. share your screen preferably, and then just kind of tell me bothering you, what small things you want to fix, tell me how the workflow works for you, and if there's anything that you'd kind of want to simplify.
+Koby Stull: And then this would be kind of a faster way to get those small fixes and bugs kind of out of the way.
+Bison Lawn Care LLC: So on top of this you can go into the Google Drive and…
+Bison Lawn Care LLC: me and Adam number two we made a notes for the CRM.
+Koby Stull: Okay. I'm good. Yeah.
+Bison Lawn Care LLC: So, Some of this stuff that I go through is going to be in there, but I'm going to first there in part of the top one and the other it says CRM walkth through. I'm going to walk through kind of like how I operate and I'm going to try to go through as much stuff so you can have some visual context to it. And then on top of that, we also made folders of screenshots so you can kind of have some reference points back to kind of what we were looking at today.
+Bison Lawn Care LLC: And so it'll make hopefully a little easier on things.
+Koby Stull: Yeah. What?
+Bison Lawn Care LLC: And I try to categorize things to hopefully make sense of the stuff. because building the CRM system, I'm realizing that it's the system that I'm currently using with Service Autopilot is actually quite extensive comparative to a lot of my counterparts in the industry. And I'm realizing that I do actually have a really good CRM system. There's just some quirks and things that I think would be beneficial not only to myself but also to the other contractors. and…
+Koby Stull: Yeah. Right.
+Bison Lawn Care LLC: then being able to have guys like you on the team that can actually put things into place where my current CRM system they either refuse or they don't want to or I can't chat with the guy that's making the stuff. So I don't know what's possible, what's not. and my rep keeps changing so I can never have any consistency…
+Koby Stull: Right. Yeah.
+Bison Lawn Care LLC: which is really frustrating because I tell one and then the last one I had just was a dingbat she had zero idea of…
+Koby Stull: Okay. Yeah.
+Bison Lawn Care LLC: how things operate and I'm like what the hell let me talk to anyway I digress so I'm going to share screen let's So, Google wants to enter pictures. Not sure. I think there we go.
+Koby Stull: Yeah, perfect.
+Bison Lawn Care LLC: So, this is my day. I'm just going to kind of walk through everything. My day I really don't use. but it does have options for calendars. It shows all My CRM option right here. I have clients. When I click on clients, it has everything horizontal or vertical, I'm sorry. So this gives me my filter options based on all kinds of different stuff.
+Koby Stull: Gotcha. No. Heat.
+Bison Lawn Care LLC: It contains start or equal to and then whatever you type in there with a search or add a filter option. So, I can add different filters to really kind of hone in on what I'm searching for within those clients. then I got former clients, which we already have kind of built into that CRM system that we currently have. From here, I like this button on a lot of the options that I have, multiple customers or multiple services or the dispatch board. Having the ability to kind of select all from here,…
+Koby Stull: Keep going. Okay.
+Bison Lawn Care LLC: I can, delete clients, activate, all that kind of stuff. export bulk edit that and whatnot. Okay. I don't really use the leads or the estimates in this particular field. I use them in other ways over here, but we'll get to that. Scheduling. The two options that I really use here are the dispatch jobs and the waiting list. Okay.
+Bison Lawn Care LLC: So, I'm going to skip real quick to the settings option. I'm going to show you kind of where some stuff comes from. So, some of this stuff makes sense. So, in the settings option, I have the ability to look up services right here. Okay, these are the jobs or the services. And you've already entered those fields in. I'm going to go to mowing and then I'm going to go to my spring. But I have details. This is what shows up on my service for my board. And then codes shows up in the waiting list. And then the invoice description shows up when it gets build out.
+00:10:00
+Koby Stull: All right.
+Bison Lawn Care LLC: And I can change that. This estimate field is kind of nice because I have the ability what I've been doing is I've entered in my data into chap GPT and then it like highlights and I can kind of customize this estimate field and this is what the customers see when they see the mowing estimate and I like the way it looks and we made it uniform amongst all my other services which is Nice. As you can see, I don't use really anything else down here. I like your guys' m rate matrix way better on the right hand side. it has the ability to give me the feedback of the expense based on the rate, which is kind of cool.
+Bison Lawn Care LLC: But the calculator…
+Koby Stull: Okay.
+Bison Lawn Care LLC: what this is is when I go and enter in a custom field as turf is. So my custom field is turf and customer What they see is the quantity based on the rate based on the visits. So I type in typically 28 MOS and it gives me a rate and then it pops out a total number but it gives them the quantity. So they can take the full number divide by the quantity and…
+Koby Stull: Okay. Okay.
+Bison Lawn Care LLC: that's what they're going to be charged per visit. all this stuff I don't really use. There's a target hour, but we haven't got that far into our business. then I'm going to go back to this is a package, And we'll get into that, but these are the services that are within I'm going to talk about the spray package. Sure.
+Bison Lawn Care LLC: Bison application one is set up very similar as you see as the mowing is everything you have the same options same details right but when I go into packages and I go into my aid application so this is what shows up in my waiting list right here is bison application one. This is the service that shows up on the dispatch board.
+Koby Stull: Okay. Right. Okay.
+Bison Lawn Care LLC: These are the dates ranges for that particular service. And as you can see then we made a package for bison application 2 and so on. And all of these ones in this particular one are the same price. So when we go back into the service down at the bottom here, I can copy this matrix and I can move it over to Bison application 2, three, four, five, six or seven or eight.
+Bison Lawn Care LLC: or whatever I want to. I can put it into mowing…
+Bison Lawn Care LLC: I can put it into one time MOS if I want to. I can use the same sequence of numbers in other matrixes. That make sense.
+Koby Stull: Right. Okay. does.
+Koby Stull: Yes, it does.
+Bison Lawn Care LLC: Let's see here. wait, Let me go back now. onetime MOS are similar to mowing, but they're 1.5 times the rate. So, if there was an option for this rate to be like, I want to copy that matrix, but I want to increase these numbers here by 1.5.
+00:15:00
+Bison Lawn Care LLC: that would be very useful instead of me have to make a whole separate matrix…
+Bison Lawn Care LLC: because how I had to do it here is I had to add each one of these numbers in here individually but they're all based on the mowing matrix. Okay.
+Koby Stull: Right. Okay.
+Koby Stull: Yeah, that's doable.
+Bison Lawn Care LLC: So, let's go back to then I'm going to show the waiting list. So, outside of mowing, anything that's in a package or a waiting job that I've created,…
+Koby Stull: All right.
+Bison Lawn Care LLC: some they're waiting jobs are a one-time job, but they have a date range of which I specified. So, as you can see, here's the service, right, that was designated in the job or the service, right? This is kind of my code of what it is. So this is bison application 7 backflow and I specified what these terms mean for me. But here I can select I can go through the resources and I can go like Bison application one.
+Bison Lawn Care LLC: And as you notice, no bison application one show up because of the date range that it's set for…
+Koby Stull: Okay.
+Bison Lawn Care LLC: because when we made that service, we set that date range from March 1st to April, end of April or whatever it is,…
+Koby Stull: Yeah. …
+Bison Lawn Care LLC: So if I'm not within that date range, so let's say buy an application seven. The …
+Koby Stull: it says bison organic. Is that the same thing?
+Bison Lawn Care LLC: whoops. No, you're right. Thank you for good call. There we go. So now I'm within the date range.
+Koby Stull: There it is.
+Bison Lawn Care LLC: As you can see, the date ranges from I don't know why they show up cuz I'm in October. They shouldn't show up, but to the point that Let's see here. I don't know. really what they shouldn't show up here either, but if I clicked on a different date within the date range that was set for that particular service,…
+Koby Stull: Gotcha.
+Bison Lawn Care LLC: they'll show up From the waiting list, I can select certain jobs based on a map. So, if I want to go in here, and this is what I did for my sprinkler blowout, I can set I want to go in this direction here. Oops. And those 26 jobs will show up. They'll be highlighted so I can see them. And then I can edit them for a specific date that I want to dispatch them on.
+Bison Lawn Care LLC: And I can put them on the contractor or the employee that I choose. Make sense?
+Koby Stull: Okay. Yes,…
+Koby Stull: it does.
+Bison Lawn Care LLC: And then from here it can be nice sometimes I can send an email because what happens in the sprinkler blowouts I don't have the routes made yet but I want to send them out a notification saying hey just let you know we have you on schedule for this service. Don't sweat it. we'll get you another emails in a few weeks or whatever the document says saying,…
+Koby Stull: Gotcha.
+Bison Lawn Care LLC: "Hey, this is the date." So, it is nice to be able to email those particular customers So, there's some options there. then from the waiting list, they go on to the dispatch board. So, as you notice, this dispatch board then they've been dispatched. So, if they're not cancel dispatch, they show up with a calendar as these guys do. Once they get dispatched, obviously they show up there. I can complete this job right from the dispatch board.
+00:20:00
+Koby Stull: Okay.
+Bison Lawn Care LLC: I can cancel this job from the dispatch board or skip it. If I complete it, it goes into the customer's account for this dispatch board allows me to change the date of which they're dispatched. So I can move this to a different date or the whole selection. And I can change contractors on it. I can also show them on a map for routing purposes, which I've already routed these ones. each contractor if they're designated under a different contractor.
+Koby Stull: Okay.
+Bison Lawn Care LLC: As you see right here, there's Mickey and myself under assign to it will show up in a different color that I've designated for that contractor. So I can see whose jobs are whose. So let's say for instance, today's a big day. There's going to be lots of contractors out there, lots of different routes. So Here's a Here's a different route. And then let's see here I can date range this.
+Bison Lawn Care LLC: So these are going to be the jobs between the 15th and the 17th. And they show up here with the date of the color coding with me so far.
+Koby Stull: Okay. Yeah.
+Koby Stull: Yeah, I'm with you.
+Bison Lawn Care LLC: Just want to make sure because I can't see I also have the ability to search branch sources, services, map codes, addresses, and all that kind of stuff.
+Bison Lawn Care LLC: that is on the particular date that I'm searching. I have this show route order. So then it shows me the numbers of which they're in the order. If I push this set route order, it will reset all of them and then I have to go back in and click on them and number them again.
+Koby Stull: Go ahead.
+Koby Stull: Okay.
+Bison Lawn Care LLC: Okay, so those are the things that I use there. I don't really use these options at all. I think that's all on here. this gives me the ability to put special notes on the job because they have no email. So when I'm in the dispatch board, I can instead of selecting them all to send out an email. So from here, this is where I send out emails that I created documents for. So the big one that I'm using right now is I created a document for sprinkler blowout day.
+Bison Lawn Care LLC: So I have this where then I can change the date in this document right from here and I can send this entire list or whatever is selected to those customers emails and…
+Bison Lawn Care LLC: have them know that they're going to be blown out on a certain date. And up here it shows emails sent to 42 people out of 44.
+Koby Stull: Okay. Yep.
+Bison Lawn Care LLC: That means there's probably two emails in here two customers that don't have emails. And this is what that. And now I go back and I look for this note and I end up calling or sending the customer a text message instead because not all these old people sometimes don't have emails make sense.
+Koby Stull: I gota so while Yeah,…
+Bison Lawn Care LLC: Yep. Yeah.
+Koby Stull: that makes sense.
+Koby Stull: But while we're here, would you like to add in the ability to add in SMS messaging?
+Bison Lawn Care LLC: No, it add it, but I don't find the value yet to pay for a subscription for it…
+Koby Stull: Okay. But…
+Bison Lawn Care LLC: because what ends up happening in this Go ahead.
+Koby Stull: I was just going to say if it's free, if it doesn't cost you anything,…
+Bison Lawn Care LLC: Ben.
+Koby Stull: would you want to do that or No, it's completely up to you. Yeah.
+Bison Lawn Care LLC: Yeah. If it's free, my contractors would love to be able to send out a text message. What ends up happening in service autopilot is they have the ability through a subscription that I'm limited to 1,500 text messages for 20 bucks a month. And when it gets sent out from here or a contractor,
+00:25:00
+Bison Lawn Care LLC: those messages go out to the customer, but they come back to me. And since I don't hire any employees, those messages need to really go back to the contractor. Yep.
+Koby Stull: Okay. Yeah.
+Koby Stull: So, we could essentially just set up and you tell me if this would be too much. because the original thing that I was having it was still going to lead back to you. It would just be an automated number when you sign up for a subscription to a clothing company, and they send you a text we're having this sale. It's from a 880 number. So, I was thinking of having that, but we could also make it where whenever your contractors sign up, they just type in their phone number. and then we could have it to where each message that they send is forwarded from their phone number and it won't be their actual number that sends to the client.
+Koby Stull: So that way clients don't have their actual phone number, but they can have essentially a Google voice number, a second number, and then clients can actually text them back and it'll be free. Won't cost you anything. Okay, cool. Yeah, we'll do that.
+Bison Lawn Care LLC: Okay, that would be super awesome.
+Bison Lawn Care LLC: One thing while you were talking.
+Koby Stull: Just that way. I mean, if you have Yeah,…
+Bison Lawn Care LLC:
+Bison Lawn Care LLC: Go ahead.
+Koby Stull: go ahead. I mean,…
+Koby Stull: we already understand why we would add the SMS. I was just going to explain it again.
+Bison Lawn Care LLC: One thing I know when you were Yeah,…
+Bison Lawn Care LLC: that's No, That would be awesome. one of the things that some contractors use is the satellite view because they can measure properties from here.
+Koby Stull: Okay. Gotcha.
+Bison Lawn Care LLC: I don't do that because it's very inaccurate unless the data that I entered in to the CRM was able to pull from. a database that the city had based on.
+Bison Lawn Care LLC: They had to pull a rep what do you call them? I say that again.
+Koby Stull: Public record.
+Koby Stull: Public record.
+Bison Lawn Care LLC: Yeah. if there was a public record or something where we know how many square feet or the houses or the lawn because Yeah. if they were pulling a permit that already had that square footage in there…
+Koby Stull: Yeah. Yeah.
+Bison Lawn Care LLC: because when I'm measuring from here, I can't get accurate enough. My numbers are too far off and there's things that are hidden in here that I can't see.
+Koby Stull: …
+Bison Lawn Care LLC: That makes sense.
+Koby Stull: technically we can do that.
+Koby Stull: The thing is it's technically illegal to do for commercial use unless we buy Google's aerial commercial license for commercial use.
+Bison Lawn Care LLC: Nope. Don't worry about it. What we've been doing and…
+Koby Stull: Okay. Yeah.
+Bison Lawn Care LLC: what it does for me, it does two things. One, I'm more accurate. And two, I am actually out in the field and I'm meeting people and sometimes I meet those customers, which I think adds way more value than just being able to measure here. But going forward, having that option for people like myself to purchase and add that fee onto your guys' subscription, I think there are going to be some companies that would want that.
+Koby Stull: Yeah. 100%.
+Koby Stull: We had a not a roofing, but it was the people that fixed driveways, and they had us build that…
+Bison Lawn Care LLC: Yeah. Yes.
+Koby Stull: where it automatically calculates the square footage, sends the estimate to the customers, but they had to pay,…
+Koby Stull: I think it was like $1,200 a year for that to be able to Yeah.
+Bison Lawn Care LLC: Okay, that's Yeah.
+Bison Lawn Care LLC: No, I can see that being very valuable. I mean, even at 1,200 bucks, that's actually pretty cheap by the time you take your time, go out there, and measure it. Yeah, I think that that's awesome. you guys have done this already. I like this columns thing. So, I can customize my dispatch board information right here, which is thank you for that. That's pretty sweet. Okay. I think that's good for here.
+Bison Lawn Care LLC: This gives me, kind of the same search options here.
+Koby Stull: Hey, that's me. Okay.
+Bison Lawn Care LLC: The things that I use. So, a once a customer, let's see here. Let's go. what's that? yeah. That's here. So, this is uninvoiceiced for right now. It's an incomplete invoice, but I can go in here and I can kind of see like this is their account balance.
+00:30:00
+Bison Lawn Care LLC: This is balance. So the total balance is previous invoices plus the new one which is the invoice balance. So that'll show a different total and then they'll show totals down at the bottom. But I can also click on here to verify what is actually on there. And I can change services. I can change the invoice description which is very handy. I can change the date in case it got dispatched on the wrong date or they completed it the next day and something didn't get caught or moved on the dispatch board. I can change the rate and I can change the quantity. I can add notes for the customer.
+Bison Lawn Care LLC: I can also add additional jobs or services that may have got missed…
+Bison Lawn Care LLC: because they were out in the job but didn't have the ability to add the customer and bill them. That kind of stuff.
+Koby Stull: All right.
+Bison Lawn Care LLC: Okay, this is very handy is this audit trail. Everything that we do is tracked in some fashion, but I'll get into that in a few minutes when we go through customers.
+Koby Stull: Okay. no.
+Bison Lawn Care LLC: When we're in invoices, those all go into the incomplete invoices. Once I designate that they're complete and I verified them, then they'll go either into invoices to email or invoices to So, if I have to print off in invoices or email invoices, I didn't do that. So, I'll show you right here. I'm going to email it. pops up automatically puts in the customer's email addresses, the branch and then I have a document says Bison and Bill and…
+Koby Stull: Okay.
+Bison Lawn Care LLC: then I send this with all the disclosures. Then it goes into open emails. These are then the ones that I'm waiting on payments and it shows how far past due they are and these ones are just open. It gives, the invoice balance, the account balance, and the total balances, how they typically pay. Most of them are all monthly. I can select on the status. I can go past due and these will just show me the past due invoices.
+Bison Lawn Care LLC: Okay. I think that's all for here. Then I have options for this will go back and…
+Bison Lawn Care LLC: research all the payments, the credits. I don't use the expenses. I'm sure some people will use time sheets and payroll, but I don't do any of that because I don't have any employees.
+Koby Stull: Okay.
+Bison Lawn Care LLC: Marketing automations. this has been massive. It's reduced my accounts payable from over 10,000 down to about $2,000 a year. So my past due automation,…
+Koby Stull: I was just saying it's pretty big. Yeah.
+Bison Lawn Care LLC: what's that? It was huge. Yeah. So it has a waiting period. So after two days after the bill is being sent, it'll send them, hey, we just let you know so I created a document and I added these documents in here saying, hey, two days after it's due, it sends them an email automatically saying, "Hey, you're past due just to let" And then 17 days or…
+Bison Lawn Care LLC: 15 days after that email it sends out, hey, this is your final notice. you need to get your bill paid or in two weeks we're going to turn you into collections.
+Koby Stull: Okay. Yeah.
+Bison Lawn Care LLC: So, I'm not sure how this might be a kind of a work in progress after we get some of the other stuff done, but they did a pretty good job with this stuff. It's just complicated setting up automations for me in service autopilot. So, I have them kind of set it up for me.
+Koby Stull: Okay. Yeah,…
+Bison Lawn Care LLC: Does that all make sense?
+Koby Stull: we can And we can set that up.
+Koby Stull: That's not an issue at all. and I can try to make it super easy for you if you ever need to add in more automations.
+Bison Lawn Care LLC: Okay. Yeah,…
+00:35:00
+Bison Lawn Care LLC: we would like to. So, in the spring and…
+Bison Lawn Care LLC: in the kind of late early summer, we send out an automatic notice for people to turn up their sprinklers because it's getting Same thing in the fall. We'd like that to be like September 1st just to let everybody know that kind of stuff.
+Koby Stull: Okay. Yeah,…
+Koby Stull: Yeah.
+Bison Lawn Care LLC:
+Bison Lawn Care LLC: Email activity. this is huge because they just updated this. So these are the notifications that I sent out in the dispatch board that I showed you earlier where I selected out of the dispatch board and sent out my sprinkler blowout days, it gives me results back.
+Koby Stull: Okay. Yeah. Okay.
+Bison Lawn Care LLC: So when the customer opens the email or that just the fact that they received the email is huge for me because out of the 30 emails that were sent 30 were delivered and 21 were opened. That's great. That's very, very good data for me. And I can click on those. And then I can go in and even under here delivered, it'll pull up the customers of who they were delivered to, their email address, that kind of information. Okay. those are the only two here that I use.
+Koby Stull: Okay.
+Bison Lawn Care LLC: They have an option to create a website, but I already have one. it'd be nice to see you can't see that. That's all right. We'll get into that here in a second. teams or Employees is kind of what we use. These are all my contractors and I have the ability to add new contractors. I can edit their personal employment information, payroll, how they're set up, if they're a full user, if I've given them full access or…
+Bison Lawn Care LLC: they get partial access. I've been able to or just mobile only so they can only see things on their phone but they can't get onto the website.
+Koby Stull: Gotcha. …
+Bison Lawn Care LLC: Yeah, most of this is pretty blank.
+Koby Stull: I just saw something in the mobile settings for GPS tracking.
+Koby Stull: Is that something that you use?
+Bison Lawn Care LLC: So how this is used is for the purpose that I can see…
+Bison Lawn Care LLC: where the contractors are at. So, if I go back to the dispatch board,…
+Bison Lawn Care LLC: let's see if somebody So, right here, they're at the house or…
+Koby Stull: Okay,…
+Koby Stull: Okay. Okay.
+Bison Lawn Care LLC: if on that GPS, it'll show where if they're in route or if they're moving. So my purpose of this organization is that I take away the nonpayables meaning if a customer calls and says hey where's my guy at? They don't need to be bothering the contractor with that information. The contractor is either driving, they're working. They need to stay driving or working or being safe. That call needs to come to me,…
+Bison Lawn Care LLC: which they do. And then from there I say then I can go into my dispatch board and find out kind of where they're at. these jobs have already been completed.
+Koby Stull: Okay. Gotcha.
+Bison Lawn Care LLC: Most of the time I can kind of guess be like okay you're going to be there probably by the end of the day you're in the afternoon.
+Koby Stull: That's something I'll have to add. I don't think I have GPS implemented in there at the moment.
+Bison Lawn Care LLC: No worries. I can add employees mark active or inactive. …
+Koby Stull: Okay.
+Bison Lawn Care LLC: this is going to be useful information for people that have employees. They don't use any of this. I have no use for it, but I can see where down the road somebody would use it. my work schedule. Look at that. I can go in there and that's the job that I have on my schedule for today.
+Koby Stull: much.
+Bison Lawn Care LLC: Interesting. That's cool. Didn't know I think that's it for employees reports. We would like to be able to get all kinds of information. The only reports that I currently use right now are my acrruel and my cash basis profit and loss. But with you linking me to QuickBooks, that's going to give me a good oversight on that. there's a bounced email that I use at the end of the year or the unapplied payments. So, if a payment was prepaid or overpaid, it'll show me…
+00:40:00
+Koby Stull: Okay.
+Bison Lawn Care LLC: what accounts have those and then I can go into them and apply those payments onto their accounts and clear them up. it looks like there's some that I need to do that, too. And I can export these if I need to based on a date range. I can custom make reports. So, I can say, "Hey, I need a report for this, that, and the other thing." And I like the fact that you guys are using the AI, so I don't have to manually type things in. I can just kind of give AI like, "This is the report."
+Bison Lawn Care LLC: and I need to pull this kind of data like I need to know how many jobs are skipped, how much revenue is being lost on those particular contractors. So this is the contractor that I need and I want to know how many jobs they skip this year or cancel
+Koby Stull: Okay.
+Bison Lawn Care LLC: how many square foot they do in a week or how much revenue they do in a week. those kind of reports. this search button right here is where I search all my customers. So, I don't use the CRM client field. I come over here to the search button and it searches the whole database and I can search former clients, tickets, invoices, payments, all from here which makes it really easy.
+Koby Stull: Okay.
+Bison Lawn Care LLC: The plus button is what I use for adding That's actually just clients and leads is all I use here. when things get done or an estimate gets accepted, it gives me an alert. So we sent out emails. So it sent me an alert saying, "Hey, this is an accounting issue or accounting thing. Invoices got sent." I had an email that was an estimate that it was accepted.
+Koby Stull: Gotcha. Okay.
+Bison Lawn Care LLC: and that shows here or that they unsubscribed to my email. That's kind of nice because then I can just cancel their account. this is that same feedback button that you guys have. This is the settings option. And I took pictures of all this stuff just so you have it for visual context because I just up here, services and it pops up under scheduling. But if I go down to scheduling, it has a lot more. From there, let's go second street. This is what when I click on a customer, this is kind of what it looks like.
+Bison Lawn Care LLC: So up here, we'll get into this edit button, but this gives me all my contact information right right here.
+Koby Stull: Okay. Gotcha.
+Bison Lawn Care LLC: And the client since 2022. Let's say this is a property manager. You can add additional properties to this account. So they all show up on the total balance shows up on the invoice but the individual invoices for that particular property are separate. one thing that happens is that this email is for notifications but billing information could be they have a CPA and they need to be notified. this is all their personal Sales detail, this is kind of where if this is a commercial high priority sales.
+Bison Lawn Care LLC: Since I'm the only salesperson,…
+Koby Stull: Okay. Gotcha.
+Bison Lawn Care LLC: I don't really use this, but sources I do, where it came from, and I have an option to add additional sources or if they were referred by somebody, a client. And if I check this box, that means they don't get any of the emails that I send out in the through the dispatch board or the clients or the waiting list. So, it just stops that from billing information. this gives obviously billing email or if they don't have an email in the billing it will not let
+Bison Lawn Care LLC: me send it'll create an error.
+Koby Stull: Gotcha.
+00:45:00
+Bison Lawn Care LLC: So I have to do print or both and then it'll show up in that accounting under email bill or print bill or both. How they pay. This is nice because then it gives me a reference point of if they paid a certain way I can go back and research. most of the time it's checks that I need to research. billing terms if everybody's on a net 15.
+Koby Stull: Okay.
+Bison Lawn Care LLC: So I send out an invoice, they have 15 days, then after that the link notification goes out. Commercial properties sometimes like to be build net30. And this gives me when the invoices need to be sent, whether it's daily, weekly, monthly. I only use monthly as of right now, but some people have been paying me weekly. in this particular client, this gives me So, their billing address is the same as service address, but sometimes that does change. But when I enter in the service address,
+Koby Stull: Thank you. Okay.
+Bison Lawn Care LLC: it automatically pops over to billing address. But then if the billing address is different because it goes to a bigger company or a property management, I change this address, which is awesome. This gives me my map code and I have to select which state or which branch they come out of. Let's say I added this job and they become part of a property management company.
+Bison Lawn Care LLC: I can add that ma master account or that property management account right here. So, I'm going to show you one real quick. So, allied property management. This is the master account and it says master I can add additional properties as I have done here.
+Koby Stull: Okay.
+Bison Lawn Care LLC: And these are all the additional properties underneath that property management account. Right now this is additional contacts outside of these numbers here. so that's where this master property kind comes into play. I can add them right there. latitude and longitude. So, we're in a lot of new development. So, sometimes when I go out and do the estimate, I have to tag that property. There's an option in my app that I can tag that property geotag geocode it.
+Bison Lawn Care LLC: So then when my contractors go out there, they're also not trying to search for it…
+Koby Stull: Okay. Yep. Okay.
+Bison Lawn Care LLC: because it's already built in the system. They just push on the map and it maps it to this latitude and longitude, These are notes that show up right here on the main page of the client's account. And these are the custom fields for this particular property. Okay. That's send button.
+Bison Lawn Care LLC: I can send this customer an email. The insert, I have these documents. I'm going to go back to the settings real quick so I can show you. So, these are the documents that I've created.
+Koby Stull: Got it.
+Bison Lawn Care LLC: These are marketing documents. These are estimate documents. The reason that these are categorized is for automations. But if I go in and I add this document, I select if it's test subject and I save it.
+00:50:00
+Koby Stull: Okay.
+Bison Lawn Care LLC: It gives me a couple templates to choose from. this one here is the one that I use primarily all the time. And then I go in here and I can replace that image with I don't think this is the image. I have a thing where I've loaded. No. Okay.
+Bison Lawn Care LLC: Here we go.
+Bison Lawn Care LLC: What happened to it?
+Koby Stull: Then you maybe put the content at the top left.
+Koby Stull: Whatever. Okay. Yeah.
+Bison Lawn Care LLC: S***,…
+Bison Lawn Care LLC: there was a way.
+Koby Stull: And then scroll down just a little bit. Where it says image link, is there a way to just drag and drop or select it right underneath.
+Bison Lawn Care LLC: Yeah, there was a place where it had me link into my images that I have put in service autopilot where I select that image and essentially that's where my logo shows up.
+Koby Stull: Okay. Yeah.
+Bison Lawn Care LLC: But yeah, so you get the concept essentially and…
+Koby Stull: Right. Gotcha. Yeah.
+Bison Lawn Care LLC: then all of this stuff here automatically fills in based on my account, I guess this stuff fills in based on my account that I've set up. This is customer information client. So, it automatically pulls it forward. Then I can edit all of this stuff. And so I can create a new document. So I did the sprinkler blowout date document that we looked at. So this is what it looks like. And I can edit it.
+Bison Lawn Care LLC: And so this is what my sprinkler blowout document looks like. Okay, let's go back to here. I can view all the jobs on this particular account and they'll show up here. all upcoming jobs. This has already been dispatched. So, it's on my dispatch board. That's why it's upcoming. All history. So, back in the day 2025, this one was cancelled. So, it can give me kind of a history report. I can see where things came from, how much was charged.
+Bison Lawn Care LLC: I can then click on this and it'll pull me into that job specifically. So when I'm in the job, this was completed by who. These are the notes that I typed in job comments. So these were the notes that were preset. So when they show up on a job, they view these notes and…
+Koby Stull: Gotcha. Okay.
+Bison Lawn Care LLC: then these are the notes while they were on the job that they entered in or myself. They can also add notes to clients saying, "Hey, you got an issue or invoice description." We can change that from here. We can also add products. since this is already product here, but let's see if I go into an upcoming job, it gives me an option to add bag fees or sprinkler parts, that kind of stuff. So these small bags are already preset.
+Bison Lawn Care LLC: They get to enter in the quantity or the contractor gets to enter in the quantity and then it pops out the total and…
+Koby Stull: All right. Okay.
+Bison Lawn Care LLC: that's what they get these are my tags. so if I create a tag, so I can then search based on a specific tag above ground sprinkler blowouts, which is nice. So I want to get to those first before I do underground ones because of freezing.
+00:55:00
+Bison Lawn Care LLC: I skipped around a little bit, but going back to this jobs under accounting, if I click on all, it shows the payments, the invoices, the dates, that kind of information.
+Koby Stull: Okay.
+Bison Lawn Care LLC: If the invoice has been actually completed, it shows up or what's remaining zero or this is all the same invoices that are up here. Okay. I'm going to go and then open estimates. So, this one's pink, but sometimes if they've been one, they show up in here. So, this gives me all the estimates. So, I can go back and see okay, this is what I quoted them. This is what I was drafted or what was originally on my templates essentially.
+Koby Stull: Okay.
+Bison Lawn Care LLC: And I'll show you that here in a few contracts. We have one apartment complex that is in a contract. So their entire year service gets divided over eight months or 12 months depending on how they want to do it. Down here, this is all the activity based on this account. And I got all history, future events, transactions. I can have a date range of which I want to see. I can add notes and I can either have them open or closed. Open will keep them open…
+Koby Stull: All right. Okay.
+Bison Lawn Care LLC: where I can go back and search them. I mean I can with closed, but typically that means they're done. They'll show up on my day or my dispatch board. And I can click on all these kind of things and get details. Here's the same billing information that was in the customer account branch information. I'm going to show down here.
+Bison Lawn Care LLC: I can see the photos that have been taken on either from the mobile or that we've attached to the account.
+Koby Stull: Okay.
+Bison Lawn Care LLC: So this is huge for liability purposes. And then these are the details and this is if they were added mobiley or added as attachments. Under jobs, this is where I can either add a reoccurring job. So that's a mowing. Reoccurring jobs. It gives me an option to do On the weekly,…
+Koby Stull: Okay.
+Bison Lawn Care LLC: it's either odd or even. That's the weeks that it starts on. We would also like to be able to add once a month reoccurring week one, week four is typically I can assign this mowing job to a specific contractor so that it's always showing up on their discorge every week and then I can dispatch them for there from Gives here's the notes for that particular job.
+Bison Lawn Care LLC: So when the contractor shows up, these are the notes that shows up so they can view those before they get on the job.
+Koby Stull: Okay. Gotcha.
+Bison Lawn Care LLC: So if a customer needs to be edged, I'll say, "Hey, customer needs to be edged." So when the contractor shows up, they have to click on the notes before they can get into the job. Otherwise, they can't get into the job. And they see, it needs to be edged today. So, this is where I can communicate with the contractors without bombarding This is going to be on the contractor, but if they have certain mowers and stuff, this could be handy.
+Koby Stull: Okay.
+01:00:00
+Bison Lawn Care LLC: auto trails essentially. Okay. Sprinkler blowout turn on backflow. So this is something and we'll see in the other document that I have it's a sprinkler turn on backflow package. So when we went into that's a reoccurring waiting jobs. I'm sorry. Let me start over here. When we go I'm going to go back into jobs. So, We're going to go into waiting list jobs. These are the one-time jobs. They're designated to a certain time frame.
+Bison Lawn Care LLC: So, when I go back into the waiting list up here, as long as I put in a date range right here, this particular job will show up.
+Koby Stull: Gotcha.
+Bison Lawn Care LLC: I do not have to add a contractor at the time because sometimes that can change. But this will autofill as long as the client field is filled I can make changes to the dollar amount. Okay. I don't use onetime jobs because I like to use waiting list jobs and then I just dispatch them from the waiting list, which is fine for me…
+Koby Stull: Okay.
+Bison Lawn Care LLC: because waiting list or one-time jobs will get lost because there's no way for me to search those. So, I just use waiting list so then I know I can find them Package jobs. So, let's say I want a sprinkler or an eight application. It's going to autorenew every year. So, here these are the things that I've designated on those services. These are the date ranges that we've put on the service. Because that date range is passed. Now, I can reschedu that here…
+Bison Lawn Care LLC: if I need to. These ones are the ones that show up on the dispatch board. So they don't need to be scheduled. The rate I don't know why it doesn't populate, but here it does give me what's on the matrix. So I have to go in and click on these every time I create a new one, which is kind of annoying.
+Koby Stull: Yeah. Gotcha.
+Bison Lawn Care LLC: Billable hours, all that kind of stuff. Here, I can set a discount on that one, but I'd like to be able to put it where this discount shows up as a separate line item on the invoice.
+Koby Stull: Okay, makes sense.
+Bison Lawn Care LLC: This gives me an option to update notes on this particular package and a date range of which notes like hey a we need to support you over from September 1st to the end of October and…
+Koby Stull: Okay.
+Bison Lawn Care LLC: I can save that. everything gets tracked right here. The history of these jobs, the upcoming. So when I'm in a let's just use clearers on this particular one. This is the history and…
+Koby Stull: Okay.
+Bison Lawn Care LLC:
+Bison Lawn Care LLC: this is the upcoming this is the discount that is added to this particular one. and you see kind of at the total this is the retail total, but this is with the discount.
+Koby Stull: Okay.
+Bison Lawn Care LLC: Cleanups, we put in a rate, but they're pretty much build on time. So, if they're cleanups or pruning or sprinkler work, it needs to be able to calculate based on a time and not a set rate.
+Bison Lawn Care LLC: So when they do a start time and a stop time, they need…
+Koby Stull: Okay.
+Bison Lawn Care LLC: then we can adjust the prices later based on what was actually part of their contract. But for aerations, Mowing is a Sprinkler turnon, backflow test, and blowouts sprinkler timer adjustments are a set price. But, prunings, cleanups, that kind of stuff is adjustable.
+Koby Stull: Okay.
+Bison Lawn Care LLC: Okay.
+Koby Stull: I've got about five more minutes before I have to swap into another meeting. Okay.
+Bison Lawn Care LLC: No worries. So, then from here, I think we've gone through everything kind of on a low. whoops. Hold on. these are the notes and…
+01:05:00
+Koby Stull: Okay.
+Bison Lawn Care LLC: a lot of the stuff we went through. So, these are the kind of the updates and things to essentially work on. And I try to categorize them as best as possible. Makes sense. So, we can kind of leave it at that and see and then we'll, probably have to get together and just kind of dial things in. Check.
+Koby Stull: So, I'll try to implement as much as I can this week and then we can set up a meet next week. that same link I sent you will work. I'll send you another one at the end of this week. and then we can just set up and hopefully
+Koby Stull: I'm not going to guarantee it,…
+Koby Stull: but hopefully I can have everything that we've talked about and that's on that document implemented by our next meeting. That'll be the goal.
+Bison Lawn Care LLC: Okay. Yeah,…
+Bison Lawn Care LLC: no worries. Yeah, that's a lot of work. So, expectations are not that you get that all done…
+Koby Stull: Yeah, it's quite Yeah,…
+Bison Lawn Care LLC: because there's a lot to that.
+Koby Stull: there is quite a bit, but hopefully we can get it done. Get a pushover.
+Bison Lawn Care LLC: Okay. Awesome.
+Koby Stull: is there anything else that you want to cover real quick while we're here?
+Bison Lawn Care LLC: No, I think let's start there. I'll let you get on to your next meeting and we'll connect at the end of the week or so. Okay.
+Koby Stull: All right, sounds awesome. It was a pleasure meeting you. Glad you got to put names to the faces.
+Bison Lawn Care LLC: Yeah, Cool. Thank you,…
+Koby Stull: All righty.
+Bison Lawn Care LLC: sir. Bye,…
+Koby Stull: I'll talk to you later.
+Bison Lawn Care LLC: Kobe. Yep.
+Koby Stull: Have a good one. Bye.
+Meeting ended after 01:06:53 👋
+This editable transcript was computer generated and might contain errors. People can also change the text after it was created.
