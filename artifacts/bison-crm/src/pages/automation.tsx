@@ -29,6 +29,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { EmailAutomationsPanel, EmailActivityPanel } from '@/components/automation/email-automations';
+import { UnopenedEmailAlertPanel } from '@/components/automation/unopened-alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
@@ -87,6 +88,8 @@ export default function Automation() {
       </div>
 
       <EmailAutomationsPanel />
+
+      <UnopenedEmailAlertPanel />
 
       <EmailActivityPanel />
 

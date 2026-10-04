@@ -11,4 +11,13 @@ export interface PriceResult {
   sqft: number;
   /** @nullable */
   equationIndex?: number | null;
+  /** True when the band's "never less than" floor is what set this price, so the live tester can say so rather than leaving him wondering why a bigger property quoted the small number. */
+  minimumApplied?: boolean;
+  /**
+     * Which estimate field the number was measured in; null means turf square footage.
+     * @nullable
+     */
+  pricingFieldId?: number | null;
+  /** @nullable */
+  pricingFieldLabel?: string | null;
 }

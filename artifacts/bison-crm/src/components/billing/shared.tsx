@@ -53,6 +53,11 @@ export const STATUS_LABEL: Record<string, string> = {
   partial: 'Partly paid',
   paid: 'Paid',
   void: 'Void',
+  // A balance he gave up on reads as what he decided, not as a code. Both of
+  // these keep the bill and its history and stop counting toward what the
+  // customer owes.
+  written_off: 'Written off',
+  collections: 'Collections',
 };
 
 export const STATUS_CLASS: Record<string, string> = {
@@ -61,6 +66,10 @@ export const STATUS_CLASS: Record<string, string> = {
   partial: 'bg-accent/20 text-accent-foreground border-accent/30',
   paid: 'bg-primary/10 text-primary border-primary/20',
   void: 'bg-muted text-muted-foreground border-border',
+  // Grey like void, because the arithmetic is the same: nobody is waiting on
+  // this money. Red would send him chasing it again.
+  written_off: 'bg-muted text-muted-foreground border-border',
+  collections: 'bg-muted text-muted-foreground border-border',
 };
 
 export function StatusPill({ status }: { status: string }) {
@@ -101,6 +110,10 @@ export const DELIVERY_LABEL: Record<string, string> = {
  */
 export function invalidateBilling(queryClient: QueryClient, clientId?: number | null, invoiceId?: number | null) {
   void queryClient.invalidateQueries({ queryKey: ['/api/invoices'] });
+  // Its own key, not under '/api/invoices', so the list refreshing does not
+  // refresh it: without this line the Running total strip kept showing the
+  // figures from before the write-off until the page was reloaded.
+  void queryClient.invalidateQueries({ queryKey: ['/api/invoices/account-summary'] });
   void queryClient.invalidateQueries({ queryKey: ['/api/payments'] });
   void queryClient.invalidateQueries({ queryKey: ['/api/clients'] });
   void queryClient.invalidateQueries({ queryKey: ['/api/jobs'] });

@@ -6,7 +6,6 @@ import {
   useListPayments,
   useDeletePayment,
   useListClients,
-  useCreateInvoice,
   type Invoice,
   type InvoiceBatchEmailResult,
   type Payment,
@@ -19,12 +18,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { CheckCircle2, Download, FileText, Mail, Plus, Printer, Search, Trash2 } from 'lucide-react';
+import { CheckCircle2, Download, FileText, Mail, Printer, Search, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { InvoiceDialog } from '@/components/billing/invoice-dialog';
 import { RecordPaymentDialog, ApplyPaymentToInvoiceDialog } from '@/components/billing/payment-dialogs';
+import RaiseInvoiceDialog from '@/components/billing/raise-invoice-dialog';
+import FieldMoneyAccessDialog from '@/components/billing/field-money-access';
+import { UnlockInvoiceButton, WriteOffInvoiceButton } from '@/components/billing/money-actions';
 import {
   PAYMENT_METHODS,
   StatusPill,
@@ -56,6 +57,7 @@ const QUEUES: { key: QueueKey; label: string; blurb: string }[] = [
   { key: 'past_due', label: 'Past due', blurb: 'Owed and past the due date (the invoice date when terms are due on receipt).' },
   { key: 'paid', label: 'Paid', blurb: 'Paid in full.' },
   { key: 'void', label: 'Void', blurb: 'Cancelled bills, kept for the record.' },
+  { key: 'written_off', label: 'Written off', blurb: 'Balances you gave up on or handed to collections. The bill and its history stay; the balance stops counting against the customer.' },
   { key: 'all', label: 'All', blurb: 'Every invoice.' },
   { key: 'payments', label: 'Payments', blurb: 'Every payment and credit, searchable.' },
 ];
@@ -131,7 +133,8 @@ export default function Invoices() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <NewInvoiceDialog />
+          <FieldMoneyAccessDialog />
+          <RaiseInvoiceDialog />
         </div>
       </div>
 
@@ -394,6 +397,8 @@ function InvoiceQueue({ queue, invoices, isLoading }: { queue: QueueKey; invoice
                     {inv.status !== 'void' && !inv.needsVerification && inv.balance > 0 && (
                       <RecordPaymentDialog invoice={inv} balanceDue={inv.balance} defaultMethod={inv.lastPaymentMethod} />
                     )}
+                    <UnlockInvoiceButton invoice={inv} />
+                    <WriteOffInvoiceButton invoice={inv} />
                   </TableCell>
                 </TableRow>
               ))
@@ -578,165 +583,5 @@ function PaymentsTab({ search, clientId }: { search: string; clientId: number | 
         </Table>
       </div>
     </div>
-  );
-}
-
-// ------------------------------------------------------- new invoice ----
-
-type DraftLine = { description: string; serviceDate: string; quantity: string; unitPrice: string };
-const emptyLine = (): DraftLine => ({ description: '', serviceDate: '', quantity: '1', unitPrice: '' });
-
-function NewInvoiceDialog() {
-  const [open, setOpen] = useState(false);
-  const [clientId, setClientId] = useState('');
-  const [poNumber, setPoNumber] = useState('');
-  const [notes, setNotes] = useState('');
-  const [lines, setLines] = useState<DraftLine[]>([emptyLine()]);
-
-  const { data: clients } = useListClients();
-  const createInvoice = useCreateInvoice();
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-
-  const selectedClient = clients?.find((c) => String(c.id) === clientId);
-
-  const parsedLines = lines
-    .filter((line) => line.description.trim())
-    .map((line) => ({
-      description: line.description.trim(),
-      serviceDate: line.serviceDate || null,
-      quantity: parseFloat(line.quantity) || 0,
-      unitPrice: parseFloat(line.unitPrice) || 0,
-    }));
-
-  // Shown live so the office sees the same number the customer will, before
-  // committing. Rounded per line to match how the server stores them.
-  const total = parsedLines.reduce((sum, line) => sum + Math.round(line.quantity * line.unitPrice * 100) / 100, 0);
-
-  const updateLine = (index: number, patch: Partial<DraftLine>) =>
-    setLines((prev) => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)));
-
-  const reset = () => {
-    setClientId('');
-    setPoNumber('');
-    setNotes('');
-    setLines([emptyLine()]);
-  };
-
-  const handleSave = () => {
-    createInvoice.mutate(
-      {
-        data: {
-          clientId: parseInt(clientId),
-          lines: parsedLines,
-          ...(poNumber.trim() && { poNumber: poNumber.trim() }),
-          ...(notes && { notes }),
-        },
-      },
-      {
-        onSuccess: (inv) => {
-          invalidateBilling(queryClient, inv.clientId);
-          toast({ title: `Invoice #${inv.number} created`, description: `It is in the ${inv.deliveryMethod === 'print' ? 'To print' : 'To email'} queue.` });
-          setOpen(false);
-          reset();
-        },
-        onError: (error) => toast({ title: 'Could not create the invoice', description: errorText(error), variant: 'destructive' }),
-      },
-    );
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button className="h-10 bg-primary text-primary-foreground font-semibold shadow-sm px-4">
-          <Plus className="w-4 h-4 mr-2" /> New invoice
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>New invoice</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4 py-4 max-h-[65vh] overflow-y-auto pr-1">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium mb-1 block">Customer *</label>
-              <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={clientId} onChange={(e) => setClientId(e.target.value)}>
-                <option value="">Pick a customer…</option>
-                {clients?.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} - {c.serviceAddress}, {c.city}
-                  </option>
-                ))}
-              </select>
-              {/* Terms are not editable here: they come from the account and are
-                  snapshotted at issue. Showing which ones will apply prevents an
-                  invoice going out on terms the office did not expect. */}
-              {selectedClient?.billingTerms && <p className="text-xs text-muted-foreground mt-1">Terms: {selectedClient.billingTerms}</p>}
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1 block">PO number (optional)</label>
-              <Input value={poNumber} onChange={(e) => setPoNumber(e.target.value)} placeholder="Customer's reference" />
-            </div>
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium">Lines *</label>
-              <Button size="sm" variant="outline" className="h-8" onClick={() => setLines((prev) => [...prev, emptyLine()])}>
-                <Plus className="w-3.5 h-3.5 mr-1.5" /> Add line
-              </Button>
-            </div>
-            <div className="space-y-2">
-              <div className="hidden sm:grid grid-cols-12 gap-2 text-xs text-muted-foreground px-1">
-                <div className="col-span-5">Description</div>
-                <div className="col-span-3">Date of service</div>
-                <div className="col-span-1 text-right">Qty</div>
-                <div className="col-span-2 text-right">Price</div>
-                <div className="col-span-1" />
-              </div>
-              {lines.map((line, index) => (
-                <div key={index} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
-                  <Input className="sm:col-span-5" value={line.description} onChange={(e) => updateLine(index, { description: e.target.value })} placeholder="Mowing — 8/12, 8/19, 8/26" />
-                  <Input type="date" className="sm:col-span-3" value={line.serviceDate} onChange={(e) => updateLine(index, { serviceDate: e.target.value })} />
-                  <Input type="number" step="0.01" className="sm:col-span-1 text-right" value={line.quantity} onChange={(e) => updateLine(index, { quantity: e.target.value })} />
-                  <Input type="number" step="0.01" className="sm:col-span-2 text-right" value={line.unitPrice} onChange={(e) => updateLine(index, { unitPrice: e.target.value })} placeholder="0.00" />
-                  <div className="sm:col-span-1 flex justify-end">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-8 w-8 p-0 text-muted-foreground"
-                      // Never leave zero rows: an empty editor gives the office
-                      // nothing to click and no way back to a usable form.
-                      onClick={() => setLines((prev) => (prev.length === 1 ? [emptyLine()] : prev.filter((_, i) => i !== index)))}
-                      aria-label="Remove line"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="flex justify-end mt-3 text-sm">
-              <span className="text-muted-foreground mr-3">Invoice total</span>
-              <span className="font-bold">{money(total)}</span>
-            </div>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium mb-1 block">Note to the customer (optional)</label>
-            <textarea className="flex min-h-[70px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Prints on the bill" />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            A bill you type yourself is already checked, so it goes straight to the email or print queue.
-          </p>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button onClick={handleSave} disabled={createInvoice.isPending || !clientId || parsedLines.length === 0 || total <= 0}>
-            Create invoice
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

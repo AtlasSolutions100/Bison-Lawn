@@ -1,19 +1,23 @@
-import { useRef, useState } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import {
   useListServices, useCreateService, useUpdateService, useDeleteService, useCalculateServicePrice,
   useListPackages, useCreatePackage, useUpdatePackage, useDeletePackage, useGetService,
   useGetBillingSettings, useUpdateBillingSettings, useListEstimateFields,
   useCopyServiceMatrix, useBuildMatrixFromRule,
+  useImportServiceMatrix, getExportServiceMatrixUrl,
   type Service, type ServicePackage, type EstimateField, type PricingEquation, type CopyMatrixResult, type PackageItem,
+  type MatrixImportResult,
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
+import ServiceCustomerPush, { pushableChanges } from '@/components/services/service-customer-push';
+import SeasonDateInput from '@/components/services/season-date-input';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
-import { Plus, Edit2, Trash2, Calculator, Copy, Wand2 } from 'lucide-react';
+import { Plus, Edit2, Trash2, Calculator, Copy, Wand2, Download, Upload, Users } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useForm, useFieldArray } from 'react-hook-form';
@@ -30,6 +34,9 @@ const equationSchema = z.object({
   // Blank is meaningful: "no estimate for this band", not zero hours.
   budgetedHours: z.union([z.literal(''), z.coerce.number().finite()]).optional(),
   budgetedCost: z.union([z.literal(''), z.coerce.number().finite()]).optional(),
+  // "Never less than". Blank means no floor, which is every band saved before
+  // 2026-10-03 — it is not the same as a floor of $0.
+  minPrice: z.union([z.literal(''), z.coerce.number().finite()]).optional(),
 });
 
 const serviceSchema = z.object({
@@ -50,6 +57,7 @@ const serviceSchema = z.object({
   defaultStartDate: z.string(),
   defaultEndDate: z.string(),
   renewDate: z.string(),
+  seasonEndDate: z.string(),
   pricingEquations: z.array(equationSchema),
   contractorOfferable: z.boolean().default(false),
   contractorPrice: z.union([z.literal(''), z.coerce.number().finite()]).optional(),
@@ -68,10 +76,36 @@ function toFormBand(equation: PricingEquation): EquationRow {
     upToSqft: equation.upToSqft ?? '',
     budgetedHours: equation.budgetedHours ?? '',
     budgetedCost: equation.budgetedCost ?? '',
+    minPrice: equation.minPrice ?? '',
   };
 }
 
-const emptyBand: EquationRow = { baseSqft: 0, basePrice: 0, incrementSqft: 0, incrementPrice: 0, upToSqft: '', budgetedHours: '', budgetedCost: '' };
+const emptyBand: EquationRow = { baseSqft: 0, basePrice: 0, incrementSqft: 0, incrementPrice: 0, upToSqft: '', budgetedHours: '', budgetedCost: '', minPrice: '' };
+
+/**
+ * One band read back as the sentence he said it in: "my starting field on
+ * matrix has a min and then from there the Price equation need to take over
+ * but I cant set a base". He could not see which number was which, because the
+ * one column called Rate was doing both jobs. Now the row says itself out loud
+ * under the table, and if it does not read like what he meant, the numbers are
+ * wrong and he can see it before anything is saved.
+ */
+function bandSentence(row: EquationRow, unit: string): string {
+  const base = Number(row.basePrice) || 0;
+  const step = Number(row.incrementPrice) || 0;
+  const stepSize = Number(row.incrementSqft) || 0;
+  const over = Number(row.baseSqft) || 0;
+  const floor = row.minPrice === '' || row.minPrice == null ? null : Number(row.minPrice);
+  const parts: string[] = [];
+  if (base > 0) parts.push(`start at $${base}`);
+  else if (step > 0) parts.push('start at nothing');
+  if (step > 0 && stepSize > 0) {
+    parts.push(`then $${step} per ${units(stepSize)} ${unit}${over > 0 ? ` over ${units(over)}` : ''}`);
+  }
+  if (floor != null && floor > 0) parts.push(`never less than $${floor}`);
+  if (!parts.length) return 'no price — this row will never price a job';
+  return parts.join(', ');
+}
 
 /**
  * Only fields with a real number qualify as pricing input — a service priced
@@ -103,11 +137,28 @@ const units = (value: number) => value.toLocaleString('en-US');
 /**
  * "In the matrix, make the full cell visible (numbers get cut off)". A number
  * box inside a squeezed table cell shrinks with the cell, so 203.75 became
- * "203." and 30000 lost a digit. Every band box now keeps a floor width, the
- * spinner arrows (which ate the space) are gone, and the table scrolls
- * sideways rather than crushing its columns.
+ * "203." and 30000 lost a digit. Every band box keeps a floor width, and the
+ * spinner arrows (which ate the space) are gone.
+ *
+ * 2026-09-28: "Beagle to see all of the rate matrix without having to scroll
+ * over" / "unable to see all of from=to". 7rem a box was more than any of
+ * these numbers needs — 5.5rem holds seven digits of tabular figures with room
+ * to spare — and the nine columns at 7rem plus px-2 cells came to 1,072px
+ * inside a dialog that only gave the table 822px: 250px short, which is the
+ * sideways scroll he is complaining about. At 5.5rem with px-1 cells, TEN
+ * columns (the new minimum included) come to 936px, and the dialog is sized
+ * off the window instead of a fixed 72rem, which gives the table about
+ * 1,063px on his screen. One more column, 136px narrower, and it fits.
+ * The From/To pair is also pinned to the left (below) so that if he does narrow
+ * the window, the two numbers he compares are the two that stay put.
  */
-const bandCell = 'h-8 min-w-[7rem] text-right tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none';
+const bandCell = 'h-8 min-w-[5.5rem] text-right tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none';
+
+/** The pinned From and To cells. Opaque, or the scrolled columns show through. */
+const stickyFrom = 'sticky left-0 z-20 bg-background';
+const stickyTo = 'sticky left-[5rem] z-20 bg-background';
+const stickyFromHead = 'sticky left-0 z-20 bg-muted';
+const stickyToHead = 'sticky left-[5rem] z-20 bg-muted';
 
 const packageItemSchema = z.object({
   serviceId: z.coerce.number().int().positive('Pick a service'),
@@ -251,9 +302,13 @@ function PricingSummary({ service, unit }: { service: Service; unit: string }) {
   }
 
   // Empty bands carry no price and are not part of the range a reader cares
-  // about — they are also what used to price a large property at zero.
-  const priced = equations.filter((e) => e.basePrice > 0 || e.incrementPrice > 0);
-  const prices = priced.map((e) => e.basePrice);
+  // about — they are also what used to price a large property at zero. A floor
+  // on its own IS a price, the same as it is in isPricedBand on the server:
+  // "never less than $49" with no base is a $49 band, and the number this list
+  // shows has to be the number an estimate will charge, so the figure for a
+  // band is whichever of the base and the floor is actually going to set it.
+  const priced = equations.filter((e) => e.basePrice > 0 || e.incrementPrice > 0 || (e.minPrice ?? 0) > 0);
+  const prices = priced.map((e) => Math.max(e.basePrice, e.minPrice ?? 0));
   const range = prices.length
     ? prices.length === 1 || Math.min(...prices) === Math.max(...prices)
       ? `$${Math.min(...prices)}`
@@ -282,6 +337,8 @@ function PricingSummary({ service, unit }: { service: Service; unit: string }) {
               Base <span className="font-semibold text-foreground">${eq.basePrice}</span> (up to {units(eq.baseSqft)} {unit})
               {eq.incrementPrice ? ` + $${eq.incrementPrice} / ${units(eq.incrementSqft)} ${unit}` : ''}
               {eq.upToSqft ? ` (Max ${units(eq.upToSqft)})` : ''}
+              {/* The floor is the number he will be asked about on the phone, so it shows here too. */}
+              {eq.minPrice != null ? `, never less than $${eq.minPrice}` : ''}
             </div>
           ))}
         </div>
@@ -304,6 +361,10 @@ function ServicesList() {
   // One dialog for whichever row was clicked; keyed by id so the form starts
   // from that service's values rather than the last one opened.
   const [editing, setEditing] = useState<Service | null>(null);
+  // "Making changes to service info. Ask if want to push on to current
+  // assigned jobs/customers", reachable without editing anything: who has this
+  // service, push a new price onto them, set the season end for all of them.
+  const [pushing, setPushing] = useState<Service | null>(null);
 
   // Satisfy useGetService requirement even if unused in list
   const _ = useGetService(1, { query: { enabled: false, queryKey: ['/api/services', 1] } });
@@ -384,6 +445,9 @@ function ServicesList() {
                 )}
               </TableCell>
               <TableCell className="text-right space-x-2 whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary" onClick={() => setPushing(s)} title="Customers who have this service — push a change, or set the season end for all of them">
+                  <Users className="w-4 h-4" />
+                </Button>
                 <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary" onClick={() => setEditing(s)} title="Edit service">
                   <Edit2 className="w-4 h-4" />
                 </Button>
@@ -409,6 +473,9 @@ function ServicesList() {
           open
           onOpenChange={(next) => { if (!next) setEditing(null); }}
         />
+      )}
+      {pushing && (
+        <ServiceCustomerPush key={pushing.id} service={pushing} changed={[]} onClose={() => setPushing(null)} />
       )}
     </div>
   );
@@ -508,6 +575,33 @@ function CopyMatrixDialog({ source, services, unitLabel, matrixDirty }: {
   const [roundTo, setRoundTo] = useState('');
   const [replace, setReplace] = useState(false);
   const [preview, setPreview] = useState<CopyMatrixResult | null>(null);
+  /*
+    "In Coping of service matrix to another, be able to add additional dollars
+    (product) based on square footage to original price (ex, Aeration + seed =
+    AE overseed) or Top dressing (beagle to add topdressing cost, product
+    cost/sqft + delivery + Trailer)."
+
+    Two numbers, because that is how he buys it: seed by the bag, which covers
+    so many square feet, and then a delivery and a trailer that happen once
+    however big the lawn is. It goes on after the multiplier, since the product
+    is cash he hands over rather than labour he marks up.
+  */
+  const [product, setProduct] = useState({ on: false, label: '', amountPerUnit: '', perUnits: '1000', flatAmount: '' });
+  const setProd = (key: keyof typeof product, value: string | boolean) => {
+    setPreview(null);
+    setProduct(p => ({ ...p, [key]: value }));
+  };
+  const productBody = () =>
+    product.on
+      ? {
+          productCost: {
+            amountPerUnit: Number(product.amountPerUnit) || 0,
+            perUnits: Number(product.perUnits) || 0,
+            flatAmount: Number(product.flatAmount) || 0,
+            label: product.label.trim() || null,
+          },
+        }
+      : {};
   const copy = useCopyServiceMatrix();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -532,6 +626,7 @@ function CopyMatrixDialog({ source, services, unitLabel, matrixDirty }: {
     value: value === '' ? (mode === 'multiply' ? 1 : 0) : Number(value),
     roundTo: roundTo === '' ? null : Number(roundTo),
     copyPricingField: true,
+    ...productBody(),
   });
 
   const run = (apply: boolean) => {
@@ -554,6 +649,7 @@ function CopyMatrixDialog({ source, services, unitLabel, matrixDirty }: {
   const changeLabel = mode === 'multiply' ? `× ${value || 1}` : mode === 'add' ? `+ $${value || 0}` : `+ ${value || 0}%`;
   const willReplace = preview?.targets.filter(t => t.existingBands > 0) ?? [];
   const sample = preview?.targets[0]?.equations ?? [];
+  const productAdded = preview?.targets[0]?.productAdded ?? [];
 
   return (
     <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) setPreview(null); }}>
@@ -598,7 +694,9 @@ function CopyMatrixDialog({ source, services, unitLabel, matrixDirty }: {
                       data-testid={`copy-matrix-target-${s.id}`}
                     />
                     <span className="truncate">{s.name}</span>
-                    {s.pricingEquations?.some(e => e.basePrice > 0 || e.incrementPrice > 0) && (
+                    {/* A floor-only band counts as a matrix here too, or this badge
+                        hides a matrix the server will then refuse to overwrite. */}
+                    {s.pricingEquations?.some(e => e.basePrice > 0 || e.incrementPrice > 0 || (e.minPrice ?? 0) > 0) && (
                       <span className="ml-auto text-xs text-muted-foreground whitespace-nowrap">has {s.pricingEquations.length} bands</span>
                     )}
                   </label>
@@ -659,16 +757,45 @@ function CopyMatrixDialog({ source, services, unitLabel, matrixDirty }: {
             </div>
           </div>
 
+          <div className="rounded-md border p-3 space-y-2">
+            <label className="flex items-start gap-2 text-sm font-medium">
+              <input type="checkbox" className="mt-0.5 w-4 h-4 accent-primary" checked={product.on} onChange={e => setProd('on', e.target.checked)} data-testid="copy-matrix-product-on" />
+              <span>Add a product cost — Aeration + seed = AE overseed, or top dressing</span>
+            </label>
+            {product.on && (
+              <div className="space-y-2 pl-6">
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span>Product</span>
+                  <Input className="h-8 w-40" placeholder="seed, top dressing" value={product.label} onChange={e => setProd('label', e.target.value)} data-testid="copy-matrix-product-label" />
+                  <span>costs $</span>
+                  <Input type="number" step="0.01" className="h-8 w-24" placeholder="5" value={product.amountPerUnit} onChange={e => setProd('amountPerUnit', e.target.value)} data-testid="copy-matrix-product-amount" />
+                  <span>per</span>
+                  <Input type="number" className="h-8 w-24" placeholder="1000" value={product.perUnits} onChange={e => setProd('perUnits', e.target.value)} data-testid="copy-matrix-product-per" />
+                  <span>{unitLabel}, plus $</span>
+                  <Input type="number" step="0.01" className="h-8 w-24" placeholder="85" value={product.flatAmount} onChange={e => setProd('flatAmount', e.target.value)} data-testid="copy-matrix-product-flat" />
+                  <span>delivery and trailer</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  The product goes on after the multiplier, because it is cash you hand over rather than labour to mark up.
+                  A flat band pays for its own top size — the "up to 3,999" band buys product for 3,999 {unitLabel}, the same
+                  way it already charges every lawn in that band the one price. The "and up" band keeps buying product as the
+                  lawn gets bigger, so a big top dressing is not priced like a small one. Rounded up to whole lots: you buy
+                  whole bags.
+                </p>
+              </div>
+            )}
+          </div>
+
           {preview && (
             <div className="rounded-md border p-3 space-y-2" data-testid="copy-matrix-preview">
               <p className="text-sm font-medium">
-                Each of the {preview.targets.length} {preview.targets.length === 1 ? 'service' : 'services'} gets these {sample.length} bands ({changeLabel}{roundTo ? `, rounded to $${roundTo}` : ''}):
+                Each of the {preview.targets.length} {preview.targets.length === 1 ? 'service' : 'services'} gets these {sample.length} bands ({changeLabel}{roundTo ? `, rounded to $${roundTo}` : ''}{preview.productCostLabel ? `, plus ${preview.productCostLabel}` : ''}):
               </p>
               <div className="max-h-48 overflow-auto">
                 <table className="w-full text-xs tabular-nums">
                   <thead className="text-muted-foreground">
                     <tr className="[&>th]:px-2 [&>th]:py-1 [&>th]:text-right [&>th:first-child]:text-left">
-                      <th>To ({unitLabel})</th><th>Rate</th><th>Cost</th>
+                      <th>To ({unitLabel})</th><th>Rate</th>{productAdded.length > 0 && <th>of which product</th>}<th>Min</th><th>Cost</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -676,6 +803,10 @@ function CopyMatrixDialog({ source, services, unitLabel, matrixDirty }: {
                       <tr key={i} className="border-t [&>td]:px-2 [&>td]:py-1 [&>td]:text-right [&>td:first-child]:text-left">
                         <td>{band.upToSqft == null ? 'and up' : units(band.upToSqft)}</td>
                         <td>{money(band.basePrice)}{band.incrementPrice ? ` + ${money(band.incrementPrice)} / ${units(band.incrementSqft)}` : ''}</td>
+                        {productAdded.length > 0 && (
+                          <td className="text-muted-foreground">{productAdded[i] == null ? '—' : money(productAdded[i]!)}</td>
+                        )}
+                        <td>{band.minPrice == null ? '—' : money(band.minPrice)}</td>
                         <td>{band.budgetedCost == null ? '—' : money(band.budgetedCost)}</td>
                       </tr>
                     ))}
@@ -709,6 +840,177 @@ function CopyMatrixDialog({ source, services, unitLabel, matrixDirty }: {
 }
 
 /**
+ * "Ability to extract matrix from crm to excel" and its pair, feedback #42,
+ * "Example in google drive (top dressing)".
+ *
+ * The export is a plain link next to this button. This is the way back in, and
+ * it is deliberately two steps: pick the file, look at every band it read, THEN
+ * accept. An import that quietly got a column wrong would reprice every
+ * estimate, job and invoice this service touches and he would hear about it
+ * from a customer, so nothing is saved until he has seen the numbers. A file
+ * with any problem in it cannot be accepted at all — the button stays off and
+ * the problems are listed with the row numbers Excel shows him.
+ */
+function ImportMatrixDialog({ service, unitLabel, onImported }: {
+  service: Service;
+  unitLabel: string;
+  /**
+   * The import writes straight to the service, but the form around this dialog
+   * is still holding the bands it opened with. Without this the rows on screen
+   * would be the old matrix and his next Save would quietly write it back over
+   * the file he just accepted — the import undone by a button that said Save.
+   * So the rows are replaced with what was actually saved.
+   */
+  onImported: (bands: PricingEquation[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [fileName, setFileName] = useState('');
+  const [csv, setCsv] = useState('');
+  const [read, setRead] = useState<MatrixImportResult | null>(null);
+  const importMatrix = useImportServiceMatrix();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const reset = () => { setFileName(''); setCsv(''); setRead(null); };
+
+  const pickFile = (file: File | null | undefined) => {
+    setRead(null);
+    if (!file) return;
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result ?? '');
+      setCsv(text);
+      // Read it straight away: he picked the file to see what is in it, and
+      // making him press a second button first is a step with no question in it.
+      importMatrix.mutate({ id: service.id, data: { csv: text, fileName: file.name, apply: false } }, {
+        onSuccess: setRead,
+        onError: (error) => {
+          setRead(null);
+          toast({ title: 'Could not read that file', description: errorMessage(error), variant: 'destructive' });
+        },
+      });
+    };
+    reader.onerror = () => toast({ title: 'Could not open that file', variant: 'destructive' });
+    reader.readAsText(file);
+  };
+
+  const accept = () => {
+    importMatrix.mutate({ id: service.id, data: { csv, fileName: fileName || null, apply: true } }, {
+      onSuccess: (res) => {
+        queryClient.invalidateQueries({ queryKey: ['/api/services'] });
+        onImported(res.bands);
+        toast({
+          title: `${service.name} now has ${res.bands.length} ${res.bands.length === 1 ? 'band' : 'bands'}`,
+          description: 'They are already saved, and the table behind this now shows them.',
+        });
+        setOpen(false);
+        reset();
+      },
+      onError: (error) => toast({ title: 'Nothing was saved', description: errorMessage(error), variant: 'destructive' }),
+    });
+  };
+
+  const used = read?.columns.filter(c => c.field && c.field !== 'from') ?? [];
+  const ignored = read?.columns.filter(c => !c.field && c.header !== '') ?? [];
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) reset(); }}>
+      <DialogTrigger asChild>
+        <Button type="button" variant="outline" size="sm" data-testid="import-matrix-open">
+          <Upload className="w-3 h-3 mr-1" /> Import from a spreadsheet
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Bring the {service.name} matrix in from a spreadsheet</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Export this matrix first, change the numbers in Excel or Google Sheets, then save it as a <strong>CSV</strong> and
+            pick it here. Nothing changes until you press Accept at the bottom.
+          </p>
+          <Input
+            type="file"
+            accept=".csv,text/csv,text/plain"
+            className="h-auto py-2"
+            onChange={e => pickFile(e.target.files?.[0])}
+            data-testid="import-matrix-file"
+          />
+          {importMatrix.isPending && !read && <p className="text-sm text-muted-foreground">Reading {fileName}…</p>}
+
+          {read && (
+            <div className="space-y-3" data-testid="import-matrix-preview">
+              <p className="text-sm">
+                Read <strong>{read.rowsRead}</strong> {read.rowsRead === 1 ? 'band' : 'bands'} from {fileName || 'that file'}
+                {read.rowsSkipped > 0 && ` (${read.rowsSkipped} blank ${read.rowsSkipped === 1 ? 'row' : 'rows'} skipped)`}.
+                This would replace the <strong>{read.existingBands ?? 0}</strong> priced {(read.existingBands ?? 0) === 1 ? 'band' : 'bands'} {service.name} has now.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Columns used: {used.map(c => c.header).join(', ') || 'none'}.
+                {ignored.length > 0 && ` Ignored: ${ignored.map(c => c.header).join(', ')}.`}
+              </p>
+
+              {read.errors.length > 0 && (
+                <div className="rounded-md border border-destructive/50 bg-destructive/5 p-3" data-testid="import-matrix-errors">
+                  <p className="text-sm font-semibold text-destructive">
+                    {read.errors.length} {read.errors.length === 1 ? 'problem' : 'problems'} — this file cannot be saved as it is:
+                  </p>
+                  <ul className="mt-1 list-disc pl-5 text-xs text-destructive space-y-0.5">
+                    {read.errors.map((message, i) => <li key={i}>{message}</li>)}
+                  </ul>
+                </div>
+              )}
+              {read.warnings.length > 0 && (
+                <div className="rounded-md border border-amber-300 bg-amber-50 p-3" data-testid="import-matrix-warnings">
+                  <p className="text-sm font-semibold text-amber-900">Worth a look before you accept:</p>
+                  <ul className="mt-1 list-disc pl-5 text-xs text-amber-900 space-y-0.5">
+                    {read.warnings.map((message, i) => <li key={i}>{message}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              <div className="max-h-64 overflow-auto rounded-md border">
+                <table className="w-full text-xs tabular-nums">
+                  <thead className="sticky top-0 bg-muted text-muted-foreground">
+                    <tr className="[&>th]:px-2 [&>th]:py-1 [&>th]:text-right [&>th:first-child]:text-left">
+                      <th>To ({unitLabel})</th><th>Base</th><th>Never less</th><th>Per step</th><th>B. Hrs</th><th>B. Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {read.bands.map((band, i) => (
+                      <tr key={i} className="border-t [&>td]:px-2 [&>td]:py-1 [&>td]:text-right [&>td:first-child]:text-left">
+                        <td>{band.upToSqft == null ? 'and up' : units(band.upToSqft)}</td>
+                        <td>{money(band.basePrice)}</td>
+                        <td>{band.minPrice == null ? '—' : money(band.minPrice)}</td>
+                        <td>{band.incrementPrice ? `${money(band.incrementPrice)} / ${units(band.incrementSqft)}${band.baseSqft ? ` over ${units(band.baseSqft)}` : ''}` : '—'}</td>
+                        <td>{band.budgetedHours == null ? '—' : band.budgetedHours}</td>
+                        <td>{band.budgetedCost == null ? '—' : money(band.budgetedCost)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+        <DialogFooter className="pt-4">
+          <Button type="button" variant="outline" onClick={() => { setOpen(false); reset(); }}>Cancel</Button>
+          <Button
+            type="button"
+            disabled={!read || !read.canApply || importMatrix.isPending}
+            onClick={accept}
+            data-testid="import-matrix-accept"
+          >
+            {importMatrix.isPending ? 'Saving…' : read ? `Accept these ${read.rowsRead} bands` : 'Accept'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
  * "Rate matrix rule: $X per 1000 sqft up to Y; Bison application: $X per 500
  * up to Y." One sentence in, the bands out — then he edits any row he likes.
  * Works on a service that is not saved yet, because nothing is stored: the
@@ -721,7 +1023,7 @@ function FillByRulePanel({ unitLabel, costPercent, hasPricedBands, onBands }: {
   onBands: (bands: PricingEquation[]) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [rule, setRule] = useState({ startPrice: '', per: '', step: '1000', upTo: '', tier2: false, per2: '', step2: '', upTo2: '' });
+  const [rule, setRule] = useState({ startPrice: '', per: '', step: '1000', upTo: '', tier2: false, per2: '', step2: '', upTo2: '', minPrice: '' });
   const build = useBuildMatrixFromRule();
   const { toast } = useToast();
   const set = (key: keyof typeof rule, v: string | boolean) => setRule(r => ({ ...r, [key]: v }));
@@ -738,6 +1040,7 @@ function FillByRulePanel({ unitLabel, costPercent, hasPricedBands, onBands }: {
         firstTier: tier(rule.per, rule.step, rule.upTo),
         ...(rule.tier2 ? { secondTier: tier(rule.per2, rule.step2, rule.upTo2) } : {}),
         costPercent: Number(costPercent) > 0 ? Number(costPercent) : null,
+        minPrice: rule.minPrice === '' ? null : Number(rule.minPrice),
       },
     }, {
       onSuccess: (res) => {
@@ -777,6 +1080,9 @@ function FillByRulePanel({ unitLabel, costPercent, hasPricedBands, onBands }: {
         <span>then add $</span>{num('per', '5', 'rule-per')}
         <span>per</span>{num('step', '1000', 'rule-step')}
         <span>{unitLabel} up to</span>{num('upTo', 'blank = and up', 'rule-upto', 'w-32')}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span>and never less than $</span>{num('minPrice', 'blank = no minimum', 'rule-min', 'w-32')}
       </div>
       <label className="flex items-center gap-2">
         <input type="checkbox" className="w-4 h-4 accent-primary" checked={rule.tier2} onChange={e => set('tier2', e.target.checked)} data-testid="rule-tier2" />
@@ -834,6 +1140,11 @@ function ServiceDialog({ serviceToEdit, open: controlledOpen, onOpenChange }: {
   );
   const [testSqft, setTestSqft] = useState<number>(0);
   const [testPrice, setTestPrice] = useState<number | null>(null);
+  // "Ask if want to push on to current assigned jobs/customers" — set once the
+  // save has gone through, with what changed, so the question can name it.
+  const [pushAsk, setPushAsk] = useState<{ service: Service; changed: string[]; fromRate: number | null } | null>(null);
+  const [testMinimum, setTestMinimum] = useState(false);
+  const [testBand, setTestBand] = useState<number | null>(null);
 
   const form = useForm<z.infer<typeof serviceSchema>>({
     resolver: zodResolver(serviceSchema),
@@ -852,6 +1163,7 @@ function ServiceDialog({ serviceToEdit, open: controlledOpen, onOpenChange }: {
       defaultStartDate: serviceToEdit?.defaultStartDate ?? '',
       defaultEndDate: serviceToEdit?.defaultEndDate ?? '',
       renewDate: serviceToEdit?.renewDate ?? '',
+      seasonEndDate: serviceToEdit?.seasonEndDate ?? '',
       pricingEquations: serviceToEdit?.pricingEquations?.map(toFormBand) || [emptyBand],
       contractorOfferable: serviceToEdit?.contractorOfferable ?? false,
       contractorPrice: serviceToEdit?.contractorPrice ?? '',
@@ -885,6 +1197,30 @@ function ServiceDialog({ serviceToEdit, open: controlledOpen, onOpenChange }: {
     back.
   */
   const [costPercent, setCostPercent] = useState('75');
+  /*
+    "My starting field on matrix has a min and then from there the Price
+    equation need to take over but I cant set a base."
+
+    A minimum charge is a fact about the service, not about one band — he will
+    not take a mow for under $49 whether the lawn is 800 square feet or 3,000.
+    So it is typed once here and written down the whole matrix, rather than
+    forty times. It lives on the bands themselves (not as a separate service
+    field) so that copying, scaling and exporting a matrix all carry the floor
+    with it automatically; a floor left behind by a ×1.5 copy would quietly
+    take one-time mows at the mowing minimum.
+  */
+  const [minCharge, setMinCharge] = useState(
+    String((serviceToEdit?.pricingEquations ?? []).find(e => e.minPrice != null)?.minPrice ?? ''),
+  );
+  const fillMinimumDown = (clear = false) => {
+    const floor = clear ? null : Number(minCharge);
+    if (!clear && (!Number.isFinite(floor as number) || (floor as number) < 0)) return;
+    const rows = form.getValues('pricingEquations') ?? [];
+    rows.forEach((_row, index: number) => {
+      form.setValue(`pricingEquations.${index}.minPrice`, clear ? '' : (floor as number), { shouldDirty: true });
+    });
+  };
+
   const fillCostsFromRate = () => {
     const pct = Number(costPercent);
     if (!Number.isFinite(pct) || pct <= 0) return;
@@ -925,6 +1261,7 @@ function ServiceDialog({ serviceToEdit, open: controlledOpen, onOpenChange }: {
       defaultStartDate: raw.defaultStartDate || null,
       defaultEndDate: raw.defaultEndDate || null,
       renewDate: raw.renewDate || null,
+      seasonEndDate: raw.seasonEndDate || null,
       pricingEquations: raw.pricingEquations.map(equation => ({
         ...equation,
         upToSqft: equation.upToSqft === '' ? null : equation.upToSqft,
@@ -932,17 +1269,29 @@ function ServiceDialog({ serviceToEdit, open: controlledOpen, onOpenChange }: {
         // mow takes no time, and job costing would quietly believe it.
         budgetedHours: equation.budgetedHours === '' || equation.budgetedHours == null ? null : Number(equation.budgetedHours),
         budgetedCost: equation.budgetedCost === '' || equation.budgetedCost == null ? null : Number(equation.budgetedCost),
+        // Blank is "no floor", not a floor of zero. A zero floor would read as
+        // a deliberate "this band may go to nothing", which is never what an
+        // empty box means.
+        minPrice: equation.minPrice === '' || equation.minPrice == null ? null : Number(equation.minPrice),
       })),
       contractorPrice: raw.contractorPrice === '' || raw.contractorPrice == null ? null : Number(raw.contractorPrice),
       vendorName: raw.vendorName?.trim() || null,
       pricingFieldId: raw.pricingFieldId === '' ? null : raw.pricingFieldId,
     };
     if (serviceToEdit) {
+      // "Making changes to service info. Ask if want to push on to current
+      // assigned jobs/customers." Work out what actually moved before the save
+      // overwrites it, then ask — never push on its own.
+      const moved = pushableChanges(serviceToEdit, data as Partial<Service>);
       updateService.mutate({ id: serviceToEdit.id, data }, {
-        onSuccess: () => {
+        onSuccess: (saved) => {
           queryClient.invalidateQueries({ queryKey: ['/api/services'] });
           setOpen(false);
           toast({ title: 'Service updated' });
+          // The rate it had before this save goes with the question: on a
+          // service with no matrix it is the only way the dialog can leave a
+          // price somebody negotiated by hand out of the push.
+          if (moved.length) setPushAsk({ service: saved, changed: moved, fromRate: serviceToEdit.rate ?? null });
         },
         onError: (error) => toast({ title: 'Could not update service', description: errorMessage(error), variant: 'destructive' }),
       });
@@ -962,7 +1311,14 @@ function ServiceDialog({ serviceToEdit, open: controlledOpen, onOpenChange }: {
   const runTest = () => {
     if (serviceToEdit && testSqft > 0) {
       calculatePrice.mutate({ id: serviceToEdit.id, data: { sqft: testSqft } }, {
-        onSuccess: (res) => setTestPrice(res.price)
+        onSuccess: (res) => {
+          setTestPrice(res.price);
+          // Whether the floor is what set the price is the one thing he wanted
+          // to be able to prove, so the tester says it out loud rather than
+          // leaving him to wonder why two different lawn sizes quoted the same.
+          setTestMinimum(res.minimumApplied === true);
+          setTestBand(res.equationIndex ?? null);
+        },
       });
     }
   };
@@ -971,14 +1327,31 @@ function ServiceDialog({ serviceToEdit, open: controlledOpen, onOpenChange }: {
   const unitLabel = pricingUnitLabel(pricingFieldIdWatch === '' ? null : pricingFieldIdWatch, estimateFields);
   const visitsWatch = form.watch('visitsPerSeason');
   const bandsWatch = form.watch('pricingEquations');
-  const hasPricedBands = (bandsWatch ?? []).some(b => Number(b.basePrice) > 0 || Number(b.incrementPrice) > 0);
+  // A floor on its own is a price — "never less than $49" with no base is a $49
+  // band — so it counts here for the same reason it counts in isPricedBand on
+  // the server. Otherwise "fill by rule" would offer to wipe a matrix it had
+  // decided was empty.
+  const hasPricedBands = (bandsWatch ?? []).some(
+    b => Number(b.basePrice) > 0 || Number(b.incrementPrice) > 0 || Number(b.minPrice) > 0,
+  );
 
   const applyRuleBands = (bands: PricingEquation[]) => {
     replace(bands.map(toFormBand));
     if (bands.some(b => b.incrementPrice || b.incrementSqft || b.baseSqft)) setShowAdvanced(true);
   };
 
+  /**
+   * The imported bands are already saved by the time this runs, so these rows
+   * are not an edit waiting to be saved — they are the matrix. They still have
+   * to go into the form: Save writes every band the form is holding, so a form
+   * left showing the old matrix would write it straight back over the file he
+   * had just accepted, and the import would have been undone by a button that
+   * said Save.
+   */
+  const applyImportedBands = applyRuleBands;
+
   return (
+    <>
     <Dialog open={open} onOpenChange={setOpen}>
       {!controlled && (
         <DialogTrigger asChild>
@@ -989,7 +1362,16 @@ function ServiceDialog({ serviceToEdit, open: controlledOpen, onOpenChange }: {
           )}
         </DialogTrigger>
       )}
-        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+        {/*
+          "Beagle to see all of the rate matrix without having to scroll over."
+          A fixed 72rem gave the matrix about 780px whatever size his screen
+          was, which is narrower than the nine band columns. Sized off the
+          window instead, it uses what he has: 96vw, capped at 96rem so it does
+          not sprawl on a very wide monitor. On his 1,536px screen that is
+          1,474px, which leaves the matrix column about 1,063px against the
+          936px the ten columns now need. It was 822px against 1,072px.
+        */}
+        <DialogContent className="max-w-[min(96rem,96vw)] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{serviceToEdit ? 'Edit Service' : 'Create New Service'}</DialogTitle>
         </DialogHeader>
@@ -1133,8 +1515,20 @@ function ServiceDialog({ serviceToEdit, open: controlledOpen, onOpenChange }: {
                     <FormField control={form.control} name="defaultEndDate" render={({ field }) => (
                       <FormItem><FormLabel>Default End Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage/></FormItem>
                     )} />
+                    {/*
+                      "Renew date is not client specific but Product based", and
+                      it is the same day every year — so this box takes 03-01 the
+                      way the package form does. A plain date box threw a
+                      year-free date away and came up empty, which left him
+                      looking at no renew date at all on a service every one of
+                      his customers follows.
+                    */}
                     <FormField control={form.control} name="renewDate" render={({ field }) => (
-                      <FormItem><FormLabel>Renew Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage/></FormItem>
+                      <FormItem><FormLabel>Renew Date</FormLabel><FormControl><SeasonDateInput value={field.value} onChange={field.onChange} placeholder="03-01" /></FormControl><FormMessage/></FormItem>
+                    )} />
+                    {/* "Season End date will be the same for all mowing clients" — the date lives on the service, so it is edited here too, not only in the push dialog. */}
+                    <FormField control={form.control} name="seasonEndDate" render={({ field }) => (
+                      <FormItem><FormLabel>Season End Date</FormLabel><FormControl><SeasonDateInput value={field.value} onChange={field.onChange} placeholder="10-15" /></FormControl><FormMessage/></FormItem>
                     )} />
                   </div>
                 </div>
@@ -1174,8 +1568,40 @@ function ServiceDialog({ serviceToEdit, open: controlledOpen, onOpenChange }: {
                           matrixDirty={!!form.formState.dirtyFields.pricingEquations}
                         />
                       )}
+                      {/*
+                        "Ability to extract matrix from crm to excel." A plain
+                        link, like the client export and the reports: the login
+                        rides along with it, so there is no download code to go
+                        wrong. It saves a CSV, which is what the button says —
+                        Excel and Google Sheets both open one on a double click,
+                        and a CSV is also what comes back in, so the round trip
+                        is one set of columns rather than two.
+                      */}
+                      {serviceToEdit && (
+                        <Button type="button" variant="outline" size="sm" asChild data-testid="export-matrix">
+                          <a href={getExportServiceMatrixUrl(serviceToEdit.id)} download>
+                            <Download className="w-3 h-3 mr-1" /> Export to Excel (CSV)
+                          </a>
+                        </Button>
+                      )}
+                      {serviceToEdit && (
+                        <ImportMatrixDialog service={serviceToEdit} unitLabel={unitLabel} onImported={applyImportedBands} />
+                      )}
                     </div>
                   </div>
+                  {/*
+                    Both of these work on the SAVED matrix — the export reads it
+                    off the service and the import writes straight back to it —
+                    so edits sitting in the table unsaved are not in the file he
+                    downloads, and an import would replace them. Said out loud
+                    here rather than found out after the round trip.
+                  */}
+                  {!!form.formState.dirtyFields.pricingEquations && (
+                    <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900" data-testid="matrix-dirty-note">
+                      You have changes in the table below that are not saved yet. Export sends the last saved matrix, and an import
+                      replaces it — save the service first if you want these numbers in the file.
+                    </p>
+                  )}
                   <div className="mb-3 flex">
                     <FillByRulePanel
                       unitLabel={unitLabel}
@@ -1201,17 +1627,18 @@ function ServiceDialog({ serviceToEdit, open: controlledOpen, onOpenChange }: {
                   */}
                   <div className="overflow-x-auto rounded-lg border">
                     <table ref={matrixRef} onKeyDown={handleMatrixKeyDown} className="w-max min-w-full text-sm">
-                      <thead className="bg-muted/60">
-                        <tr className="[&>th]:px-2 [&>th]:py-2 [&>th]:text-left [&>th]:font-medium [&>th]:whitespace-nowrap">
-                          <th className="min-w-[6rem]">From</th>
-                          <th>To</th>
-                          <th>Rate ($)</th>
-                          {showAdvanced && <th>Base {unitLabel}</th>}
+                      <thead className="bg-muted">
+                        <tr className="[&>th]:px-1 [&>th]:py-2 [&>th]:text-left [&>th]:font-medium [&>th]:whitespace-nowrap">
+                          <th className={`w-[5rem] min-w-[5rem] ${stickyFromHead}`}>From</th>
+                          <th className={stickyToHead}>To</th>
+                          <th title="The base the per-step money builds on top of">Base ($)</th>
+                          <th title="Never charge less than this for this band, whatever the equation works out to">Never less ($)</th>
+                          {showAdvanced && <th>Base covers ({unitLabel})</th>}
                           {showAdvanced && <th>+ per step ($)</th>}
                           {showAdvanced && <th>Step size</th>}
                           <th>B. Hrs</th>
                           <th>B. Cost ($)</th>
-                          <th className="w-24"></th>
+                          <th className="w-20"></th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1222,10 +1649,16 @@ function ServiceDialog({ serviceToEdit, open: controlledOpen, onOpenChange }: {
                             : previousTo === '' || previousTo == null
                               ? '—'
                               : units(Number(previousTo) + 1);
+                          const row = bandsWatch?.[index];
+                          // Only the rows that are more than one flat price get read
+                          // back in words. A plain "$49 up to 3,999" band says itself
+                          // already, and forty of those explained would be noise.
+                          const explain = !!row && (Number(row.incrementPrice) > 0 || (row.minPrice !== '' && row.minPrice != null));
                           return (
-                            <tr key={field.id} className="border-t [&>td]:px-2 [&>td]:py-1.5 [&>td]:align-middle">
-                              <td className="tabular-nums text-muted-foreground whitespace-nowrap text-right pr-4" data-testid={`band-from-${index}`}>{from}</td>
-                              <td>
+                            <Fragment key={field.id}>
+                            <tr className="border-t [&>td]:px-1 [&>td]:py-1.5 [&>td]:align-middle">
+                              <td className={`tabular-nums text-muted-foreground whitespace-nowrap text-right pr-3 ${stickyFrom}`} data-testid={`band-from-${index}`}>{from}</td>
+                              <td className={stickyTo}>
                                 <FormField control={form.control} name={`pricingEquations.${index}.upToSqft`} render={({ field }) => (
                                   <FormItem className="space-y-0">
                                     <FormControl>
@@ -1237,6 +1670,18 @@ function ServiceDialog({ serviceToEdit, open: controlledOpen, onOpenChange }: {
                               <td>
                                 <FormField control={form.control} name={`pricingEquations.${index}.basePrice`} render={({ field }) => (
                                   <FormItem className="space-y-0"><FormControl><Input type="number" step="0.01" className={bandCell} {...field} data-testid={`band-rate-${index}`} /></FormControl></FormItem>
+                                )} />
+                              </td>
+                              {/*
+                                "My starting field on matrix has a min and then from
+                                there the Price equation need to take over but I cant
+                                set a base." The floor is its own box now, so Base is
+                                only ever the number the per-step money builds on and
+                                this is only ever the number the band may not go under.
+                              */}
+                              <td>
+                                <FormField control={form.control} name={`pricingEquations.${index}.minPrice`} render={({ field }) => (
+                                  <FormItem className="space-y-0"><FormControl><Input type="number" step="0.01" className={bandCell} placeholder="—" {...field} value={field.value ?? ''} data-testid={`band-min-${index}`} /></FormControl></FormItem>
                                 )} />
                               </td>
                               {showAdvanced && (
@@ -1302,6 +1747,14 @@ function ServiceDialog({ serviceToEdit, open: controlledOpen, onOpenChange }: {
                                 )}
                               </td>
                             </tr>
+                            {explain && row && (
+                              <tr className="border-t-0">
+                                <td colSpan={showAdvanced ? 10 : 7} className="px-2 pb-1.5 pt-0 text-xs text-muted-foreground" data-testid={`band-says-${index}`}>
+                                  This band: {bandSentence(row, unitLabel)}
+                                </td>
+                              </tr>
+                            )}
+                            </Fragment>
                           );
                         })}
                       </tbody>
@@ -1336,6 +1789,29 @@ function ServiceDialog({ serviceToEdit, open: controlledOpen, onOpenChange }: {
                     </span>
                   </div>
 
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-md border bg-muted/30 p-2 text-sm">
+                    <span className="font-medium">Never charge less than $</span>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      className="h-8 w-24"
+                      placeholder="49"
+                      value={minCharge}
+                      onChange={e => setMinCharge(e.target.value)}
+                      aria-label="Minimum charge for this service"
+                      data-testid="min-charge"
+                    />
+                    <Button type="button" variant="outline" size="sm" onClick={() => fillMinimumDown()} disabled={minCharge === ''} data-testid="fill-minimum">
+                      Put it on every band
+                    </Button>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => fillMinimumDown(true)} data-testid="clear-minimum">
+                      No minimum
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      The floor goes on last, after the base price and every step — so a band can charge per {unitLabel.toLowerCase()} from the first one and still never go under this.
+                    </span>
+                  </div>
+
                   <div className="flex items-center justify-between pt-1">
                     <p className="text-xs text-muted-foreground">
                       Leave the last <strong>To</strong> empty for “and up”. Budgeted hours and cost are optional —
@@ -1362,7 +1838,16 @@ function ServiceDialog({ serviceToEdit, open: controlledOpen, onOpenChange }: {
               </div>
               <div className="p-4 bg-background border rounded-md text-center">
                 <p className="text-xs text-muted-foreground font-semibold uppercase">Est. Price per visit</p>
-                <p className="text-2xl font-bold text-primary mt-1">{testPrice !== null ? `$${testPrice.toFixed(2)}` : '--'}</p>
+                <p className="text-2xl font-bold text-primary mt-1" data-testid="test-price">{testPrice !== null ? `$${testPrice.toFixed(2)}` : '--'}</p>
+                {testPrice !== null && testBand !== null && (
+                  <p className="mt-1 text-xs text-muted-foreground" data-testid="test-band">
+                    Band {testBand + 1}
+                    {testMinimum && <span className="font-semibold text-foreground"> · held at the minimum</span>}
+                  </p>
+                )}
+                {testPrice !== null && testBand === null && (
+                  <p className="mt-1 text-xs text-destructive">No band with a price covers that size.</p>
+                )}
                 {testPrice !== null && visitsWatch !== '' && Number(visitsWatch) > 1 && (
                   <p className="text-xs text-muted-foreground mt-1">
                     × {visitsWatch} visits = <span className="font-semibold text-foreground">{money(testPrice * Number(visitsWatch))}</span> a season
@@ -1389,6 +1874,11 @@ function ServiceDialog({ serviceToEdit, open: controlledOpen, onOpenChange }: {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    {/* The ask, once the save has gone through: it needs the saved service. */}
+    {pushAsk && (
+      <ServiceCustomerPush service={pushAsk.service} changed={pushAsk.changed} fromRate={pushAsk.fromRate} onClose={() => setPushAsk(null)} />
+    )}
+    </>
   );
 }
 
@@ -1567,12 +2057,16 @@ function PackageDialog({ packageToEdit, open: controlledOpen, onOpenChange }: {
                       )} />
                       <FormField control={form.control} name={`items.${index}.windowStart`} render={({ field }) => (
                         <FormItem className="col-span-6 md:col-span-2 space-y-0">
-                          <FormControl><Input type="date" className="h-9" title="Window start (beats the package start for this entry)" {...field} /></FormControl>
+                          <FormControl>
+                            <SeasonDateInput className="h-9" title="Window start (beats the package start for this entry). No year needed." value={field.value} onChange={field.onChange} placeholder="06-01" />
+                          </FormControl>
                         </FormItem>
                       )} />
                       <FormField control={form.control} name={`items.${index}.windowEnd`} render={({ field }) => (
                         <FormItem className="col-span-6 md:col-span-2 space-y-0">
-                          <FormControl><Input type="date" className="h-9" title="Window end" {...field} /></FormControl>
+                          <FormControl>
+                            <SeasonDateInput className="h-9" title="Window end. No year needed." value={field.value} onChange={field.onChange} placeholder="06-30" />
+                          </FormControl>
                         </FormItem>
                       )} />
                       <div className="col-span-12 md:col-span-1 flex justify-end whitespace-nowrap">
@@ -1603,6 +2097,15 @@ function PackageDialog({ packageToEdit, open: controlledOpen, onOpenChange }: {
                   These defaults are copied to each service when this package is assigned to a client.
                   Changing them later will not rewrite clients who already have the package.
                 </p>
+                {/*
+                  "When Creating packages does not need year as they will be
+                  renewed every year and have the same date window of service."
+                */}
+                <p className="text-xs text-muted-foreground">
+                  No year needed: type <b>10-01</b> and it means the first of October every year. Assigning the package puts it in
+                  the right season — this year while the window is still open or ahead, next year once it has gone by. Type a full
+                  date like 2026-10-01 only when you mean that one year.
+                </p>
               </div>
               <FormField control={form.control} name="scheduleType" render={({ field }) => (
                 <FormItem>
@@ -1622,10 +2125,10 @@ function PackageDialog({ packageToEdit, open: controlledOpen, onOpenChange }: {
               {scheduleType === 'window' && (
                 <div className="grid grid-cols-2 gap-4">
                   <FormField control={form.control} name="startDate" render={({ field }) => (
-                    <FormItem><FormLabel>Start Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage/></FormItem>
+                    <FormItem><FormLabel>Start Date</FormLabel><FormControl><SeasonDateInput value={field.value} onChange={field.onChange} placeholder="10-01" /></FormControl><FormMessage/></FormItem>
                   )} />
                   <FormField control={form.control} name="endDate" render={({ field }) => (
-                    <FormItem><FormLabel>End Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage/></FormItem>
+                    <FormItem><FormLabel>End Date</FormLabel><FormControl><SeasonDateInput value={field.value} onChange={field.onChange} placeholder="11-30" /></FormControl><FormMessage/></FormItem>
                   )} />
                 </div>
               )}
@@ -1636,13 +2139,13 @@ function PackageDialog({ packageToEdit, open: controlledOpen, onOpenChange }: {
                     <FormItem><FormLabel>Every (weeks)</FormLabel><FormControl><Input type="number" min="1" step="1" {...field} /></FormControl><FormMessage/></FormItem>
                   )} />
                   <FormField control={form.control} name="startDate" render={({ field }) => (
-                    <FormItem><FormLabel>Start Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage/></FormItem>
+                    <FormItem><FormLabel>Start Date</FormLabel><FormControl><SeasonDateInput value={field.value} onChange={field.onChange} placeholder="04-01" /></FormControl><FormMessage/></FormItem>
                   )} />
                   <FormField control={form.control} name="seasonEndDate" render={({ field }) => (
-                    <FormItem><FormLabel>Season End Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage/></FormItem>
+                    <FormItem><FormLabel>Season End Date</FormLabel><FormControl><SeasonDateInput value={field.value} onChange={field.onChange} placeholder="10-15" /></FormControl><FormMessage/></FormItem>
                   )} />
                   <FormField control={form.control} name="renewDate" render={({ field }) => (
-                    <FormItem><FormLabel>Renew Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage/></FormItem>
+                    <FormItem><FormLabel>Renew Date</FormLabel><FormControl><SeasonDateInput value={field.value} onChange={field.onChange} placeholder="03-01" /></FormControl><FormMessage/></FormItem>
                   )} />
                 </div>
               )}

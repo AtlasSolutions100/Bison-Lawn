@@ -9,4 +9,6 @@
 export interface BillingSettings {
   cardFeeEnabled: boolean;
   cardFeePercent: number;
+  /** Who may take a payment for a customer from the job card. Office people with Invoices already can; this is the list of everyone else he has said may touch money. Empty means nobody else. */
+  fieldPaymentUserIds?: number[];
 }

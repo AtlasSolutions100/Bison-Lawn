@@ -12,7 +12,7 @@ export type ListInvoicesParams = {
 clientId?: number;
 status?: ListInvoicesStatus;
 /**
- * His invoice tabs. pending = completed jobs waiting for him to verify; to_email / to_print = verified and not yet sent by that method; open = anything still owed; past_due = open and past its due date (invoice date when the terms are due on receipt).
+ * His invoice tabs. pending = completed jobs waiting for him to verify; to_email / to_print = verified and not yet sent by that method; open = anything still owed; past_due = open and past its due date (invoice date when the terms are due on receipt); written_off = balances he has given up on or handed to collections, kept for the record and counting toward nothing.
  */
 queue?: ListInvoicesQueue;
 /**

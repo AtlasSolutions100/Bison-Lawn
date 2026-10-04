@@ -6,7 +6,9 @@ import clientServicesRouter from "./client-services";
 import jobProductsRouter from "./job-products";
 import clientsBulkRouter from "./clients-bulk";
 import clientContactsRouter from "./client-contacts";
+import clientTagsRouter from "./client-tags";
 import servicesRouter from "./services";
+import serviceChangesRouter from "./service-changes";
 import estimatesRouter from "./estimates";
 import jobsRouter from "./jobs";
 import billingRouter from "./billing";
@@ -31,6 +33,7 @@ import smsRouter from "./sms";
 import locationsRouter from "./locations";
 import dispatchActionsRouter from "./dispatch-actions";
 import emailActivityRouter from "./email-activity";
+import aiRouter from "./ai";
 
 const router: IRouter = Router();
 
@@ -67,12 +70,19 @@ router.use(clientsBulkRouter);
 // Also before clientsRouter, so a contacts request is authenticated once by its
 // own guard instead of twice (clientsRouter guards everything under /clients).
 router.use(clientContactsRouter);
+// The tag pick list. Its own path and its own guard, so it is not caught by
+// clientsRouter's /clients prefix.
+router.use(clientTagsRouter);
 router.use(clientsRouter);
 // Right after clientsRouter, whose guard on /clients and /client-services is
 // what makes the assigned-service routes admin-only.
 router.use(clientServicesRouter);
 router.use(jobProductsRouter);
 router.use(servicesRouter);
+// "Making changes to service info. Ask if want to push on to current assigned
+// jobs/customers" — what a service change should do to the accounts that
+// already have it. Its own router so the service catalogue stays untouched.
+router.use(serviceChangesRouter);
 router.use(estimatesRouter);
 router.use(jobsRouter);
 router.use(billingRouter);
@@ -91,6 +101,9 @@ router.use(dispatchMapRouter);
 router.use(dispatchActionsRouter);
 router.use(reportsRouter);
 router.use(searchRouter);
+// The Polish button. Signed-in only, no area gate: a contractor writing a
+// "crew is on the way" note needs it as much as the office does.
+router.use(aiRouter);
 router.use(settingsRouter);
 
 export default router;

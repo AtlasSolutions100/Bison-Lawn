@@ -5,6 +5,7 @@ import {
   useBulkUpdateClients,
   useBulkDeleteClients,
   getExportClientsUrl,
+  useListClientTags,
   Client,
   BulkClientUpdateInput,
   BulkClientDeleteResult,
@@ -29,6 +30,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Search, Plus, MapPin, Phone, Mail, ChevronRight, ChevronDown, Droplets, Filter, X, Download, Trash2, Pencil, UserCheck,
+  Building2, List, Map as MapIcon,
 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -36,6 +38,7 @@ import * as z from 'zod';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
 import { MapCodeBadge, WaterProviderLookupLink } from '@/components/map-code';
+import ClientsMap from '@/components/client/clients-map';
 
 const clientSchema = z.object({
   name: z.string().min(2, "Name is required"),
@@ -235,10 +238,33 @@ function loadFilters(): ClientFilter[] {
 
 const selectClass = 'h-9 rounded-md border border-input bg-background px-2 text-sm outline-none';
 
+// Which way he left the page: the table, or the map of the whole book. Same
+// per-browser nicety as the filters above — the page works with it missing.
+const VIEW_KEY = 'bison.clients.view';
+function loadView(): 'list' | 'map' {
+  try { return localStorage.getItem(VIEW_KEY) === 'map' ? 'map' : 'list'; } catch { return 'list'; }
+}
+
 export default function Clients() {
   const [statusFilter, setStatusFilter] = useState<'lead'|'client'|'former_client'|'all'>('all');
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState<ClientFilter[]>(loadFilters);
+  const [view, setView] = useState<'list' | 'map'>(loadView);
+  /*
+    "When adding a sub account. Have the previous one unviewable instead of
+    greyed out."
+
+    A property that has moved under a master account is off this list: its own
+    row here is the one that confused him, because the property is already
+    listed on the master's page with its own balance. Off, not greyed — a greyed
+    row is still a row to read past.
+
+    Two ways back to it, so nothing is actually lost: Show them puts them back
+    in the list, and typing in the search box always searches them whether they
+    are shown or not — looking a customer up by name must never come back empty
+    because of how his accounts are filed.
+  */
+  const [showSubs, setShowSubs] = useState(false);
   /*
     Sorting is a mode rather than a flag now. "Can leads be organized
     alphabetically but also looked up based on input date" — alphabetical is the
@@ -252,12 +278,38 @@ export default function Clients() {
     try { localStorage.setItem(FILTERS_KEY, JSON.stringify(filters)); } catch { /* per-browser nicety only */ }
   }, [filters]);
 
+  useEffect(() => {
+    try { localStorage.setItem(VIEW_KEY, view); } catch { /* per-browser nicety only */ }
+  }, [view]);
+
+  const searching = search.trim().length > 0;
+  // The map is "show ALL clients on map": a property manager's twelve
+  // properties are twelve real lawns in twelve real places, and leaving them
+  // off because of how the accounts are filed would be a map of the wrong
+  // book. Hiding them is about the list's rows, not about the ground.
+  const hideSubs = !showSubs && !searching && view === 'list';
+
   const queryParams = {
     ...(statusFilter !== 'all' && { status: statusFilter }),
-    ...(search && { search })
+    ...(search && { search }),
+    ...(hideSubs && { subAccounts: 'hide' as const }),
   };
 
   const { data: clients, isLoading } = useListClients(queryParams);
+  // Only the properties under a master, so the line below can say how many are
+  // off the list and offer to show them. Small list, and cached. It carries the
+  // same status tab as the list: the line is about rows this list is missing, and
+  // counting every property regardless of status told him twelve were hidden on
+  // the Leads tab when not one of them is a lead — "show them here" then added
+  // nothing, which reads as a broken link.
+  const { data: subAccountRows } = useListClients({
+    ...(statusFilter !== 'all' && { status: statusFilter }),
+    subAccounts: 'only' as const,
+  });
+  const subAccountCount = subAccountRows?.length ?? 0;
+  // The tag list, so the filter box and Add tags offer the same words the
+  // customer page offers — "create a tag list for drop down selection".
+  const { data: tagList } = useListClientTags();
 
   // His custom fields ("Turf sqft", "Gate code") are free text per customer and
   // the import left the same field spelled two ways on different customers, so
@@ -322,8 +374,14 @@ export default function Clients() {
     }
     const out: Record<string, string[]> = {};
     for (const [key, set] of byField) out[key] = [...set].sort((a, b) => a.localeCompare(b));
+    // Tags come off the tag list as well as off the customers, so a tag he put
+    // on the list this morning is offered in the filter and in Add tags before
+    // anybody is carrying it — otherwise a managed list nobody has used yet
+    // still has to be typed from memory.
+    out.tags = [...new Set([...(out.tags ?? []), ...(tagList ?? []).map((t) => t.name)])]
+      .sort((a, b) => a.localeCompare(b));
     return out;
-  }, [clients]);
+  }, [clients, tagList]);
 
   const visibleClients = useMemo(() => {
     const active = filters.filter((f) => fieldByKey.has(f.field));
@@ -386,8 +444,52 @@ export default function Clients() {
                 ? `${clients.length} ${clients.length === 1 ? 'customer' : 'customers'}`
                 : `${visibleClients.length} of ${clients.length} shown`}
           </p>
+          {/* Only the list has rows to hide; the map draws everyone. */}
+          {view === 'list' && subAccountCount > 0 && (
+            <p className="text-xs text-muted-foreground mt-1" data-testid="sub-account-note">
+              {hideSubs ? (
+                <>
+                  {subAccountCount} {subAccountCount === 1 ? 'property sits' : 'properties sit'} under a master
+                  account and {subAccountCount === 1 ? 'is' : 'are'} off this list — open the master to see
+                  {subAccountCount === 1 ? ' it' : ' them'}, or{' '}
+                  <button type="button" className="font-medium underline hover:text-foreground" onClick={() => setShowSubs(true)} data-testid="show-sub-accounts">
+                    show {subAccountCount === 1 ? 'it' : 'them'} here
+                  </button>.
+                </>
+              ) : searching ? (
+                <>Search looks at properties under master accounts too.</>
+              ) : (
+                <>
+                  Properties under a master account are in this list.{' '}
+                  <button type="button" className="font-medium underline hover:text-foreground" onClick={() => setShowSubs(false)} data-testid="hide-sub-accounts">
+                    Hide them again
+                  </button>.
+                </>
+              )}
+            </p>
+          )}
         </div>
-        <NewClientDialog />
+        <div className="flex items-center gap-2">
+          {/* The whole book on a map — "Show all clients on map". It draws the
+              rows this list is showing, so a filter narrows both. */}
+          <div className="inline-flex rounded-md border overflow-hidden">
+            <button
+              type="button"
+              className={`px-2.5 py-2 ${view === 'list' ? 'bg-muted' : 'hover:bg-muted/50'}`}
+              title="The customer list"
+              onClick={() => setView('list')}
+              data-testid="clients-view-list"
+            ><List className="h-4 w-4" /></button>
+            <button
+              type="button"
+              className={`px-2.5 py-2 border-l ${view === 'map' ? 'bg-muted' : 'hover:bg-muted/50'}`}
+              title="Every customer on a map"
+              onClick={() => setView('map')}
+              data-testid="clients-view-map"
+            ><MapIcon className="h-4 w-4" /></button>
+          </div>
+          <NewClientDialog />
+        </div>
       </div>
 
       <div className="bg-card rounded-lg border shadow-sm">
@@ -430,6 +532,9 @@ export default function Clients() {
         />
       )}
 
+      {view === 'map' ? (
+        <ClientsMap clients={visibleClients} filtered={filters.length > 0 || searching || statusFilter !== 'all'} />
+      ) : (
       <div className="bg-card border rounded-lg shadow-sm flex-1 overflow-hidden flex flex-col">
         <div className="overflow-auto flex-1">
           {/*
@@ -521,6 +626,7 @@ export default function Clients() {
           </Table>
         </div>
       </div>
+      )}
     </div>
   );
 }
@@ -813,7 +919,7 @@ function BulkActionsBar({ ids, shownIds, distinctValues, onDone }: {
 
 type EditKey = 'mapCode' | 'waterDistrict' | 'state' | 'accountType' | 'billingTerms' | 'invoiceFrequency' | 'invoiceDelivery' | 'doNotEmail' | 'addTags' | 'removeTags';
 
-const EDIT_FIELDS: { key: EditKey; label: string; hint?: string; suggest?: string; choices?: { value: string; label: string }[] }[] = [
+const EDIT_FIELDS: { key: EditKey; label: string; hint?: string; suggest?: string; pick?: 'tags'; choices?: { value: string; label: string }[] }[] = [
   { key: 'mapCode', label: 'Map code', hint: 'Blank clears it', suggest: 'mapCode' },
   { key: 'state', label: 'Branch / state', hint: 'ID or WA', suggest: 'state' },
   { key: 'waterDistrict', label: 'Water district', suggest: 'waterDistrict' },
@@ -822,8 +928,11 @@ const EDIT_FIELDS: { key: EditKey; label: string; hint?: string; suggest?: strin
   { key: 'invoiceFrequency', label: 'Invoice frequency', hint: 'e.g. Monthly', suggest: 'invoiceFrequency' },
   { key: 'invoiceDelivery', label: 'Invoice delivery', choices: [{ value: '', label: '— clear —' }, { value: 'email', label: 'Email' }, { value: 'print', label: 'Print' }, { value: 'both', label: 'Both' }] },
   { key: 'doNotEmail', label: 'Do not email', choices: [{ value: 'true', label: 'On — skip them in bulk emails' }, { value: 'false', label: 'Off' }] },
-  { key: 'addTags', label: 'Add tags', hint: 'Comma-separated', suggest: 'tags' },
-  { key: 'removeTags', label: 'Remove tags', hint: 'Comma-separated', suggest: 'tags' },
+  // Picked, not typed. Typing the tag here was the other way a typo became a
+  // second tag — and worse than on one account, because a bulk edit puts the
+  // misspelling on forty customers at once. Same list the customer page offers.
+  { key: 'addTags', label: 'Add tags', suggest: 'tags', pick: 'tags' },
+  { key: 'removeTags', label: 'Remove tags', suggest: 'tags', pick: 'tags' },
 ];
 
 /**
@@ -887,17 +996,25 @@ function BulkEditDialog({ open, onOpenChange, count, distinctValues, saving, onA
             const enabled = !!on[f.key];
             const suggestions = f.suggest ? distinctValues[f.suggest] ?? [] : [];
             return (
-              <div key={f.key} className="grid grid-cols-[auto_150px_1fr] items-center gap-3">
+              <div key={f.key} className={`grid grid-cols-[auto_150px_1fr] gap-3 ${f.pick ? 'items-start' : 'items-center'}`}>
                 <input
                   type="checkbox"
-                  className="h-4 w-4 cursor-pointer accent-primary"
+                  className={`h-4 w-4 cursor-pointer accent-primary ${f.pick ? 'mt-1.5' : ''}`}
                   checked={enabled}
                   onChange={(e) => setOn((prev) => ({ ...prev, [f.key]: e.target.checked }))}
                   aria-label={`Change ${f.label}`}
                   data-testid={`bulk-edit-on-${f.key}`}
                 />
-                <label className={`text-sm ${enabled ? 'font-medium' : 'text-muted-foreground'}`}>{f.label}</label>
-                {f.choices ? (
+                <label className={`text-sm ${f.pick ? 'mt-1' : ''} ${enabled ? 'font-medium' : 'text-muted-foreground'}`}>{f.label}</label>
+                {f.pick === 'tags' ? (
+                  <TagChipPicker
+                    tags={suggestions}
+                    picked={splitTags(values[f.key] ?? '')}
+                    disabled={!enabled}
+                    onChange={(next) => setValues((prev) => ({ ...prev, [f.key]: next.join(', ') }))}
+                    testId={`bulk-edit-${f.key}`}
+                  />
+                ) : f.choices ? (
                   <select
                     className={`${selectClass} w-full`}
                     disabled={!enabled}
@@ -969,6 +1086,20 @@ function ClientRow({ client, selected, onSelectedChange }: {
       </TableCell>
       <TableCell className="font-semibold text-foreground">
         <span className="block truncate" title={client.name}>{client.name}</span>
+        {/* The way in to the properties filed under this account, since their
+            own rows are off the list. The master's page lists them in
+            alphanumeric order with each balance and the total. */}
+        {(client.relatedPropertyCount ?? 0) > 0 && (
+          <span className="mt-0.5 inline-flex items-center gap-1 text-xs font-normal text-muted-foreground" data-testid={`master-chip-${client.id}`}>
+            <Building2 className="h-3 w-3 shrink-0" />
+            {client.relatedPropertyCount} {client.relatedPropertyCount === 1 ? 'property' : 'properties'}
+          </span>
+        )}
+        {client.parentClientId != null && (
+          <span className="mt-0.5 block truncate text-xs font-normal text-muted-foreground" title={client.parentClientName ?? undefined}>
+            under {client.parentClientName ?? `#${client.parentClientId}`}
+          </span>
+        )}
       </TableCell>
       <TableCell>
         {/* An absent value is shown as a dash, not as a sentence. "No contact
@@ -1033,8 +1164,26 @@ function ClientRow({ client, selected, onSelectedChange }: {
           ${client.accountBalance.toLocaleString(undefined, {minimumFractionDigits:2})}
         </span>
       </TableCell>
-      <TableCell>
-        <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+      <TableCell onClick={(e) => e.stopPropagation()}>
+        {/* Straight into Edit, where billing and the property details both are
+            — "Billing, Property details all in button on editing client". The
+            arrow next to it still opens the account itself. */}
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-primary"
+            aria-label={`Edit ${client.name}`}
+            title="Edit billing, property details and the rest"
+            onClick={() => setLocation(`/clients/${client.id}?edit=billing`)}
+            data-testid={`edit-client-${client.id}`}
+          >
+            <Pencil className="w-4 h-4" />
+          </button>
+          <ChevronRight
+            className="w-5 h-5 cursor-pointer text-muted-foreground group-hover:text-primary transition-colors"
+            onClick={() => setLocation(`/clients/${client.id}`)}
+          />
+        </div>
       </TableCell>
     </TableRow>
   );
@@ -1142,5 +1291,52 @@ function NewClientDialog() {
         </Form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * The tag list as chips he ticks, for the bulk Add tags / Remove tags rows.
+ *
+ * "Create a tag list for drop down selection, ability to add multiple tags."
+ * There is no box to type in on purpose: typing was the thing that made a
+ * second tag out of a typo, and doing it here would put the misspelling on
+ * every customer he has selected at once. A tag that is not on the list yet
+ * gets put there on a customer's own page, where the spelling is in front of
+ * him, and then it shows up here.
+ */
+function TagChipPicker({ tags, picked, disabled, onChange, testId }: {
+  tags: string[];
+  picked: string[];
+  disabled: boolean;
+  onChange: (next: string[]) => void;
+  testId: string;
+}) {
+  if (tags.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground" data-testid={`${testId}-empty`}>
+        No tags yet. Open a customer, Overview, Tags to start the list.
+      </p>
+    );
+  }
+  return (
+    <div className={`flex flex-wrap gap-1 ${disabled ? 'pointer-events-none opacity-50' : ''}`} data-testid={testId}>
+      {tags.map((tag) => {
+        const on = picked.includes(tag);
+        return (
+          <button
+            key={tag}
+            type="button"
+            disabled={disabled}
+            onClick={() => onChange(on ? picked.filter((t) => t !== tag) : [...picked, tag])}
+            className={`rounded-full border px-2 py-0.5 text-xs transition ${
+              on ? 'border-primary bg-primary text-primary-foreground' : 'bg-background hover:border-primary/50'
+            }`}
+            data-testid={`${testId}-${tag}`}
+          >
+            {tag}
+          </button>
+        );
+      })}
+    </div>
   );
 }

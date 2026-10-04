@@ -17,4 +17,5 @@ export const ListInvoicesQueue = {
   past_due: 'past_due',
   paid: 'paid',
   void: 'void',
+  written_off: 'written_off',
 } as const;

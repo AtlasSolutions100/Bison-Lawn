@@ -9,6 +9,7 @@ import type { ClientServiceBillingMode } from './clientServiceBillingMode';
 import type { ClientServiceDiscountType } from './clientServiceDiscountType';
 import type { ClientServiceFrequency } from './clientServiceFrequency';
 import type { ClientServiceScheduleType } from './clientServiceScheduleType';
+import type { ClientServiceSeason } from './clientServiceSeason';
 import type { ClientServiceWeekParity } from './clientServiceWeekParity';
 
 /**
@@ -47,8 +48,37 @@ export interface ClientService {
   firstServiceDate?: string | null;
   /** @nullable */
   seasonEndDate?: string | null;
-  /** @nullable */
+  /**
+     * This row own date; it only governs when renewDateOverridden is set
+     * @nullable
+     */
   renewDate?: string | null;
+  /** Set when the office typed a renew date for this one customer. Off means the service date governs. */
+  renewDateOverridden?: boolean;
+  /**
+     * The renew date on the service itself, as typed (may be mm-dd)
+     * @nullable
+     */
+  serviceRenewDate?: string | null;
+  /**
+     * The date that actually governs this row, resolved into its season
+     * @nullable
+     */
+  effectiveRenewDate?: string | null;
+  /** Set when the date above came from the service rather than this customer */
+  renewDateFromService?: boolean;
+  /**
+     * The season end on the service, which every customer with it follows
+     * @nullable
+     */
+  serviceSeasonEndDate?: string | null;
+  /**
+     * The day this row season opens - what the account list is ordered by
+     * @nullable
+     */
+  seasonStart?: string | null;
+  /** Seasons already closed by a renewal, newest last - last year details, kept on the account */
+  pastSeasons: ClientServiceSeason[];
   /** @nullable */
   budgetedHours?: number | null;
   /** @nullable */

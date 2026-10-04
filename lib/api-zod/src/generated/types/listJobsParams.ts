@@ -27,4 +27,20 @@ tag?: string;
  */
 search?: string;
 hasNotes?: boolean;
+/**
+ * "Dispatch board — columns search using custom fields." The label of one of his custom customer fields (Turf Sqft, Gate Code, Sprinkler Zones). On its own it means "only customers who have this filled in", which answers who he has not measured yet. Matched without case, because the label in Settings and the key saved on an old customer are not always capitalised the same.
+ */
+fieldLabel?: string;
+/**
+ * The custom field's value contains this, any part of it, any case.
+ */
+fieldValue?: string;
+/**
+ * The custom field read as a number, at least this. Commas and units are stripped first, so "6,200 sq ft" still compares.
+ */
+fieldMin?: number;
+/**
+ * The custom field read as a number, at most this.
+ */
+fieldMax?: number;
 };

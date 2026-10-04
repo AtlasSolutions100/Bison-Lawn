@@ -13,4 +13,6 @@ export interface BillingSettingsUpdate {
      * @maximum 25
      */
   cardFeePercent?: number;
+  /** @maxItems 100 */
+  fieldPaymentUserIds?: number[];
 }

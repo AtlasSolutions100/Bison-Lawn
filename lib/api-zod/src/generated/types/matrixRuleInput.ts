@@ -20,4 +20,9 @@ export interface MatrixRuleInput {
      * @nullable
      */
   costPercent?: number | null;
+  /**
+     * Written onto every band the rule makes as its "never less than" floor. Usually the same as startPrice, but not always: a rule that starts at $0 and charges $5 a thousand still has a minimum charge under it, and that is the sentence he could not write before.
+     * @nullable
+     */
+  minPrice?: number | null;
 }

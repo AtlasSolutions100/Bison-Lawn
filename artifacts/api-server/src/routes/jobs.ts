@@ -33,6 +33,7 @@ import {
   getBillingSettings,
 } from "../lib/helpers";
 import { assessSkip } from "../lib/skipPolicy";
+import { crewByJob, crewJobIdsFor, isOnJobCrew } from "../lib/jobCrew";
 import { todayISO } from "../lib/invoiceNumbers";
 import { createInvoiceForJob } from "../lib/invoiceFromJob";
 
@@ -52,7 +53,7 @@ export async function hydrateJobs(rows: JobRow[]) {
   const jobIds = rows.map((r) => r.id);
   const csIds = [...new Set(rows.map((r) => r.clientServiceId).filter((x): x is number => x != null))];
 
-  const [clients, services, users, products, latestInvoices, clientServices, clocked] = await Promise.all([
+  const [clients, services, users, products, latestInvoices, clientServices, clocked, crew] = await Promise.all([
     db.select().from(clientsTable).where(inArray(clientsTable.id, clientIds)),
     serviceIds.length ? db.select().from(servicesTable).where(inArray(servicesTable.id, serviceIds)) : Promise.resolve([]),
     userIds.length ? db.select().from(usersTable).where(inArray(usersTable.id, userIds)) : Promise.resolve([]),
@@ -72,6 +73,10 @@ export async function hydrateJobs(rows: JobRow[]) {
             total: invoicesTable.total,
             amountPaid: invoicesTable.amountPaid,
             invoiceDate: invoicesTable.invoiceDate,
+            // Without the status, balanceOf cannot tell that a written-off
+            // bill owes nothing, and the board told the crew at the door to
+            // ask for money he had already decided to stop chasing.
+            status: invoicesTable.status,
           })
           .from(invoicesTable)
           .where(and(inArray(invoicesTable.clientId, clientIds), ne(invoicesTable.status, "void")))
@@ -94,6 +99,10 @@ export async function hydrateJobs(rows: JobRow[]) {
       .from(jobTimeEntriesTable)
       .where(inArray(jobTimeEntriesTable.jobId, jobIds))
       .groupBy(jobTimeEntriesTable.jobId),
+    // The extra people on the stop. "Document crew member on clean ups" — the
+    // board, the job card and the invoice question "who did this one" all need
+    // more than the one name on assignedToId.
+    crewByJob(jobIds),
   ]);
 
   const cMap = new Map(clients.map((c) => [c.id, c]));
@@ -142,6 +151,10 @@ export async function hydrateJobs(rows: JobRow[]) {
       // The short name he set on the person, never the account name — which
       // for a contractor who signed up by email is the email address.
       assignedToName: r.assignedToId ? contractorLabel(uMap.get(r.assignedToId)) : null,
+      // Everyone else on the job, the lead excluded. A clean-up with Disa
+      // leading and Gabe and Spencer along reads "Disa +2" on the board, and
+      // the stop is on all three of their phones.
+      crew: crew.get(r.id) ?? [],
       products: products.filter((p) => p.jobId === r.id),
       completedAt: r.completedAt ? r.completedAt.toISOString() : null,
       skippedAt: r.skippedAt ? r.skippedAt.toISOString() : null,
@@ -182,11 +195,64 @@ function clientFilterConds(q: Record<string, string | undefined>): SQL[] {
     const like = `%${q.search.trim()}%`;
     conds.push(or(ilike(clientsTable.name, like), ilike(clientsTable.serviceAddress, like))!);
   }
+  /**
+   * "Dispatch board — columns search using custom fields."
+   *
+   * The custom fields are the ones he keeps in Settings (Turf Sqft, Gate Code,
+   * Sprinkler Zones) and they live on the customer as one JSON document keyed
+   * by the field's label. `fieldLabel` alone means "only customers who have
+   * this filled in", which is the question behind half of them: who have I not
+   * measured yet.
+   *
+   * The label is matched without case because the label he types in Settings
+   * and the key saved on a customer years ago are not always capitalised the
+   * same, and a filter that silently matches nothing looks like missing data.
+   *
+   * fieldMin/fieldMax strip everything but digits off the value first: a sqft
+   * typed as "6,200" or "6200 sq ft" is a number he means to compare, and
+   * refusing to compare it would make the filter useless on real data.
+   *
+   * What is left has to still look like one number before it is compared. Some
+   * of the 709 came over from Service Autopilot with a range in the box —
+   * "5000-6000", "4,500 - 5,000", a lone dash where somebody meant n/a — and
+   * handing that to Postgres as a number used to kill the whole query, so the
+   * board came back empty instead of showing the lawns that DO have a number.
+   * A value that is not one number counts as nothing usable here and drops out
+   * of the comparison, the same answer numericFieldValue gives in the pricing
+   * code — one stored value must not mean two different things.
+   */
+  if (q.fieldLabel?.trim()) {
+    const label = q.fieldLabel.trim();
+    const value = q.fieldValue?.trim();
+    const min = q.fieldMin?.trim() ? Number(q.fieldMin) : null;
+    const max = q.fieldMax?.trim() ? Number(q.fieldMax) : null;
+    const cleaned = sql`regexp_replace(pd.value, '[^0-9.-]', '', 'g')`;
+    const num = sql`case when ${cleaned} ~ '^-?([0-9]+([.][0-9]*)?|[.][0-9]+)$'
+            then ${cleaned}::double precision end`;
+    const extra: SQL[] = [];
+    if (value) extra.push(sql`pd.value ilike ${`%${value}%`}`);
+    if (min != null && Number.isFinite(min)) extra.push(sql`${num} >= ${min}`);
+    if (max != null && Number.isFinite(max)) extra.push(sql`${num} <= ${max}`);
+    conds.push(
+      sql`exists (select 1 from jsonb_each_text(${clientsTable.propertyData}) pd
+            where lower(pd.key) = lower(${label}) and btrim(pd.value) <> ''
+            ${extra.length ? sql.join([sql`and`, sql.join(extra, sql` and `)], sql` `) : sql``})`,
+    );
+  }
   if (conds.length === 0) return [];
   return [inArray(jobsTable.clientId, db.select({ id: clientsTable.id }).from(clientsTable).where(and(...conds)))];
 }
 
 const hasNotesCond = () => and(sql`${jobsTable.notes} is not null`, ne(jobsTable.notes, ""))!;
+
+/**
+ * "My" jobs: the ones I lead, plus the ones I was added to as crew.
+ *
+ * One condition rather than two queries stitched together, so route order,
+ * paging and the date filters all keep working on the one statement.
+ */
+const mineOrCrew = (userId: number): SQL =>
+  or(eq(jobsTable.assignedToId, userId), inArray(jobsTable.id, crewJobIdsFor(userId)))!;
 
 router.get("/waiting-list", requireAdmin, async (req, res) => {
   const q = req.query as Record<string, string | undefined>;
@@ -287,7 +353,11 @@ router.post("/jobs/dispatch", requireAdmin, async (req, res) => {
 router.get("/my/jobs", async (req, res) => {
   const { date, from, to } = req.query as Record<string, string | undefined>;
   const conds = [
-    eq(jobsTable.assignedToId, req.appUser!.id),
+    // Mine if I am the lead, or if I was put on the crew. "Add crew members to
+    // day" is only half done if the second man on the clean-up still has an
+    // empty list on his phone and has to ring the office to find out where to
+    // turn up.
+    mineOrCrew(req.appUser!.id),
     eq(jobsTable.dispatched, true),
     eq(jobsTable.visibleToContractor, true),
     // Called off by the office: not a stop on anybody's route.
@@ -296,11 +366,21 @@ router.get("/my/jobs", async (req, res) => {
   if (date) conds.push(eq(jobsTable.scheduledDate, date));
   if (from) conds.push(gte(jobsTable.scheduledDate, from));
   if (to) conds.push(lte(jobsTable.scheduledDate, to));
+  // Day, then whose run it is, then the stop number. A stop number only means
+  // anything inside one lead's one day, so on a day where Gabe leads two of his
+  // own stops and rides along on two of Disa's, sorting on the number alone
+  // shuffles her stops in among his — two 1s and two 2s that mean nothing
+  // together. His own run stays in one piece and hers stays in one piece.
   const rows = await db
     .select()
     .from(jobsTable)
     .where(and(...conds))
-    .orderBy(asc(jobsTable.routeOrder), asc(jobsTable.id));
+    .orderBy(
+      asc(jobsTable.scheduledDate),
+      asc(jobsTable.assignedToId),
+      asc(jobsTable.routeOrder),
+      asc(jobsTable.id),
+    );
   return res.json(await hydrateJobs(rows));
 });
 
@@ -313,13 +393,15 @@ router.get("/my/route", async (req, res) => {
     .from(jobsTable)
     .where(
       and(
-        eq(jobsTable.assignedToId, user.id),
+        // Same rule as /my/jobs: a crew member drives the same route as the
+        // lead, so he gets the same list of stops.
+        mineOrCrew(user.id),
         eq(jobsTable.dispatched, true),
         eq(jobsTable.scheduledDate, date),
         eq(jobsTable.visibleToContractor, true),
       ),
     )
-    .orderBy(asc(jobsTable.routeOrder), asc(jobsTable.id));
+    .orderBy(asc(jobsTable.assignedToId), asc(jobsTable.routeOrder), asc(jobsTable.id));
   const jobs = await hydrateJobs(rows);
 
   const withCoords = jobs.filter((j) => j.clientLat != null && j.clientLng != null);
@@ -352,9 +434,14 @@ router.get("/my/route", async (req, res) => {
       cur = { lat: j.clientLat!, lng: j.clientLng! };
     }
   } else {
-    // deterministic dispatch order: routeOrder (nulls last), then id
+    // deterministic dispatch order: whose run it is, then routeOrder (nulls
+    // last), then id. Grouping by the lead first for the same reason /my/jobs
+    // does: stop 1 of Disa's day and stop 1 of his own are not the same stop 1,
+    // so a man who leads some stops and rides along on others gets his own run
+    // in one piece instead of the two interleaved.
     ordered = [...jobs].sort(
       (a, b) =>
+        (a.assignedToId ?? Number.MAX_SAFE_INTEGER) - (b.assignedToId ?? Number.MAX_SAFE_INTEGER) ||
         (a.routeOrder ?? Number.MAX_SAFE_INTEGER) - (b.routeOrder ?? Number.MAX_SAFE_INTEGER) ||
         a.id - b.id,
     );
@@ -404,12 +491,21 @@ router.get("/my/route", async (req, res) => {
  * Central contractor access predicate: contractors may only touch jobs that
  * are assigned to them, dispatched, and visible to contractors. Admins are
  * unrestricted.
+ *
+ * A crew member counts as assigned. Put a second man on a clean-up and he can
+ * read the card, open the must-read note and add his extra work, the same as
+ * the lead — otherwise "add crew members to day" hands him a stop he is
+ * locked out of. The crew lookup is a round trip, so it is only taken when the
+ * cheap checks have already said no.
  */
-function canAccessJob(req: { appUser?: { id: number; role: string } }, job: JobRow): boolean {
+async function canAccessJob(
+  req: { appUser?: { id: number; role: string } },
+  job: JobRow,
+): Promise<boolean> {
   if (req.appUser?.role === "admin") return true;
-  return (
-    job.assignedToId === req.appUser?.id && job.dispatched === true && job.visibleToContractor === true
-  );
+  if (!req.appUser || job.dispatched !== true || job.visibleToContractor !== true) return false;
+  if (job.assignedToId === req.appUser.id) return true;
+  return isOnJobCrew(req.appUser.id, job.id);
 }
 
 router.get("/my/offerable-services", async (_req, res) => {
@@ -433,7 +529,7 @@ router.post("/my/jobs/:id/extra-work", async (req, res) => {
   const jobId = Number(req.params.id);
   const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, jobId));
   if (!job) return res.status(404).json({ error: "Job not found" });
-  if (!canAccessJob(req, job)) return res.status(403).json({ error: "Forbidden" });
+  if (!(await canAccessJob(req, job))) return res.status(403).json({ error: "Forbidden" });
 
   const [svc] = await db.select().from(servicesTable).where(eq(servicesTable.id, body.serviceId));
   // Contractors may only add services the office has approved for field offers
@@ -471,7 +567,7 @@ router.post("/my/jobs/:id/payments", async (req, res) => {
   const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, jobId));
   if (!job) return res.status(404).json({ error: "Job not found" });
   // Contractors can only take payment for jobs assigned to them
-  if (!canAccessJob(req, job)) return res.status(403).json({ error: "Forbidden" });
+  if (!(await canAccessJob(req, job))) return res.status(403).json({ error: "Forbidden" });
 
   const settings = await getBillingSettings();
   const applyFee = body.method === "credit_card" && settings.cardFeeEnabled && settings.cardFeePercent > 0;
@@ -549,7 +645,7 @@ router.post("/my/jobs/:id/payments", async (req, res) => {
 router.get("/jobs/:id", async (req, res) => {
   const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, Number(req.params.id)));
   if (!job) return res.status(404).json({ error: "Job not found" });
-  if (!canAccessJob(req, job)) {
+  if (!(await canAccessJob(req, job))) {
     return res.status(403).json({ error: "Forbidden" });
   }
   return res.json((await hydrateJobs([job]))[0]);
@@ -576,7 +672,7 @@ router.patch("/jobs/:id", async (req, res) => {
   const isAdmin = req.appUser!.role === "admin";
   if (!isAdmin) {
     // contractors may only update the status of their own visible, dispatched jobs
-    if (!canAccessJob(req, existing)) return res.status(403).json({ error: "Forbidden" });
+    if (!(await canAccessJob(req, existing))) return res.status(403).json({ error: "Forbidden" });
     const keys = Object.keys(body);
     // skipReason travels with status: skipped since the contractor on site is the
     // one who knows why — but it must never become a general-purpose notes field.
@@ -667,7 +763,7 @@ router.post("/jobs/:id/complete", async (req, res) => {
   const id = Number(req.params.id);
   const [existing] = await db.select().from(jobsTable).where(eq(jobsTable.id, id));
   if (!existing) return res.status(404).json({ error: "Job not found" });
-  if (!canAccessJob(req, existing)) {
+  if (!(await canAccessJob(req, existing))) {
     return res.status(403).json({ error: "Forbidden" });
   }
   if (existing.status === "completed") {
@@ -813,7 +909,7 @@ router.post("/jobs/:id/products", async (req, res) => {
   const jobId = Number(req.params.id);
   const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, jobId));
   if (!job) return res.status(404).json({ error: "Job not found" });
-  if (!canAccessJob(req, job)) {
+  if (!(await canAccessJob(req, job))) {
     return res.status(403).json({ error: "Forbidden" });
   }
   if (job.status === "completed") {
@@ -866,7 +962,7 @@ router.delete("/job-products/:id", async (req, res) => {
   if (!product) return res.status(204).end();
   const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, product.jobId));
   if (!job) return res.status(204).end();
-  if (!canAccessJob(req, job)) {
+  if (!(await canAccessJob(req, job))) {
     return res.status(403).json({ error: "Forbidden" });
   }
   if (job.status === "completed") {

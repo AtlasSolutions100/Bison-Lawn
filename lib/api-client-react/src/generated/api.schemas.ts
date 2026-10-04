@@ -1152,6 +1152,8 @@ export interface DocumentSendResult {
 
 export interface EmailBatch {
   batchId: string;
+  /** true when this line is one email to one customer rather than a send that went out together */
+  single: boolean;
   createdAt: string;
   source: string;
   sourceLabel: string;
@@ -1170,6 +1172,22 @@ export interface EmailBatch {
   failed: number;
   skipped: number;
   opened: number;
+  /** How many of the sent emails carried a tracking pixel, so the open rate is worked out of these and not out of emails nobody could ever answer for */
+  trackable: number;
+}
+
+export interface EmailActivitySummary {
+  days: number;
+  batches: number;
+  /** How many of the emails in the window went to one customer on their own */
+  singles: number;
+  total: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+  opened: number;
+  /** How many of the sent emails in the window carried a tracking pixel, which is what the open count is out of */
+  trackable: number;
 }
 
 export type EmailBatchRecipientStatus = typeof EmailBatchRecipientStatus[keyof typeof EmailBatchRecipientStatus];
@@ -1187,6 +1205,10 @@ export interface EmailBatchRecipient {
   clientId?: number | null;
   clientName: string;
   /** @nullable */
+  clientAddress?: string | null;
+  /** @nullable */
+  clientPhone?: string | null;
+  /** @nullable */
   toEmail?: string | null;
   /** @nullable */
   subject?: string | null;
@@ -1197,6 +1219,8 @@ export interface EmailBatchRecipient {
   error?: string | null;
   /** @nullable */
   openedAt?: string | null;
+  /** 'false' when this email went out without a tracking pixel, so nothing can ever come back about it and the screen must not say 'not opened yet' */
+  trackable: boolean;
   openCount: number;
   /** @nullable */
   sentAt?: string | null;
@@ -1864,6 +1888,35 @@ export interface ClientUpdate {
   preferredPaymentMethod?: ClientUpdatePreferredPaymentMethod;
 }
 
+export interface ClientTag {
+  /**
+     * Null for a tag that is only on customers and was never added to the list — an imported one. It still gets offered; it just cannot be renamed or taken off the list until it is on it.
+     * @nullable
+     */
+  id?: number | null;
+  name: string;
+  /** How many customers carry this tag */
+  count: number;
+  /** 'true' when it is on the managed list rather than only on customers */
+  onList: boolean;
+}
+
+export interface ClientTagInput {
+  /**
+     * @minLength 1
+     * @maxLength 60
+     */
+  name: string;
+}
+
+export interface ClientTagUpdate {
+  /**
+     * @minLength 1
+     * @maxLength 60
+     */
+  name: string;
+}
+
 export interface ClientContact {
   id: number;
   clientId: number;
@@ -2014,6 +2067,11 @@ export interface PricingEquation {
      * @nullable
      */
   budgetedCost?: number | null;
+  /**
+     * "Never less than": the floor under whatever this band works out to, applied after the base price and every increment. His words on 2026-09-28 were "my starting field on matrix has a min and then from there the Price equation need to take over but I cant set a base" — basePrice used to be both the floor and the number the per-unit equation built from, so a band could not charge per square foot from the first square foot and still refuse to go under the minimum. Null means no floor, which is how every band saved before this existed behaves.
+     * @nullable
+     */
+  minPrice?: number | null;
 }
 
 /**
@@ -2061,8 +2119,16 @@ export interface Service {
   defaultStartDate?: string | null;
   /** @nullable */
   defaultEndDate?: string | null;
-  /** @nullable */
+  /**
+     * The renew date every customer who has this service follows - yyyy-mm-dd, or mm-dd for the same day every year
+     * @nullable
+     */
   renewDate?: string | null;
+  /**
+     * One season end for every customer who has this service - yyyy-mm-dd, or mm-dd. Push it onto the accounts with the season-end endpoint.
+     * @nullable
+     */
+  seasonEndDate?: string | null;
   pricingEquations?: PricingEquation[];
   contractorOfferable?: boolean;
   /** @nullable */
@@ -2113,8 +2179,16 @@ export interface ServiceInput {
   defaultStartDate?: string | null;
   /** @nullable */
   defaultEndDate?: string | null;
-  /** @nullable */
+  /**
+     * The renew date every customer who has this service follows - yyyy-mm-dd, or mm-dd for the same day every year
+     * @nullable
+     */
   renewDate?: string | null;
+  /**
+     * One season end for every customer who has this service - yyyy-mm-dd, or mm-dd. Push it onto the accounts with the season-end endpoint.
+     * @nullable
+     */
+  seasonEndDate?: string | null;
   pricingEquations?: PricingEquation[];
   contractorOfferable?: boolean;
   /** @nullable */
@@ -2163,8 +2237,16 @@ export interface ServiceUpdate {
   defaultStartDate?: string | null;
   /** @nullable */
   defaultEndDate?: string | null;
-  /** @nullable */
+  /**
+     * The renew date every customer who has this service follows - yyyy-mm-dd, or mm-dd for the same day every year
+     * @nullable
+     */
   renewDate?: string | null;
+  /**
+     * One season end for every customer who has this service - yyyy-mm-dd, or mm-dd. Push it onto the accounts with the season-end endpoint.
+     * @nullable
+     */
+  seasonEndDate?: string | null;
   pricingEquations?: PricingEquation[];
   contractorOfferable?: boolean;
   /** @nullable */
@@ -2187,6 +2269,15 @@ export interface PriceResult {
   sqft: number;
   /** @nullable */
   equationIndex?: number | null;
+  /** True when the band's "never less than" floor is what set this price, so the live tester can say so rather than leaving him wondering why a bigger property quoted the small number. */
+  minimumApplied?: boolean;
+  /**
+     * Which estimate field the number was measured in; null means turf square footage.
+     * @nullable
+     */
+  pricingFieldId?: number | null;
+  /** @nullable */
+  pricingFieldLabel?: string | null;
 }
 
 /**
@@ -2200,6 +2291,32 @@ export const CopyMatrixInputMode = {
   add: 'add',
   percent: 'percent',
 } as const;
+
+/**
+ * "Be able to add additional dollars (product) based on square footage to original price (ex, Aeration + seed = AE overseed) or Top dressing (beagle to add topdressing cost, product cost/sqft + delivery + Trailer)." Product he buys by the square foot, plus what it costs to get it there. It goes on AFTER the multiplier, because the product is a pass-through cost and not something to take margin on twice.
+ */
+export interface MatrixProductCost {
+  /**
+     * Dollars of product for every perUnits of lawn — the seed, the top dressing.
+     * @minimum 0
+     */
+  amountPerUnit: number;
+  /**
+     * How much lawn one amountPerUnit covers, e.g. 1000 sqft a bag.
+     * @exclusiveMinimum 0
+     */
+  perUnits: number;
+  /**
+     * Charged once per job however big the lawn is — delivery, the trailer.
+     * @minimum 0
+     */
+  flatAmount: number;
+  /**
+     * What the product is (seed, top dressing), for the preview and the audit line.
+     * @nullable
+     */
+  label?: string | null;
+}
 
 export interface CopyMatrixInput {
   /** @minItems 1 */
@@ -2215,6 +2332,7 @@ export interface CopyMatrixInput {
   roundTo?: number | null;
   /** Point each target at the source's Price By field too (default true) — the bands are measured in it. */
   copyPricingField?: boolean;
+  productCost?: MatrixProductCost;
   /** false (the default) only previews what each target would get; true writes it. */
   apply?: boolean;
   /** Must be true to replace a target that already has priced bands. */
@@ -2228,12 +2346,19 @@ export interface CopyMatrixTarget {
   existingBands: number;
   equations: PricingEquation[];
   pricingFieldChanged: boolean;
+  /** What the product cost put on each band, in band order, so the preview can show the seed money next to the labour money instead of one merged number. Null for a band that carries no price and was therefore left alone. Empty when no product cost was asked for. */
+  productAdded?: (number | null)[];
 }
 
 export interface CopyMatrixResult {
   applied: boolean;
   sourceServiceId: number;
   sourceServiceName: string;
+  /**
+     * "seed ($5 per 1,000 sqft + $85 flat)" — what was added, in one line, or null if nothing was.
+     * @nullable
+     */
+  productCostLabel?: string | null;
   targets: CopyMatrixTarget[];
 }
 
@@ -2268,6 +2393,56 @@ export interface MatrixRuleInput {
      * @nullable
      */
   costPercent?: number | null;
+  /**
+     * Written onto every band the rule makes as its "never less than" floor. Usually the same as startPrice, but not always: a rule that starts at $0 and charges $5 a thousand still has a minimum charge under it, and that is the sentence he could not write before.
+     * @nullable
+     */
+  minPrice?: number | null;
+}
+
+export interface MatrixImportInput {
+  /**
+     * The whole file as text, as read from the file box or pasted in.
+     * @minLength 1
+     * @maxLength 500000
+     */
+  csv: string;
+  /**
+     * What the file was called, for the audit line — he will want to know which spreadsheet did this.
+     * @nullable
+     */
+  fileName?: string | null;
+  /** false (the default) only reports what the file says; true replaces the service's matrix with it. */
+  apply?: boolean;
+}
+
+export interface MatrixImportColumn {
+  /** The column name as his file spells it. */
+  header: string;
+  /**
+     * Which band field it became; null means the column was ignored.
+     * @nullable
+     */
+  field: string | null;
+}
+
+export interface MatrixImportResult {
+  applied: boolean;
+  serviceId: number;
+  serviceName: string;
+  /** Priced bands the service has today — what the import would replace. */
+  existingBands?: number;
+  bands: PricingEquation[];
+  columns: MatrixImportColumn[];
+  rowsRead: number;
+  /** Blank rows under the header, which Excel leaves behind and which are not bands. */
+  rowsSkipped: number;
+  /** Worth his eye but not a reason to refuse the file. */
+  warnings: string[];
+  /** Reasons the file cannot be saved, each naming the row and the column. */
+  errors: string[];
+  /** false while there is any error; the Accept button stays off until the file is fixed. */
+  canApply: boolean;
 }
 
 export interface MatrixRuleResult {
@@ -2455,6 +2630,39 @@ export const ClientServiceDiscountType = {
 } as const;
 
 /**
+ * One season of an assigned service as it read the day it closed - "Mowing jobs stay on account with last year's details". A snapshot, never recomputed.
+ */
+export interface ClientServiceSeason {
+  year: number;
+  /** Every other Wednesday (odd weeks) */
+  cadence: string;
+  /** @nullable */
+  firstServiceDate?: string | null;
+  /** @nullable */
+  seasonEndDate?: string | null;
+  /** @nullable */
+  startDate?: string | null;
+  /** @nullable */
+  endDate?: string | null;
+  amount: number;
+  /** @nullable */
+  budgetedHours?: number | null;
+  /** @nullable */
+  assignedToId?: number | null;
+  /** @nullable */
+  assignedToName?: string | null;
+  /** @nullable */
+  discountType?: string | null;
+  /** @nullable */
+  discountValue?: number | null;
+  /** @nullable */
+  discountLabel?: string | null;
+  completedVisits: number;
+  completedTotal: number;
+  closedAt: string;
+}
+
+/**
  * A service on a customer's account (2026-09-15 walkthrough): the contractor it always goes to, the cadence in words, the price and where the matrix got it, a discount that prints as its own invoice line, the must-read crew note with its dates, pause state, and what is ahead / behind.
  */
 export interface ClientService {
@@ -2490,8 +2698,37 @@ export interface ClientService {
   firstServiceDate?: string | null;
   /** @nullable */
   seasonEndDate?: string | null;
-  /** @nullable */
+  /**
+     * This row own date; it only governs when renewDateOverridden is set
+     * @nullable
+     */
   renewDate?: string | null;
+  /** Set when the office typed a renew date for this one customer. Off means the service date governs. */
+  renewDateOverridden?: boolean;
+  /**
+     * The renew date on the service itself, as typed (may be mm-dd)
+     * @nullable
+     */
+  serviceRenewDate?: string | null;
+  /**
+     * The date that actually governs this row, resolved into its season
+     * @nullable
+     */
+  effectiveRenewDate?: string | null;
+  /** Set when the date above came from the service rather than this customer */
+  renewDateFromService?: boolean;
+  /**
+     * The season end on the service, which every customer with it follows
+     * @nullable
+     */
+  serviceSeasonEndDate?: string | null;
+  /**
+     * The day this row season opens - what the account list is ordered by
+     * @nullable
+     */
+  seasonStart?: string | null;
+  /** Seasons already closed by a renewal, newest last - last year details, kept on the account */
+  pastSeasons: ClientServiceSeason[];
   /** @nullable */
   budgetedHours?: number | null;
   /** @nullable */
@@ -2855,6 +3092,12 @@ export const JobStatus = {
   cancelled: 'cancelled',
 } as const;
 
+export interface JobCrewMember {
+  id: number;
+  /** The short display name */
+  name: string;
+}
+
 export interface JobProduct {
   id: number;
   jobId: number;
@@ -2938,6 +3181,8 @@ export interface Job {
      * @nullable
      */
   assignedToName?: string | null;
+  /** The other people on this job, the lead excluded. A clean-up is two or three men in one truck; the lead stays on assignedToId so everything that bills and totals a day is unchanged, and these are who else was there and who else sees the stop on their phone. */
+  crew?: JobCrewMember[];
   /** @nullable */
   mapNote?: string | null;
   /** @nullable */
@@ -3050,6 +3295,189 @@ export interface ClientServiceDailyRun {
   renewed: number;
   /** False when today's renewal pass had already been claimed */
   renewalsRan: boolean;
+}
+
+/**
+ * One account that has this service, and what a push would make of it.
+ */
+export interface ServiceAssignedRow {
+  clientServiceId: number;
+  clientId: number;
+  clientName: string;
+  /** @nullable */
+  label?: string | null;
+  cadence: string;
+  active: boolean;
+  paused: boolean;
+  /** Set when the price on this account never came from the matrix, so a push leaves it alone unless he says to include it */
+  handTyped: boolean;
+  /**
+     * The property detail the matrix needs and this customer has not got
+     * @nullable
+     */
+  missingField?: string | null;
+  /** @nullable */
+  pricedFromLabel?: string | null;
+  /** @nullable */
+  pricedFromValue?: number | null;
+  fromAmount: number;
+  toAmount: number;
+  /** @nullable */
+  fromHours?: number | null;
+  /** @nullable */
+  toHours?: number | null;
+  upcomingVisits: number;
+  /**
+     * Why this one was left alone; only on the skipped list
+     * @nullable
+     */
+  reason?: string | null;
+}
+
+export type ServiceAssignedImpactBillingMode = typeof ServiceAssignedImpactBillingMode[keyof typeof ServiceAssignedImpactBillingMode];
+
+
+export const ServiceAssignedImpactBillingMode = {
+  fixed: 'fixed',
+  time: 'time',
+} as const;
+
+/**
+ * "Making changes to service info. Ask if want to push on to current assigned jobs/customers" - the counts that question has to carry.
+ */
+export interface ServiceAssignedImpact {
+  serviceId: number;
+  serviceName: string;
+  billingMode: ServiceAssignedImpactBillingMode;
+  rate: number;
+  /** @nullable */
+  billableHours?: number | null;
+  /** @nullable */
+  invoiceDescription?: string | null;
+  /** @nullable */
+  seasonEndDate?: string | null;
+  /** @nullable */
+  renewDate?: string | null;
+  /** Set when the service prices from a rate matrix, so each customer is re-priced against their own measurement */
+  matrixPriced: boolean;
+  clientCount: number;
+  /** Assigned rows, which can be more than the customers - a package can carry the same service twice */
+  rowCount: number;
+  upcomingVisits: number;
+  /** How many accounts pushing the price would actually move - the prices somebody typed and the customers with no measurement are counted separately, because the push leaves those alone */
+  priceDiffers: number;
+  /** How many accounts pushing the billable hours would actually move */
+  hoursDiffers: number;
+  handTypedCount: number;
+  missingFieldCount: number;
+  rows: ServiceAssignedRow[];
+}
+
+export type ServicePushInputFieldsItem = typeof ServicePushInputFieldsItem[keyof typeof ServicePushInputFieldsItem];
+
+
+export const ServicePushInputFieldsItem = {
+  price: 'price',
+  hours: 'hours',
+} as const;
+
+export interface ServicePushInput {
+  /**
+     * What to push onto the accounts
+     * @minItems 1
+     */
+  fields: ServicePushInputFieldsItem[];
+  /** Only these assigned rows; leave it off for every customer who has the service. An empty list is refused with a 400 - it means nobody was picked, never everybody. */
+  clientServiceIds?: number[];
+  /**
+     * The rate the service had before it was saved. On a service with no matrix it is the only way to tell a price somebody typed from one simply still on the old rate.
+     * @nullable
+     */
+  fromRate?: number | null;
+  /** Include accounts whose price was typed by hand instead of coming from the matrix */
+  includeCustomPrices?: boolean;
+  /** Off returns the preview and writes nothing */
+  apply?: boolean;
+}
+
+export type ServicePushResultFieldsItem = typeof ServicePushResultFieldsItem[keyof typeof ServicePushResultFieldsItem];
+
+
+export const ServicePushResultFieldsItem = {
+  price: 'price',
+  hours: 'hours',
+} as const;
+
+export interface ServicePushResult {
+  applied: boolean;
+  serviceId: number;
+  serviceName: string;
+  fields: ServicePushResultFieldsItem[];
+  clientCount: number;
+  visitsUpdated: number;
+  rows: ServiceAssignedRow[];
+  skipped: ServiceAssignedRow[];
+}
+
+export interface ServiceSeasonEndRow {
+  clientServiceId: number;
+  clientId: number;
+  clientName: string;
+  /** @nullable */
+  from?: string | null;
+  /** @nullable */
+  to?: string | null;
+  visitsCancelled: number;
+  /** Set when this customer already finishes earlier and was left where they are */
+  leftAlone: boolean;
+}
+
+export interface ServiceSeasonEndInput {
+  /** yyyy-mm-dd, or mm-dd for the same day every year */
+  seasonEndDate: string;
+  /** Defaults on - a customer who already finishes earlier keeps their earlier date */
+  keepEarlierFinishes?: boolean;
+  /**
+     * Shows on each cancelled visit
+     * @nullable
+     */
+  reason?: string | null;
+  /** Off returns the preview and writes nothing */
+  apply?: boolean;
+}
+
+export interface ServiceSeasonEndResult {
+  applied: boolean;
+  serviceId: number;
+  serviceName: string;
+  seasonEndDate: string;
+  customersChanged: number;
+  visitsCancelled: number;
+  rows: ServiceSeasonEndRow[];
+}
+
+export interface FinishSeasonInput {
+  /** yyyy-mm-dd - this customer's last visit of the season */
+  lastDate: string;
+  /**
+     * Shows on each cancelled visit
+     * @nullable
+     */
+  reason?: string | null;
+  /** Off returns the preview and writes nothing */
+  apply?: boolean;
+}
+
+export interface FinishSeasonResult {
+  applied: boolean;
+  clientServiceId: number;
+  /** @nullable */
+  serviceName?: string | null;
+  lastDate: string;
+  /** @nullable */
+  seasonEndWas?: string | null;
+  visitsCancelled: number;
+  service?: ClientService;
 }
 
 export type EstimateFieldFieldType = typeof EstimateFieldFieldType[keyof typeof EstimateFieldFieldType];
@@ -3408,6 +3836,42 @@ export interface JobProductInput {
   quantity?: number;
 }
 
+export interface SetJobCrewInput {
+  /** The whole crew, replacing whoever was on it. The lead is dropped if he is in here — that is the same person said twice, not an error. */
+  userIds: number[];
+}
+
+export interface JobCrewResult {
+  jobId: number;
+  /** @nullable */
+  leadId?: number | null;
+  crew: JobCrewMember[];
+}
+
+export interface MoveRouteStopInput {
+  /**
+     * The stop number this job should take. Past the end of the run it goes last rather than refusing the number.
+     * @minimum 1
+     */
+  position: number;
+}
+
+export type MoveRouteStopResultStopsItem = {
+  jobId: number;
+  routeOrder: number;
+};
+
+export interface MoveRouteStopResult {
+  jobId: number;
+  /** Where the stop actually landed */
+  position: number;
+  /** How many numbered stops that person has that day. */
+  runSize: number;
+  /** How many stops changed number. */
+  updated: number;
+  stops: MoveRouteStopResultStopsItem[];
+}
+
 export interface JobInput {
   clientId: number;
   /** @nullable */
@@ -3515,6 +3979,9 @@ export interface RouteResult {
   optimized: boolean;
 }
 
+/**
+ * written_off = a balance he has given up on; collections = the same balance, being chased by somebody else. Both owe nothing and both keep the bill and its history.
+ */
 export type InvoiceStatus = typeof InvoiceStatus[keyof typeof InvoiceStatus];
 
 
@@ -3524,6 +3991,8 @@ export const InvoiceStatus = {
   paid: 'paid',
   partial: 'partial',
   void: 'void',
+  written_off: 'written_off',
+  collections: 'collections',
 } as const;
 
 export interface InvoiceLineItem {
@@ -3563,6 +4032,7 @@ export interface Invoice {
   jobId?: number | null;
   /** @nullable */
   serviceName?: string | null;
+  /** written_off = a balance he has given up on; collections = the same balance, being chased by somebody else. Both owe nothing and both keep the bill and its history. */
   status: InvoiceStatus;
   total: number;
   amountPaid: number;
@@ -3606,6 +4076,36 @@ export interface Invoice {
   deliveryMethod?: string | null;
   /** @nullable */
   printedAt?: string | null;
+  /**
+     * When somebody unlocked this bill to change it after it had gone out
+     * @nullable
+     */
+  unlockedAt?: string | null;
+  /** @nullable */
+  unlockedById?: number | null;
+  /** @nullable */
+  unlockedByName?: string | null;
+  /**
+     * The day the customer was given the copy they still hold, kept when the bill was unlocked. Set means their copy no longer matches ours.
+     * @nullable
+     */
+  previouslySentAt?: string | null;
+  /** @nullable */
+  writeOffReason?: string | null;
+  /** @nullable */
+  writtenOffAt?: string | null;
+  /** @nullable */
+  writtenOffByName?: string | null;
+  /**
+     * Written off / Sent to collections - how the account reads it
+     * @nullable
+     */
+  writeOffLabel?: string | null;
+  /**
+     * What was still owed at the moment it was written off, for the account to show
+     * @nullable
+     */
+  writtenOffAmount?: number | null;
   lines: InvoiceLineItem[];
   createdAt: string;
 }
@@ -3634,7 +4134,7 @@ export interface InvoiceBatchOutcome {
   number: number;
   /** @nullable */
   clientName: string | null;
-  /** no_email, not_verified, void, already_sent, or the error text. do_not_email is not one of them: that box stops bulk notices, not a customer's bill. */
+  /** no_email, not_verified, void, written_off, already_sent, or the error text. do_not_email is not one of them: that box stops bulk notices, not a customer's bill. */
   reason: string;
 }
 
@@ -3739,6 +4239,233 @@ export interface SendInvoiceResult {
   toEmail: string;
   /** @nullable */
   messageId?: string | null;
+}
+
+export interface UnlockInvoiceInput {
+  /**
+     * Why it is being opened up again, for the bill's own history
+     * @maxLength 500
+     * @nullable
+     */
+  reason?: string | null;
+}
+
+/**
+ * written_off = stop chasing it; collections = somebody else is chasing it; restore = put it back to owed.
+ */
+export type WriteOffInvoiceInputHow = typeof WriteOffInvoiceInputHow[keyof typeof WriteOffInvoiceInputHow];
+
+
+export const WriteOffInvoiceInputHow = {
+  written_off: 'written_off',
+  collections: 'collections',
+  restore: 'restore',
+} as const;
+
+export interface WriteOffInvoiceInput {
+  /** written_off = stop chasing it; collections = somebody else is chasing it; restore = put it back to owed. */
+  how: WriteOffInvoiceInputHow;
+  /**
+     * Why, in his words - shown on the account next to the amount
+     * @maxLength 500
+     * @nullable
+     */
+  reason?: string | null;
+}
+
+export interface InvoiceCustomerMatch {
+  id: number;
+  name: string;
+  /** @nullable */
+  nameOnInvoice?: string | null;
+  /** @nullable */
+  status?: string | null;
+  /** @nullable */
+  serviceAddress?: string | null;
+  /** @nullable */
+  city?: string | null;
+  /** @nullable */
+  postalCode?: string | null;
+  /** @nullable */
+  billingAddressLine1?: string | null;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  billingEmail?: string | null;
+  /** @nullable */
+  accountNumber?: string | null;
+  /** @nullable */
+  billingTerms?: string | null;
+  /** @nullable */
+  invoiceDelivery?: string | null;
+  accountBalance: number;
+  openInvoiceCount: number;
+  /** Which detail matched what was typed - name, address, phone, account number, zip */
+  matchedOn: string;
+}
+
+export interface PriceServiceForClientInput {
+  clientId: number;
+  serviceId: number;
+  /** @minimum 0.01 */
+  quantity?: number;
+  /**
+     * A measurement typed on the spot, used instead of the one on the customer's account (a re-measured lawn beats the file).
+     * @nullable
+     */
+  measurement?: number | null;
+}
+
+export interface PricedServiceLine {
+  description: string;
+  serviceName: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+  /** true when the rate came from the matrix for this customer's own measurement */
+  fromMatrix: boolean;
+  /**
+     * Which detail priced it - Turf Sqft, Sprinkler Zones
+     * @nullable
+     */
+  pricedFromLabel?: string | null;
+  /** @nullable */
+  pricedFromValue?: number | null;
+  /**
+     * The measurement the matrix needs and this customer does not have, so the line fell back to the flat rate. Null when nothing is missing.
+     * @nullable
+     */
+  missingField?: string | null;
+  /** The service's own rate, so the office can see what it would have charged */
+  flatRate: number;
+}
+
+export type AccountSummaryPartsItem = {
+  key: string;
+  label: string;
+  amount: number;
+  explain: string;
+};
+
+export interface AccountSummary {
+  clientId: number;
+  clientName?: string;
+  /** Bills they have been given and not paid */
+  owedNow: number;
+  /** The part of owedNow that is past its due date */
+  pastDue: number;
+  /** Work finished and not billed yet */
+  notYetInvoiced: number;
+  /** Bills raised but not checked, so not theirs to owe yet */
+  awaitingVerification: number;
+  /** Money on the account not put against a bill yet */
+  credit: number;
+  /** Balances given up on or handed to collections */
+  writtenOff: number;
+  /** owedNow minus credit - what they stand at today */
+  runningTotal: number;
+  /** runningTotal plus the work that is not billed yet */
+  withEverything: number;
+  openInvoiceCount: number;
+  notInvoicedJobCount: number;
+  /** @nullable */
+  oldestUnpaidDate?: string | null;
+  /** One row per figure with the word that explains it, so nobody has to guess */
+  parts: AccountSummaryPartsItem[];
+}
+
+export interface FieldPaymentInvoice {
+  id: number;
+  number: number;
+  balance: number;
+  /** @nullable */
+  invoiceDate?: string | null;
+  /** @nullable */
+  serviceName?: string | null;
+  daysPastDue: number;
+  /** true for the bill this job is on, which is the one they usually mean */
+  isThisJob: boolean;
+}
+
+export interface FieldPaymentOptions {
+  allowed: boolean;
+  /**
+     * Why they may not, in plain words, when allowed is false
+     * @nullable
+     */
+  reason?: string | null;
+  clientId: number;
+  /** @nullable */
+  clientName?: string | null;
+  accountBalance: number;
+  credit: number;
+  cardFeeEnabled: boolean;
+  cardFeePercent: number;
+  invoices: FieldPaymentInvoice[];
+}
+
+export type FieldPaymentInputMethod = typeof FieldPaymentInputMethod[keyof typeof FieldPaymentInputMethod];
+
+
+export const FieldPaymentInputMethod = {
+  cash: 'cash',
+  check: 'check',
+  credit_card: 'credit_card',
+} as const;
+
+export interface FieldPaymentInput {
+  /** @minimum 0.01 */
+  amount: number;
+  method: FieldPaymentInputMethod;
+  /**
+     * Which of the customer's bills it goes on; omit to leave it as credit on the account
+     * @nullable
+     */
+  invoiceId?: number | null;
+  /**
+     * @maxLength 120
+     * @nullable
+     */
+  reference?: string | null;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  notes?: string | null;
+}
+
+export interface FieldPaymentResult {
+  id: number;
+  clientId: number;
+  /** @nullable */
+  invoiceId?: number | null;
+  /** @nullable */
+  invoiceNumber?: number | null;
+  /** @nullable */
+  jobId?: number | null;
+  /** What the customer handed over, fee included */
+  amount: number;
+  baseAmount: number;
+  cardFee: number;
+  /** @nullable */
+  cardFeePercent?: number | null;
+  method: string;
+  /** @nullable */
+  reference?: string | null;
+  /** @nullable */
+  notes?: string | null;
+  createdAt: string;
+  /**
+     * What is left on that bill after this payment
+     * @nullable
+     */
+  invoiceBalance?: number | null;
+  /** What the customer stands at after this payment */
+  accountBalance: number;
+  /** Anything over the bill, kept on the account */
+  creditLeft: number;
 }
 
 export type PaymentMethod = typeof PaymentMethod[keyof typeof PaymentMethod];
@@ -4075,6 +4802,8 @@ export interface ExtraWorkInput {
 export interface BillingSettings {
   cardFeeEnabled: boolean;
   cardFeePercent: number;
+  /** Who may take a payment for a customer from the job card. Office people with Invoices already can; this is the list of everyone else he has said may touch money. Empty means nobody else. */
+  fieldPaymentUserIds?: number[];
 }
 
 export interface BillingSettingsUpdate {
@@ -4084,6 +4813,8 @@ export interface BillingSettingsUpdate {
      * @maximum 25
      */
   cardFeePercent?: number;
+  /** @maxItems 100 */
+  fieldPaymentUserIds?: number[];
 }
 
 export type OnSitePaymentInputMethod = typeof OnSitePaymentInputMethod[keyof typeof OnSitePaymentInputMethod];
@@ -4208,6 +4939,88 @@ export interface SpringLetterService {
   serviceName: string;
   currentAmount: number;
   newAmount: number;
+  /**
+     * What this row would renew at on the standard rate, so a custom price can be shown against the price it replaced and dropped back to it.
+     * @nullable
+     */
+  catalogAmount?: number | null;
+  /**
+     * The price set by hand for this one customer. Null means the standard rate.
+     * @nullable
+     */
+  customAmount?: number | null;
+}
+
+export interface SpringLetterPriceEntry {
+  clientServiceId: number;
+  /**
+     * The price this customer pays for this service this season. Null drops the row back to the standard rate.
+     * @nullable
+     */
+  amount?: number | null;
+}
+
+export interface SpringLetterPricesInput {
+  /** @minItems 1 */
+  prices: SpringLetterPriceEntry[];
+}
+
+export interface SpringLetterPriceChange {
+  clientServiceId: number;
+  clientId: number;
+  clientName: string;
+  serviceName: string;
+  from: number;
+  to: number;
+}
+
+export interface SpringLetterPricesResult {
+  saved: number;
+  /** How many rows were put back on the standard rate */
+  cleared: number;
+  changes: SpringLetterPriceChange[];
+}
+
+/**
+ * "percent" raises each price by that percent, "add" adds that many dollars, "set" makes every selected service that price.
+ */
+export type SpringLetterPricePlanInputMode = typeof SpringLetterPricePlanInputMode[keyof typeof SpringLetterPricePlanInputMode];
+
+
+export const SpringLetterPricePlanInputMode = {
+  percent: 'percent',
+  add: 'add',
+  set: 'set',
+} as const;
+
+export interface SpringLetterPricePlanInput {
+  /** @minItems 1 */
+  clientIds: number[];
+  /** "percent" raises each price by that percent, "add" adds that many dollars, "set" makes every selected service that price. */
+  mode: SpringLetterPricePlanInputMode;
+  amount: number;
+  /**
+     * Round each new price to the nearest this many dollars.
+     * @nullable
+     */
+  roundTo?: number | null;
+  /** "false" calculates and returns the changes without saving anything. */
+  apply: boolean;
+}
+
+export type SpringLetterPricePlanResultMode = typeof SpringLetterPricePlanResultMode[keyof typeof SpringLetterPricePlanResultMode];
+
+
+export const SpringLetterPricePlanResultMode = {
+  percent: 'percent',
+  add: 'add',
+  set: 'set',
+} as const;
+
+export interface SpringLetterPricePlanResult {
+  applied: boolean;
+  mode: SpringLetterPricePlanResultMode;
+  changes: SpringLetterPriceChange[];
 }
 
 export interface SpringLetterClient {
@@ -4375,6 +5188,11 @@ export interface Ticket {
   assignedToName?: string | null;
   /** @nullable */
   dueDate?: string | null;
+  /**
+     * What the ticket is about, by name (Billing, Cancel Request, ...). The name is stored, not an id, so renaming or deleting a category never rewrites a ticket.
+     * @nullable
+     */
+  category?: string | null;
   createdAt: string;
 }
 
@@ -4388,6 +5206,8 @@ export interface TicketInput {
   assignedToId?: number | null;
   /** @nullable */
   dueDate?: string | null;
+  /** @nullable */
+  category?: string | null;
 }
 
 export type TicketUpdateStatus = typeof TicketUpdateStatus[keyof typeof TicketUpdateStatus];
@@ -4408,6 +5228,128 @@ export interface TicketUpdate {
   assignedToId?: number | null;
   /** @nullable */
   dueDate?: string | null;
+  /** @nullable */
+  category?: string | null;
+}
+
+/**
+ * One entry on his ticket category list. Tickets store the name, so ticketCount is counted from the tickets themselves rather than kept on the row.
+ */
+export interface TicketCategory {
+  id: number;
+  name: string;
+  /** @nullable */
+  sortOrder?: number | null;
+  /** "false" takes it out of the pickers without touching the tickets already filed under it. */
+  active: boolean;
+  /** How many tickets are filed under this name */
+  ticketCount: number;
+  createdAt?: string;
+}
+
+export interface TicketCategoryInput {
+  /** @minLength 1 */
+  name: string;
+  /** @nullable */
+  sortOrder?: number | null;
+}
+
+export interface TicketCategoryUpdate {
+  /** @minLength 1 */
+  name?: string;
+  /** @nullable */
+  sortOrder?: number | null;
+  active?: boolean;
+}
+
+export type CustomerFieldFieldType = typeof CustomerFieldFieldType[keyof typeof CustomerFieldFieldType];
+
+
+export const CustomerFieldFieldType = {
+  calculable: 'calculable',
+  text: 'text',
+  number: 'number',
+  boolean: 'boolean',
+} as const;
+
+/**
+ * A field that shows on EVERY customer. Same rows the estimate builder and the rate matrix read, so one of these can also price a job.
+ */
+export interface CustomerField {
+  id: number;
+  label: string;
+  fieldType: CustomerFieldFieldType;
+  /** @nullable */
+  pricePerUnit?: number | null;
+  /** @nullable */
+  unitSize?: number | null;
+  /** @nullable */
+  sortOrder?: number | null;
+  /** How many customers have a value saved for it */
+  filledCount: number;
+  /**
+     * On a rename, how many customers' saved values were carried onto the new label.
+     * @nullable
+     */
+  movedValues?: number | null;
+}
+
+/**
+ * A label typed on one customer's card that is NOT on the list, so it shows only there. Adding it to the list is what makes it appear on everybody.
+ */
+export interface CustomerFieldUse {
+  label: string;
+  filled: number;
+}
+
+export interface CustomerFieldList {
+  clientCount: number;
+  managed: CustomerField[];
+  unmanaged: CustomerFieldUse[];
+}
+
+export type CustomerFieldInputFieldType = typeof CustomerFieldInputFieldType[keyof typeof CustomerFieldInputFieldType];
+
+
+export const CustomerFieldInputFieldType = {
+  calculable: 'calculable',
+  text: 'text',
+  number: 'number',
+  boolean: 'boolean',
+} as const;
+
+export interface CustomerFieldInput {
+  /** @minLength 1 */
+  label: string;
+  fieldType?: CustomerFieldInputFieldType;
+  /** @nullable */
+  pricePerUnit?: number | null;
+  /** @nullable */
+  unitSize?: number | null;
+  /** @nullable */
+  sortOrder?: number | null;
+}
+
+export type CustomerFieldUpdateFieldType = typeof CustomerFieldUpdateFieldType[keyof typeof CustomerFieldUpdateFieldType];
+
+
+export const CustomerFieldUpdateFieldType = {
+  calculable: 'calculable',
+  text: 'text',
+  number: 'number',
+  boolean: 'boolean',
+} as const;
+
+export interface CustomerFieldUpdate {
+  /** @minLength 1 */
+  label?: string;
+  fieldType?: CustomerFieldUpdateFieldType;
+  /** @nullable */
+  pricePerUnit?: number | null;
+  /** @nullable */
+  unitSize?: number | null;
+  /** @nullable */
+  sortOrder?: number | null;
 }
 
 export type FieldNoteSource = typeof FieldNoteSource[keyof typeof FieldNoteSource];
@@ -4780,6 +5722,182 @@ export interface ContractorEarnings {
   completedCount?: number;
 }
 
+/**
+ * Which way to lean the rewrite. Clear is the default he gets from the button.
+ */
+export type PolishTone = typeof PolishTone[keyof typeof PolishTone];
+
+
+export const PolishTone = {
+  clear: 'clear',
+  professional: 'professional',
+  friendly: 'friendly',
+} as const;
+
+export interface PolishTextInput {
+  /**
+     * Only the words in the box he is editing. Nothing about the customer is sent.
+     * @maxLength 10000
+     */
+  text: string;
+  tone?: PolishTone;
+}
+
+export interface PolishTextResult {
+  /** The rewrite to offer him, or his own words back when nothing was changed. */
+  text: string;
+  /** false when no AI key is configured on the server; the text is then his own, untouched. */
+  available: boolean;
+  /** true when text is a rewrite he has not seen yet, so the page knows to offer accept or reject. */
+  changed: boolean;
+  /**
+     * Plain-words reason the rewrite was not used, for the page to show instead of failing.
+     * @nullable
+     */
+  note?: string | null;
+  tone: PolishTone;
+}
+
+export type EmailSenderStatusSource = typeof EmailSenderStatusSource[keyof typeof EmailSenderStatusSource];
+
+
+export const EmailSenderStatusSource = {
+  env: 'env',
+  alias: 'alias',
+  mailbox: 'mailbox',
+  unknown: 'unknown',
+} as const;
+
+export interface EmailSenderStatus {
+  /** The name on the inbox line — his company, always. */
+  fromName: string;
+  /**
+     * The address Google will actually send from, or null when we could not find out.
+     * @nullable
+     */
+  fromAddress?: string | null;
+  /**
+     * His own address off the Settings page, which is what Reply goes to.
+     * @nullable
+     */
+  replyTo?: string | null;
+  /** true when the From address is his own, not ours. */
+  ownDomain: boolean;
+  source: EmailSenderStatusSource;
+  /** Verified "send mail as" addresses the connected mailbox offers. */
+  aliases: string[];
+  /** One line to print on the Settings page, exactly as the customer reads it. */
+  customersSee: string;
+  /**
+     * Why we could not do better, in plain words.
+     * @nullable
+     */
+  note?: string | null;
+  /**
+     * What it would take to send fully as his own address. Null when it already does.
+     * @nullable
+     */
+  whatWouldBeNeeded?: string | null;
+}
+
+export interface UnopenedAlertRow {
+  emailSendId: number;
+  /** @nullable */
+  clientId?: number | null;
+  clientName: string;
+  /** @nullable */
+  subject?: string | null;
+  /** @nullable */
+  toEmail?: string | null;
+  source: string;
+  sentAt: string;
+  daysUnopened: number;
+}
+
+export type UnopenedAlertPreviewScope = typeof UnopenedAlertPreviewScope[keyof typeof UnopenedAlertPreviewScope];
+
+
+export const UnopenedAlertPreviewScope = {
+  invoices: 'invoices',
+  all: 'all',
+} as const;
+
+export interface UnopenedAlertPreview {
+  enabled: boolean;
+  afterDays: number;
+  scope: UnopenedAlertPreviewScope;
+  /**
+     * Where the alert goes. Blank falls back to the company email on Settings.
+     * @nullable
+     */
+  notifyEmail?: string | null;
+  /** @nullable */
+  lastCheckedDay?: string | null;
+  /** @nullable */
+  lastSentAt?: string | null;
+  /** @nullable */
+  lastError?: string | null;
+  today: string;
+  /** What the next run would put in his inbox. */
+  wouldReport: UnopenedAlertRow[];
+  /** Everything past the cut-off that has still not been opened, reported or not. */
+  stillUnopened: UnopenedAlertRow[];
+  /**
+     * Plain-words reason nothing would reach him, such as the rule being switched off.
+     * @nullable
+     */
+  problem?: string | null;
+}
+
+export type UnopenedAlertUpdateScope = typeof UnopenedAlertUpdateScope[keyof typeof UnopenedAlertUpdateScope];
+
+
+export const UnopenedAlertUpdateScope = {
+  invoices: 'invoices',
+  all: 'all',
+} as const;
+
+export interface UnopenedAlertUpdate {
+  enabled?: boolean;
+  /**
+     * @minimum 1
+     * @maximum 60
+     */
+  afterDays?: number;
+  scope?: UnopenedAlertUpdateScope;
+  /**
+     * Blank means the company email on the Settings page.
+     * @maxLength 320
+     * @nullable
+     */
+  notifyEmail?: string | null;
+}
+
+/**
+ * @nullable
+ */
+export type UnopenedAlertRunResultSkipped = typeof UnopenedAlertRunResultSkipped[keyof typeof UnopenedAlertRunResultSkipped] | null;
+
+
+export const UnopenedAlertRunResultSkipped = {
+  disabled: 'disabled',
+  no_recipient: 'no_recipient',
+  already_today: 'already_today',
+  nothing_due: 'nothing_due',
+} as const;
+
+export interface UnopenedAlertRunResult {
+  ran: boolean;
+  reported: number;
+  /** @nullable */
+  to?: string | null;
+  /** @nullable */
+  skipped?: UnopenedAlertRunResultSkipped;
+  /** @nullable */
+  error?: string | null;
+  preview: UnopenedAlertPreview;
+}
+
 export type ListUsersParams = {
 includeInactive?: boolean;
 };
@@ -4810,12 +5928,32 @@ export const ListDocumentTemplatesCategory = {
   estimate: 'estimate',
 } as const;
 
+export type GetEmailActivitySummaryParams = {
+/**
+ * @minimum 1
+ * @maximum 3650
+ */
+days?: number;
+};
+
 export type ListEmailBatchesParams = {
 /**
  * @minimum 1
  * @maximum 500
  */
 limit?: number;
+/**
+ * Only sends that came from one place, e.g. dispatch or automation
+ */
+source?: string;
+/**
+ * Match on the document, the automation's name, the subject or who sent it
+ */
+q?: string;
+/**
+ * Also list emails that went to one customer on their own, like a single bill
+ */
+includeSingles?: boolean;
 };
 
 export type GetQuickbooksProfitAndLossParams = {
@@ -4831,6 +5969,10 @@ to?: string;
 export type ListClientsParams = {
 status?: ListClientsStatus;
 search?: string;
+/**
+ * Whether properties sitting under a master account are in the list. "When adding a sub account, have the previous one unviewable instead of greyed out" — the client list asks for `hide` so a property that moved under a master stops showing up twice, and reads it off the master's own page instead. `only` is the master's side of that. Default `all`, so nothing that was already asking for this list changes.
+ */
+subAccounts?: ListClientsSubAccounts;
 };
 
 export type ListClientsStatus = typeof ListClientsStatus[keyof typeof ListClientsStatus];
@@ -4840,6 +5982,15 @@ export const ListClientsStatus = {
   lead: 'lead',
   client: 'client',
   former_client: 'former_client',
+} as const;
+
+export type ListClientsSubAccounts = typeof ListClientsSubAccounts[keyof typeof ListClientsSubAccounts];
+
+
+export const ListClientsSubAccounts = {
+  all: 'all',
+  hide: 'hide',
+  only: 'only',
 } as const;
 
 export type ExportClientsParams = {
@@ -4876,6 +6027,13 @@ to?: string;
 kinds?: string;
 };
 
+export type GetServiceAssignedImpactParams = {
+/**
+ * The rate the service had before it was saved. On a service with no matrix it is the only way to tell a price somebody typed from one simply still on the old rate.
+ */
+fromRate?: number;
+};
+
 export type ListEstimatesParams = {
 clientId?: number;
 };
@@ -4900,6 +6058,22 @@ hasNotes?: boolean;
  */
 search?: string;
 status?: ListWaitingListStatus;
+/**
+ * One of his custom customer fields by label (Turf Sqft, Gate Code, Sprinkler Zones). On its own it means "only customers who have this filled in". The same filter the dispatch board uses.
+ */
+fieldLabel?: string;
+/**
+ * The custom field's value contains this, any part of it, any case.
+ */
+fieldValue?: string;
+/**
+ * The custom field read as a number, at least this.
+ */
+fieldMin?: number;
+/**
+ * The custom field read as a number, at most this.
+ */
+fieldMax?: number;
 };
 
 export type ListWaitingListWindow = typeof ListWaitingListWindow[keyof typeof ListWaitingListWindow];
@@ -4943,6 +6117,22 @@ tag?: string;
  */
 search?: string;
 hasNotes?: boolean;
+/**
+ * "Dispatch board — columns search using custom fields." The label of one of his custom customer fields (Turf Sqft, Gate Code, Sprinkler Zones). On its own it means "only customers who have this filled in", which answers who he has not measured yet. Matched without case, because the label in Settings and the key saved on an old customer are not always capitalised the same.
+ */
+fieldLabel?: string;
+/**
+ * The custom field's value contains this, any part of it, any case.
+ */
+fieldValue?: string;
+/**
+ * The custom field read as a number, at least this. Commas and units are stripped first, so "6,200 sq ft" still compares.
+ */
+fieldMin?: number;
+/**
+ * The custom field read as a number, at most this.
+ */
+fieldMax?: number;
 };
 
 export type ListJobsStatus = typeof ListJobsStatus[keyof typeof ListJobsStatus];
@@ -4971,7 +6161,7 @@ export type ListInvoicesParams = {
 clientId?: number;
 status?: ListInvoicesStatus;
 /**
- * His invoice tabs. pending = completed jobs waiting for him to verify; to_email / to_print = verified and not yet sent by that method; open = anything still owed; past_due = open and past its due date (invoice date when the terms are due on receipt).
+ * His invoice tabs. pending = completed jobs waiting for him to verify; to_email / to_print = verified and not yet sent by that method; open = anything still owed; past_due = open and past its due date (invoice date when the terms are due on receipt); written_off = balances he has given up on or handed to collections, kept for the record and counting toward nothing.
  */
 queue?: ListInvoicesQueue;
 /**
@@ -4989,6 +6179,8 @@ export const ListInvoicesStatus = {
   paid: 'paid',
   partial: 'partial',
   void: 'void',
+  written_off: 'written_off',
+  collections: 'collections',
 } as const;
 
 export type ListInvoicesQueue = typeof ListInvoicesQueue[keyof typeof ListInvoicesQueue];
@@ -5002,6 +6194,7 @@ export const ListInvoicesQueue = {
   past_due: 'past_due',
   paid: 'paid',
   void: 'void',
+  written_off: 'written_off',
 } as const;
 
 export type PrintInvoicesParams = {
@@ -5009,6 +6202,22 @@ export type PrintInvoicesParams = {
  * Comma-separated invoice ids
  */
 ids: string;
+};
+
+export type SearchInvoiceCustomersParams = {
+/**
+ * @minLength 1
+ */
+q: string;
+/**
+ * @minimum 1
+ * @maximum 50
+ */
+limit?: number;
+};
+
+export type GetAccountSummaryParams = {
+clientId: number;
 };
 
 export type ListPaymentsParams = {
@@ -5056,6 +6265,10 @@ dueDate?: string;
  * Set to true to return only tickets that have someone assigned.
  */
 assigned?: string;
+/**
+ * Only tickets filed under this category name. Pass "none" for the ones nobody has categorised yet.
+ */
+category?: string;
 };
 
 export type ListTicketsStatus = typeof ListTicketsStatus[keyof typeof ListTicketsStatus];
@@ -5092,6 +6305,13 @@ export type ListVendorRunsParams = {
 serviceId: number;
 from?: string;
 to?: string;
+};
+
+export type ListTicketCategoriesParams = {
+/**
+ * "true" also returns the categories he has turned off, for the Settings screen.
+ */
+includeInactive?: string;
 };
 
 export type ListWebRequestsParams = {

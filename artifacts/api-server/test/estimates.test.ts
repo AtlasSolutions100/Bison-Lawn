@@ -337,10 +337,28 @@ test("typed quantity and visits override the service defaults, zero is allowed, 
   assert.equal(negative.status, 400);
   assert.match(negative.body.error, /visits of zero or more/);
 
-  // No measurement: the flat rate stands in, still times the visits.
-  const flat = await api("/estimates", admin.id, {
+  // No measurement typed on the line: the customer's own property detail
+  // prices it, which is Adam's B1 ("the numbers don't match the matrix based
+  // on clients account"). This used to quote the flat rate while the Services
+  // page tester and the assigned service both showed the band price.
+  const fromAccount = await api("/estimates", admin.id, {
     method: "POST",
     body: JSON.stringify({ clientId: client.id, lines: [{ serviceId: mowing.id, label: "", value: "" }] }),
+  });
+  assert.equal(fromAccount.status, 201);
+  assert.equal(fromAccount.body.lines[0].unitPrice, 70, "the band for the 6,200 on file");
+  assert.equal(fromAccount.body.lines[0].value, "6200", "and the quote says which number priced it");
+  assert.equal(fromAccount.body.lines[0].calculatedPrice, 1960);
+
+  // Nobody knows the measurement: the flat rate stands in, still times the visits.
+  const [bare] = await db
+    .insert(clientsTable)
+    .values({ name: `Estimate No Measurements ${stamp}`, status: "lead", serviceAddress: "1 Unknown Way" })
+    .returning();
+  ids.clients.push(bare.id);
+  const flat = await api("/estimates", admin.id, {
+    method: "POST",
+    body: JSON.stringify({ clientId: bare.id, lines: [{ serviceId: mowing.id, label: "", value: "" }] }),
   });
   assert.equal(flat.status, 201);
   assert.equal(flat.body.lines[0].unitPrice, 45);

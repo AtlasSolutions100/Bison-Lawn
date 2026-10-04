@@ -1,9 +1,11 @@
+import { randomBytes } from "node:crypto";
 import { Router, type IRouter } from "express";
 import {
   db,
   clientsTable,
   clientNotesTable,
   auditEventsTable,
+  emailSendsTable,
   clientServicesTable,
   servicesTable,
   packagesTable,
@@ -24,7 +26,8 @@ import {
 import { requireAuth } from "../middlewares/requireAuth";
 import { requireArea } from "../lib/access";
 import { logAudit, calculatePrice, type Executor } from "../lib/helpers";
-import { sendClientEmailViaGmail } from "../lib/clientEmail";
+import { plainBodyHtml, sendClientEmailViaGmail } from "../lib/clientEmail";
+import { openPixelUrl } from "../lib/documentSend";
 
 const router: IRouter = Router();
 
@@ -75,23 +78,51 @@ async function hydrateClient<T extends typeof clientsTable.$inferSelect>(client:
 }
 
 /**
+ * Alphanumeric order, the way he asked for the sub accounts to be listed: the
+ * numbers in a name count as numbers, so 2 Oak comes before 10 Oak instead of
+ * after it. Plain text ordering — which is what the database gives — sorts
+ * "1200 N 4th" above "615 E 18th", and a property manager's list is almost all
+ * street numbers.
+ */
+const alphanumeric = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
+
+/**
  * The links one customer can carry to another, checked before anything is
  * written. Master accounts go one level deep and no further: a property under
  * a master cannot be a master itself, and a master with properties cannot be
  * tucked under someone else. Deeper than that and "what does this manager owe
  * in all" stops having one answer.
+ *
+ * `status` is where this account will stand once the write lands, because
+ * "former clients — restrict ability to add to as sub account" cuts both ways
+ * and he meant it both ways: a customer he has finished with does not get
+ * filed under a property manager, and a property manager he has finished with
+ * does not get new properties filed under him. Either one leaves a dead
+ * account quietly carrying live work.
  */
 async function clientLinkError(
   body: { parentClientId?: number | null; referredByClientId?: number | null },
   selfId: number | null,
+  status: string,
 ): Promise<string | null> {
   if (body.parentClientId != null) {
     if (body.parentClientId === selfId) return "A customer cannot be their own master account.";
+    if (status === "former_client") {
+      return "This is a former client, so it can't be added under a master account. Set it back to Active first.";
+    }
     const [master] = await db
-      .select({ id: clientsTable.id, name: clientsTable.name, parentClientId: clientsTable.parentClientId })
+      .select({
+        id: clientsTable.id,
+        name: clientsTable.name,
+        status: clientsTable.status,
+        parentClientId: clientsTable.parentClientId,
+      })
       .from(clientsTable)
       .where(eq(clientsTable.id, body.parentClientId));
     if (!master) return "That master account does not exist.";
+    if (master.status === "former_client") {
+      return `${master.name} is a former client, so nothing can be added under it. Set ${master.name} back to Active first.`;
+    }
     if (master.parentClientId != null) {
       return `${master.name} is already a property under another master account — a property cannot be a master.`;
     }
@@ -133,9 +164,21 @@ function coordinateError(body: { lat?: number | null; lng?: number | null }): st
 }
 
 router.get("/clients", async (req, res) => {
-  const { status, search } = req.query as { status?: string; search?: string };
+  const { status, search, subAccounts } = req.query as {
+    status?: string;
+    search?: string;
+    subAccounts?: string;
+  };
   const conds = [];
   if (status) conds.push(eq(clientsTable.status, status));
+  // "When adding a sub account, have the previous one unviewable instead of
+  // greyed out": once a property sits under a master, its own standalone row in
+  // the customer list is the row that confuses him, so the list asks for `hide`
+  // and reads those properties off the master instead. Default is `all` —
+  // every other screen that asks for customers (dispatch, estimates, search)
+  // still gets all 709.
+  if (subAccounts === "hide") conds.push(isNull(clientsTable.parentClientId));
+  if (subAccounts === "only") conds.push(sql`${clientsTable.parentClientId} is not null`);
   if (search)
     conds.push(
       or(
@@ -166,7 +209,9 @@ router.get("/clients", async (req, res) => {
 
 router.post("/clients", async (req, res) => {
   const body = CreateClientBody.parse(req.body);
-  const linkProblem = await clientLinkError(body, null);
+  // The status the row will have once it is created: the database default is
+  // "lead" when nothing is sent.
+  const linkProblem = await clientLinkError(body, null, body.status ?? "lead");
   if (linkProblem) return res.status(400).json({ error: linkProblem });
   const pinProblem = coordinateError(body);
   if (pinProblem) return res.status(400).json({ error: pinProblem });
@@ -236,7 +281,54 @@ router.post("/clients/:id/email", async (req, res) => {
     });
   }
 
-  await sendClientEmailViaGmail({ toEmail, subject: body.subject, body: body.body, cc, bcc });
+  // "Post unopened email to account." An email he types here used to leave
+  // nothing behind but an audit line, so it never showed up as an email on the
+  // customer's timeline and there was no way to tell whether it was ever
+  // opened. It is logged like every other send now, with the open pixel on it,
+  // and the attempt is recorded whether Gmail took it or not.
+  //
+  // No public address means no pixel can be built, and then there is nothing in
+  // the email to tell us it was opened — so no token is stored either. A token
+  // with no pixel reads as "we asked and heard nothing" to the unopened-email
+  // alert, which would report an email the customer read as never opened.
+  const token = randomBytes(16).toString("base64url");
+  const pixelUrl = openPixelUrl(token);
+  const openToken = pixelUrl ? token : null;
+  let gmailMessageId: string | null = null;
+  let sendError: string | null = null;
+  try {
+    const sent = await sendClientEmailViaGmail({
+      toEmail,
+      subject: body.subject,
+      body: body.body,
+      html: plainBodyHtml(body.body, pixelUrl),
+      cc,
+      bcc,
+    });
+    gmailMessageId = sent.id ?? null;
+  } catch (cause) {
+    sendError = (cause instanceof Error ? cause.message : "Email delivery failed").slice(0, 500);
+  }
+  await db
+    .insert(emailSendsTable)
+    .values({
+      clientId: client.id,
+      sentById: req.appUser?.id ?? null,
+      source: "client_page",
+      toEmail,
+      subject: body.subject,
+      status: sendError ? "failed" : "sent",
+      error: sendError,
+      gmailMessageId,
+      openToken: sendError ? null : openToken,
+      sentAt: sendError ? null : new Date(),
+    })
+    // The letter matters more than our record of it: a log we could not write
+    // must not turn an email the customer already has into an error.
+    .catch(() => undefined);
+  if (sendError) {
+    return res.status(502).json({ error: `That email did not send — ${sendError}` });
+  }
   await logAudit({
     clientId: client.id,
     actorName: req.appUser?.name,
@@ -299,7 +391,7 @@ router.patch("/clients/:id", async (req, res) => {
   const [current] = await db.select().from(clientsTable).where(eq(clientsTable.id, id));
   if (!current) return res.status(404).json({ error: "Client not found" });
 
-  const linkProblem = await clientLinkError(body, id);
+  const linkProblem = await clientLinkError(body, id, body.status ?? current.status);
   if (linkProblem) return res.status(400).json({ error: linkProblem });
   const pinProblem = coordinateError(body);
   if (pinProblem) return res.status(400).json({ error: pinProblem });
@@ -393,16 +485,17 @@ router.patch("/clients/:id", async (req, res) => {
  * The properties under a master account, each with its own balance. Each one
  * is a full customer — its own invoices, its own jobs — so the master page
  * links through rather than trying to show everything in one place.
+ *
+ * "List sub account in alpha numeric order." A property manager's list is
+ * street numbers, so the sort has to read 2 Oak as two and not as the letter
+ * before 10 — see `alphanumeric` above.
  */
 router.get("/clients/:id/related", async (req, res) => {
   const id = Number(req.params.id);
   const [master] = await db.select({ id: clientsTable.id }).from(clientsTable).where(eq(clientsTable.id, id));
   if (!master) return res.status(404).json({ error: "Client not found" });
-  const rows = await db
-    .select()
-    .from(clientsTable)
-    .where(eq(clientsTable.parentClientId, id))
-    .orderBy(clientsTable.name);
+  const rows = await db.select().from(clientsTable).where(eq(clientsTable.parentClientId, id));
+  rows.sort((a, b) => alphanumeric.compare(a.name, b.name));
   return res.json(await Promise.all(rows.map(hydrateClient)));
 });
 

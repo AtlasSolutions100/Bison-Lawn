@@ -10,6 +10,21 @@ const escapeHtml = (value: string) =>
     .replace(/'/g, "&#039;");
 
 /**
+ * The typed-by-hand email as HTML, with the open pixel on it.
+ *
+ * Same wrapping the sender does when no html is given, except that it can carry
+ * the tracking pixel — "post unopened email to account" only works if there is
+ * something in the email to tell us it was opened.
+ */
+export function plainBodyHtml(body: string, pixelUrl?: string | null): string {
+  const text = `<div>${escapeHtml(body).replace(/\r?\n/g, "<br>")}</div>`;
+  const pixel = pixelUrl
+    ? `<img src="${escapeHtml(pixelUrl)}" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0" />`
+    : "";
+  return `${text}${pixel}`;
+}
+
+/**
  * `html` is optional on purpose. When a caller has a designed version it goes in
  * the text/html part; when it does not, the plain body is wrapped as before.
  *

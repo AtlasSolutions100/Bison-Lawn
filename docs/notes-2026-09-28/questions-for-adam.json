@@ -1,0 +1,94 @@
+[
+ [
+  "BUGS",
+  "615 E 18th (the account named in the bug) has no Turf Sqft saved against it at all, so it quotes the flat rate by design. Does he want to type the square footage onto that account, or should an estimate for a property with nothing on file prompt harder than the line note it shows now?"
+ ],
+ [
+  "BUGS",
+  "The rule I chose for B2 is \"anyone with a live login can be sent to a job\", which on his setup means he himself appears in the assignee list. If he would rather the list be restricted, the only honest switch is a per-person \"works jobs\" tick on the Team page \u2014 say the word and that is a small addition."
+ ],
+ [
+  "SENDER",
+  "Do you want us to add bisonlawncarellc@gmail.com as a confirmed 'Send mail as' address on the Google account the app uses? That is the one step that would put your own address on the From line instead of just your company name. It needs someone to click a link in a confirmation email sent to that mailbox. Until then, your company name is on the From line and your address is where replies land, which is what your customers actually use."
+ ],
+ [
+  "SENDER",
+  "The unopened alert defaults to invoices only, after 3 days. Say the word if you want it on every email or a different number of days \u2014 it is two clicks on the Automation page either way."
+ ],
+ [
+  "INVOICES",
+  "Writing off a balance leaves it off your Reports money figures through balanceOf. Do you also want a 'written off this year' total somewhere on Reports, so you can see what you gave up on over a season? I did not build it because it is not in your notes and it belongs to the REPORTS track's screen."
+ ],
+ [
+  "INVOICES",
+  "When a sub takes a card payment at the door, the fee goes on the bill as a line the customer can see. If you would rather the fee never showed on the invoice and just came out of what you banked, say so \u2014 it is a one-line change, but it would mean the printed bill no longer adds up to what they paid."
+ ],
+ [
+  "INVOICES",
+  "A written-off bill still shows in the customer's Accounting list with a grey pill. Do you want it hidden behind a 'show written off' toggle instead, or is having it in plain sight the point?"
+ ],
+ [
+  "SERVICES",
+  "The bulk \"season ends on\" leaves a customer who already finishes earlier exactly where they are (there is a tick box to change that). Is that right, or when you set the season end should everybody go back onto the standard date and only the ones you finish early afterwards stay short?"
+ ],
+ [
+  "SERVICES",
+  "When a season renews, the new season takes the service's season end rather than last year's own date \u2014 so a customer you finished early this year is back on the standard season next year. Tell me if someone who stops early should stay short every year until you say otherwise."
+ ],
+ [
+  "SERVICES",
+  "A push re-prices the visits already on the board, but a visit the office had already re-priced by hand keeps its number. Shout if you want the push to overrule those too."
+ ],
+ [
+  "CLIENT",
+  "On the customer list, properties under a master are now hidden by default and you press a link to show them. If you would rather it remembered your choice per browser (like the list/map toggle does), that is a one-line change \u2014 say the word."
+ ],
+ [
+  "CLIENT",
+  "Bulk Add tags only offers tags already on the list. Do you want a way to coin a brand-new tag from the bulk dialog too, or is keeping that to the customer's own page (where the spelling is in front of you) the safer habit?"
+ ],
+ [
+  "EMAIL-ACTIVITY",
+  "Should 'Include emails sent to one customer on their own' start out ticked? I left it off so a letter's results are not buried under single bills, but if the first thing you do every morning is check whether yesterday's bills were opened, it should default on."
+ ],
+ [
+  "EMAIL-ACTIVITY",
+  "Your old Marketing menu also had Sales Campaigns. You have never mentioned it to us \u2014 is it something you used, or was it one of the Service Autopilot screens you ignored?"
+ ],
+ [
+  "EMAIL-ACTIVITY",
+  "Do you ever need to send a batch's results out of the app \u2014 say a list of who got and opened a letter, to a management company \u2014 or is reading it on screen enough?"
+ ],
+ [
+  "DISPATCH",
+  "When you come back to the board after leaving it filtered to one sub, should it stay on that sub (what it does now, with a blue bar telling you so and a one-click way out) or always snap back to everybody? Right now remembering wins and the bar makes it obvious."
+ ],
+ [
+  "DISPATCH",
+  "If you hand a clean-up over to the second man, he becomes the lead and the man who was leading it drops off the job entirely \u2014 do you want him kept on as crew automatically instead?"
+ ],
+ [
+  "DISPATCH",
+  "Should a stray custom field \u2014 a label you only ever typed on one customer's card \u2014 be offered as a board column, or only the ones on your Settings list? It offers both at the moment."
+ ],
+ [
+  "SETTINGS",
+  "Spring letters: a typed custom price currently has no end date \u2014 it stays that customer's price until you clear it or a later raise moves it. If you meant 'just this season', say so and we will stamp it with the season it belongs to."
+ ],
+ [
+  "SETTINGS",
+  "Signed estimates: is the online approval record enough for your management companies, or do they want the customer's actual name typed/drawn on the page? We can add that to the accept page, but it has to be your call because the document's wording has to stay true."
+ ],
+ [
+  "SETTINGS",
+  "Ticket categories: do you want a category to be required on a new ticket, or is leaving it blank fine? Right now blank is allowed and those tickets are findable under 'No category yet'."
+ ],
+ [
+  "AI",
+  "None that block anything. One thing to tell him when it goes live: the rewrite goes to xAI (Grok), not to OpenAI's ChatGPT. It does the same job for him, but if he has been told to use ChatGPT specifically by someone, that is worth a word."
+ ],
+ [
+  "AI",
+  "Worth knowing but not asking: the Polish button is deliberately not locked to the office access level, so a contractor writing a 'crew is on the way' note on their phone gets it too. If he wants it office-only, that is a one-line change in routes/ai.ts."
+ ]
+]

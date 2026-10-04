@@ -79,7 +79,100 @@ test("a matrix that is entirely empty prices nothing and says so", () => {
 });
 
 test("an empty matrix is unchanged", () => {
-  assert.deepEqual(calculatePrice([], 5000), { price: 0, equationIndex: null });
+  assert.deepEqual(calculatePrice([], 5000), { price: 0, equationIndex: null, minimumApplied: false });
+});
+
+// ---- "never less than": the minimum he could not set (X1, 2026-09-28) ----
+
+test("the band he was blocked on: start at $49, then $5 per 1000 over 5000, never less than $49", () => {
+  // His own sentence. Before the floor existed, basePrice had to be BOTH the
+  // $49 and the number the per-thousand money built on, so there was no way to
+  // charge from the first square foot and still refuse to go under $49.
+  const bands = [
+    band(null, 49, { baseSqft: 5000, incrementSqft: 1000, incrementPrice: 5, minPrice: 49 }),
+  ];
+  assert.equal(calculatePrice(bands, 3000).price, 49, "under the base size it is the base");
+  assert.equal(calculatePrice(bands, 5000).price, 49);
+  assert.equal(calculatePrice(bands, 5001).price, 54, "one thousand over is one step");
+  assert.equal(calculatePrice(bands, 9000).price, 69);
+});
+
+test("a straight per-unit rate with a floor under it, which was impossible before", () => {
+  // Top dressing: no base at all, $5 a thousand from the first square foot,
+  // but he will not load the trailer for less than $49.
+  const bands = [band(null, 0, { incrementSqft: 1000, incrementPrice: 5, minPrice: 49 })];
+  const small = calculatePrice(bands, 3000);
+  assert.equal(small.price, 49, "$15 of product, but the job is never under $49");
+  assert.equal(small.minimumApplied, true, "and the office is told the floor is what did it");
+  const big = calculatePrice(bands, 20000);
+  assert.equal(big.price, 100);
+  assert.equal(big.minimumApplied, false);
+});
+
+test("the floor goes on after the base and every step, not instead of them", () => {
+  const bands = [band(null, 30, { baseSqft: 0, incrementSqft: 1000, incrementPrice: 10, minPrice: 100 })];
+  assert.equal(calculatePrice(bands, 1000).price, 100, "30 + 10 is under the floor");
+  assert.equal(calculatePrice(bands, 8000).price, 110, "30 + 80 is over it, so the equation wins");
+});
+
+test("a floor of its own makes a band priced, so it can still price a job", () => {
+  // A band carrying nothing but "never less than $49" is a $49 band. Before
+  // the floor existed, isPricedBand looked only at base and step, so such a
+  // band would have been read as an empty "Add tier" row and skipped — and the
+  // one below it would have priced the lawn.
+  const bands = [band(3999, 0, { minPrice: 49 }), band(null, 200)];
+  const result = calculatePrice(bands, 1000);
+  assert.equal(result.price, 49);
+  assert.equal(result.equationIndex, 0);
+  assert.equal(result.minimumApplied, true);
+});
+
+test("a floor of zero is a real floor and a missing floor is none at all", () => {
+  // The form sends null for an empty box, never 0: "no minimum" and "the
+  // minimum is nothing" would otherwise be the same keystroke.
+  const noFloor = [band(null, 10, { incrementSqft: 1000, incrementPrice: 1 })];
+  assert.equal(calculatePrice(noFloor, 2000).minimumApplied, false);
+  const zeroFloor = [band(null, 10, { minPrice: 0 })];
+  assert.equal(calculatePrice(zeroFloor, 2000).price, 10, "a zero floor never lifts anything");
+  assert.equal(calculatePrice(zeroFloor, 2000).minimumApplied, false);
+});
+
+test("every band saved before the floor existed prices exactly as it did", () => {
+  // The whole point of the floor being optional. These are his real mowing
+  // numbers, with no minPrice anywhere.
+  const matrix = [band(3999, 49), band(9999, 75), band(29999, 203.75)];
+  for (const [sqft, expected] of [[3000, 49], [3999, 49], [4000, 75], [25000, 203.75]] as const) {
+    const result = calculatePrice(matrix, sqft);
+    assert.equal(result.price, expected);
+    assert.equal(result.minimumApplied, false, "nothing claims a floor that was never set");
+  }
+});
+
+test("a copied matrix carries its floor, scaled, in every mode", () => {
+  // A one-time mow at 1.5x whose floor stayed at the mowing floor would
+  // quietly take small one-time jobs at the mowing minimum.
+  const mowing = [band(3999, 49, { minPrice: 49 }), band(null, 203.75, { minPrice: 49 })];
+  const oneTime = scaleEquations(mowing, { mode: "multiply", value: 1.5 });
+  assert.deepEqual(oneTime.map((e) => e.minPrice), [73.5, 73.5]);
+  const plusFive = scaleEquations(mowing, { mode: "add", value: 5 });
+  assert.deepEqual(plusFive.map((e) => e.minPrice), [54, 54], "a floor is a price, not a step — adding to it cannot compound");
+  const unfloored = scaleEquations([band(3999, 49)], { mode: "multiply", value: 2 });
+  assert.equal(unfloored[0].minPrice, undefined, "and a band with no floor does not acquire one");
+});
+
+test("a rule can carry the minimum as well as the start price", () => {
+  const bands = bandsFromRule({
+    startPrice: 0,
+    firstTier: { pricePerStep: 5, stepSize: 1000, upTo: null },
+    minPrice: 49,
+  });
+  assert.ok(bands.every((b) => b.minPrice === 49), "every band the rule makes gets the floor");
+  assert.equal(calculatePrice(bands, 2000).price, 49, "$5 of stepping, lifted to the floor");
+  // The rule's first band is the first step, so the and-up band steps from
+  // 1,000 up: nineteen steps of $5 at 20,000.
+  assert.equal(calculatePrice(bands, 20000).price, 95);
+  const noFloor = bandsFromRule({ startPrice: 49, firstTier: { pricePerStep: 5, stepSize: 1000, upTo: 3000 } });
+  assert.ok(noFloor.every((b) => b.minPrice === undefined), "and a rule without one leaves the floor unset");
 });
 
 // ---- copying a matrix: scalePrice / scaleEquations ----

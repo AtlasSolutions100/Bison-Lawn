@@ -78,6 +78,19 @@ export function invitationHtml(input: {
 
 export type InvitationSendResult = { emailed: boolean; error: string | null };
 
+// The mail provider invitations go out through. Tests swap in a stub: "Eich did
+// not receive email" can only be answered by proving what the send path does,
+// and proving it must not put a real invitation in anybody's inbox.
+let invitationGmailProxy: GmailProxy = defaultGmailProxy;
+
+/** Swap the Gmail proxy invitations use (tests only). */
+export function setInvitationGmailProxyForTests(proxy: GmailProxy | null) {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("The invitation Gmail proxy can only be replaced in tests");
+  }
+  invitationGmailProxy = proxy ?? defaultGmailProxy;
+}
+
 /**
  * Email an invitation, reporting whether it actually went.
  *
@@ -89,7 +102,7 @@ export type InvitationSendResult = { emailed: boolean; error: string | null };
  */
 export async function sendInvitationEmail(
   input: { email: string; role: string; invitedByName: string | null; note: string | null },
-  proxy: GmailProxy = defaultGmailProxy,
+  proxy: GmailProxy = invitationGmailProxy,
   loadCompany: () => Promise<CompanyProfile | undefined> = getCompanyProfile,
 ): Promise<InvitationSendResult> {
   try {

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useListClients, useListServices, type ListJobsParams } from '@workspace/api-client-react';
+import { useListClients, useListServices, useListCustomerFields, useListEstimateFields, type ListJobsParams } from '@workspace/api-client-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -24,6 +24,17 @@ export type JobFilters = {
   tag: string;
   hasNotes: boolean;
   search: string;
+  /**
+   * "Dispatch board — columns search using custom fields." One filter wearing
+   * four boxes: which of his custom customer fields (Turf Sqft, Gate Code,
+   * Sprinkler Zones), and then what to match on it. The label on its own means
+   * "only the ones who have this filled in", which is how he finds the lawns
+   * nobody has measured yet.
+   */
+  fieldLabel: string;
+  fieldValue: string;
+  fieldMin: string;
+  fieldMax: string;
 };
 
 export const EMPTY_JOB_FILTERS: JobFilters = {
@@ -36,10 +47,19 @@ export const EMPTY_JOB_FILTERS: JobFilters = {
   tag: '',
   hasNotes: false,
   search: '',
+  fieldLabel: '',
+  fieldValue: '',
+  fieldMin: '',
+  fieldMax: '',
 };
 
 export function countActiveFilters(f: JobFilters): number {
-  return (Object.keys(f) as (keyof JobFilters)[]).filter((k) => (k === 'hasNotes' ? f.hasNotes : f[k] !== '')).length;
+  // The three custom-field boxes do not count on their own: they are what to
+  // match on the field he picked, so a label and a minimum is one filter. Left
+  // in, the button read "Filters (3)" for the one thing he chose.
+  return (Object.keys(f) as (keyof JobFilters)[])
+    .filter((k) => k !== 'fieldValue' && k !== 'fieldMin' && k !== 'fieldMax')
+    .filter((k) => (k === 'hasNotes' ? f.hasNotes : f[k] !== '')).length;
 }
 
 /** What the server understands; empty boxes are left out so the query key stays tidy. */
@@ -54,7 +74,55 @@ export function jobFilterParams(f: JobFilters) {
     ...(f.tag && { tag: f.tag }),
     ...(f.hasNotes && { hasNotes: true }),
     ...(f.search && { search: f.search }),
+    // Nothing goes without a label: a value with no field to look it up on
+    // would be a filter the server cannot answer.
+    ...(f.fieldLabel && { fieldLabel: f.fieldLabel }),
+    ...(f.fieldLabel && f.fieldValue && { fieldValue: f.fieldValue }),
+    ...(f.fieldLabel && f.fieldMin !== '' && Number.isFinite(Number(f.fieldMin)) && { fieldMin: Number(f.fieldMin) }),
+    ...(f.fieldLabel && f.fieldMax !== '' && Number.isFinite(Number(f.fieldMax)) && { fieldMax: Number(f.fieldMax) }),
   };
+}
+
+/**
+ * His custom customer fields, by label, in the order he put them in Settings.
+ *
+ * The same list the board offers as extra columns and as a filter — "columns
+ * search using custom fields" is one request about both. `calculable` and
+ * `number` fields are the ones worth a min/max; the rest are matched as text.
+ */
+export function useCustomFields() {
+  const { data } = useListCustomerFields();
+  /**
+   * The same fields, read a second way, because the first way needs Settings.
+   *
+   * /customer-fields is the fuller answer — it also knows the stray labels that
+   * only ever got typed on one customer's card — but it is a Settings screen's
+   * endpoint, and the second office person has the dispatch board without
+   * Settings. For her it comes back refused, and the board used to drop the
+   * Custom field filter and every custom column with no word about why. The
+   * plain field list is readable by anyone who can open the board, so the
+   * fields he set up still show for her; only the strays are missing, and
+   * nothing goes quiet.
+   */
+  const { data: onTheListOnly } = useListEstimateFields();
+  return useMemo(() => {
+    const toField = (f: { label: string; fieldType: string }) => ({
+      label: f.label.trim(),
+      numeric: f.fieldType === 'calculable' || f.fieldType === 'number',
+    });
+    const fromSettings = (data?.managed ?? []).filter((f) => f.label?.trim()).map(toField);
+    const fromBoard = (onTheListOnly ?? []).filter((f) => f.label?.trim()).map(toField);
+    const managed = data?.managed ? fromSettings : fromBoard;
+    // Labels typed on one customer's card and never added to the list. Most of
+    // the 709 came over from Service Autopilot carrying these, so leaving them
+    // out would hide the gate codes he actually has. No type was ever set on
+    // one, so it is matched as text — a min/max on a stray would be a guess.
+    const stray = (data?.unmanaged ?? [])
+      .filter((f) => f.label?.trim())
+      .map((f) => ({ label: f.label.trim(), numeric: false }));
+    const seen = new Set(managed.map((f) => f.label.toLowerCase()));
+    return [...managed, ...stray.filter((f) => !seen.has(f.label.toLowerCase()))];
+  }, [data, onTheListOnly]);
 }
 
 /**
@@ -97,6 +165,8 @@ export function JobFiltersPopover({
 }) {
   const { data: services } = useListServices();
   const { mapCodes, cities, branches, tags } = useClientFilterOptions();
+  const customFields = useCustomFields();
+  const pickedField = customFields.find((f) => f.label === value.fieldLabel) ?? null;
   const active = countActiveFilters(value);
   const set = <K extends keyof JobFilters>(key: K, v: JobFilters[K]) => onChange({ ...value, [key]: v });
 
@@ -170,6 +240,60 @@ export function JobFiltersPopover({
             </label>
           )}
         </div>
+        {customFields.length > 0 && (
+          <div className="space-y-2 rounded-md border bg-muted/30 p-2">
+            <label className="block text-xs text-muted-foreground">
+              Custom field
+              <select
+                className={selectClass}
+                value={value.fieldLabel}
+                // Changing which field is being looked at clears what was
+                // typed against the old one: "over 8" made sense for sprinkler
+                // zones and means nothing left on a gate code.
+                onChange={(e) => onChange({ ...value, fieldLabel: e.target.value, fieldValue: '', fieldMin: '', fieldMax: '' })}
+                data-testid="filter-field-label"
+              >
+                <option value="">Any</option>
+                {customFields.map((f) => <option key={f.label} value={f.label}>{f.label}</option>)}
+              </select>
+            </label>
+            {value.fieldLabel && (
+              <>
+                <p className="text-[11px] leading-tight text-muted-foreground">
+                  Leave the boxes empty to see everyone who has a {value.fieldLabel} on file.
+                </p>
+                <Input
+                  placeholder={`${value.fieldLabel} contains…`}
+                  value={value.fieldValue}
+                  onChange={(e) => set('fieldValue', e.target.value)}
+                  className="h-9"
+                  data-testid="filter-field-value"
+                />
+                {pickedField?.numeric && (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      placeholder="At least"
+                      value={value.fieldMin}
+                      onChange={(e) => set('fieldMin', e.target.value)}
+                      className="h-9"
+                      data-testid="filter-field-min"
+                    />
+                    <span className="text-xs text-muted-foreground">to</span>
+                    <Input
+                      type="number"
+                      placeholder="At most"
+                      value={value.fieldMax}
+                      onChange={(e) => set('fieldMax', e.target.value)}
+                      className="h-9"
+                      data-testid="filter-field-max"
+                    />
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
         {withSearch && (
           <Input
             placeholder="Name or address contains…"

@@ -20,6 +20,8 @@ import { useToast } from '@/hooks/use-toast';
 import { CheckCircle2, DollarSign, FileText, Send, Trash2 } from 'lucide-react';
 import { InvoiceDialog } from '@/components/billing/invoice-dialog';
 import { AddPaymentDialog, ApplyPaymentToInvoiceDialog } from '@/components/billing/payment-dialogs';
+import NewClientInvoiceDialog from '@/components/billing/new-invoice-dialog';
+import AccountSummaryStrip from '@/components/billing/account-summary';
 import { StatusPill, dayLabel, errorText, invalidateBilling, methodLabel, money, officeDay, openPdf } from '@/components/billing/shared';
 
 /**
@@ -140,13 +142,23 @@ export default function ClientAccountingPanel({ clientId }: { clientId: number }
           <CardTitle className="text-lg font-bold flex items-center gap-2">
             <DollarSign className="w-5 h-5 text-muted-foreground" /> Accounting
           </CardTitle>
-          <AddPaymentDialog clientId={clientId} clientName={client?.name} defaultMethod={client?.preferredPaymentMethod} />
+          <div className="flex items-center gap-2">
+            {/* A bill for this customer gets raised here, on their account,
+                because that is where he is standing when he decides to bill
+                them — and it lands in the list below before the window has
+                finished closing. */}
+            <NewClientInvoiceDialog clientId={clientId} clientName={client?.name} billingTerms={client?.billingTerms} />
+            <AddPaymentDialog clientId={clientId} clientName={client?.name} defaultMethod={client?.preferredPaymentMethod} />
+          </div>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 text-sm">
           <Figure label="Account balance" value={money(balance)} tone={balance > 0 ? 'due' : 'ok'} />
           <Figure label="Open invoices" value={money(owed)} tone={owed > 0 ? 'due' : 'ok'} />
           <Figure label="Credit on account" value={money(credit)} hint={credit > 0 && owed > 0 ? 'apply it from Payments' : undefined} />
           <Figure label="How they pay" value={methodLabel(client?.preferredPaymentMethod ?? pays[0]?.method)} hint={pendingCount ? `${pendingCount} bill${pendingCount === 1 ? '' : 's'} to verify` : undefined} />
+        </div>
+        <div className="pt-3">
+          <AccountSummaryStrip clientId={clientId} />
         </div>
       </CardHeader>
       <CardContent className="p-0">

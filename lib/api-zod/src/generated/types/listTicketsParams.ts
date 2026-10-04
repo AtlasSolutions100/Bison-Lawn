@@ -19,4 +19,8 @@ dueDate?: string;
  * Set to true to return only tickets that have someone assigned.
  */
 assigned?: string;
+/**
+ * Only tickets filed under this category name. Pass "none" for the ones nobody has categorised yet.
+ */
+category?: string;
 };

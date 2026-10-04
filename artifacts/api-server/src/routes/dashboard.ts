@@ -13,8 +13,9 @@ import {
   webRequestsTable,
   emailSendsTable,
 } from "@workspace/db";
-import { and, count, desc, eq, gte, inArray, ne, sql, sum } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, notInArray, sql, sum } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
+import { NOT_OWED_STATUSES } from "../lib/invoiceStatus";
 import { todayISO } from "../lib/invoiceNumbers";
 import { shownName } from "../lib/userAccounts";
 
@@ -47,10 +48,14 @@ router.get("/dashboard/summary", async (_req, res) => {
       .select({ n: count() })
       .from(jobsTable)
       .where(and(eq(jobsTable.scheduledDate, today), eq(jobsTable.status, "completed"))),
+    // The headline receivables figure, and it has to agree with every other
+    // total in the app: a balance he has written off or handed to a collector
+    // is not money he is going to see, so it comes out here the same way
+    // balanceOf takes it out of the invoice list and the account summary.
     db
       .select({ total: sum(invoicesTable.total), paid: sum(invoicesTable.amountPaid) })
       .from(invoicesTable)
-      .where(and(ne(invoicesTable.status, "void"), ne(invoicesTable.status, "paid"))),
+      .where(notInArray(invoicesTable.status, [...NOT_OWED_STATUSES, "paid"])),
     db.select({ n: count() }).from(jobsTable).where(eq(jobsTable.dispatched, false)),
     db.select({ n: count() }).from(ticketsTable).where(eq(ticketsTable.status, "open")),
     db

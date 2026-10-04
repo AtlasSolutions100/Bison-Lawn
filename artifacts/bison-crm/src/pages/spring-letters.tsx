@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   useBulkAdjustServicePrices,
+  usePlanSpringLetterPrices,
+  useSetSpringLetterPrices,
   useGetLetterTemplate,
   getPreviewSpringLetterQueryKey,
   useListServices,
@@ -11,10 +13,12 @@ import {
   useUpdateLetterTemplate,
   useUpdateService,
   BulkPriceAdjustInputMode,
+  SpringLetterPricePlanInputMode,
   type BulkPriceAdjustInput,
+  type SpringLetterPricePlanInput,
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, Calculator, CheckCircle2, DollarSign, Mail, RefreshCw, Save, Send, TrendingUp } from 'lucide-react';
+import { AlertCircle, Calculator, CheckCircle2, DollarSign, Mail, RefreshCw, RotateCcw, Save, Send, TrendingUp, UserCog } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -41,6 +45,8 @@ export default function SpringLetters() {
   const templateQuery = useGetLetterTemplate();
   const updateService = useUpdateService();
   const bulkAdjust = useBulkAdjustServicePrices();
+  const pricePlan = usePlanSpringLetterPrices();
+  const setPrices = useSetSpringLetterPrices();
   const renewClients = useRenewSpringLetterClients();
   const updateTemplate = useUpdateLetterTemplate();
   const sendLetters = useSendSpringLetters();
@@ -62,6 +68,19 @@ export default function SpringLetters() {
   const [bulkExcluded, setBulkExcluded] = useState<Set<number>>(new Set());
   const [bulkPreview, setBulkPreview] = useState<Awaited<ReturnType<typeof bulkAdjust.mutateAsync>> | null>(null);
   const [bulkPreviewedKey, setBulkPreviewedKey] = useState<string | null>(null);
+
+  // --- his per-customer prices (G5) -----------------------------------------
+  // "Some options select all and some custom prices, some increase %." The bar
+  // above moves the standard rate, which every customer on that service shares.
+  // These two move one customer: a figure typed against a row, and a raise
+  // aimed only at the customers ticked below.
+  const [planMode, setPlanMode] = useState<SpringLetterPricePlanInputMode>(SpringLetterPricePlanInputMode.percent);
+  const [planAmount, setPlanAmount] = useState('');
+  const [planRoundTo, setPlanRoundTo] = useState('');
+  const [planPreview, setPlanPreview] = useState<Awaited<ReturnType<typeof pricePlan.mutateAsync>> | null>(null);
+  const [planPreviewedKey, setPlanPreviewedKey] = useState<string | null>(null);
+  // Typed prices, keyed by assigned-service id, held until he saves them.
+  const [typedPrices, setTypedPrices] = useState<Record<number, string>>({});
 
   useEffect(() => {
     if (!servicesQuery.data) return;
@@ -127,6 +146,51 @@ export default function SpringLetters() {
   const bulkCanApply = bulkParamsValid && bulkPreview != null && bulkPreviewedKey === bulkParamsKey;
   const bulkStale = bulkPreview != null && bulkPreviewedKey !== bulkParamsKey;
 
+  const planAmountValue = Number(planAmount);
+  const planRoundToValue = planRoundTo.trim() === '' ? null : Number(planRoundTo);
+  const planValid =
+    selected.size > 0 &&
+    planAmount.trim() !== '' &&
+    Number.isFinite(planAmountValue) &&
+    (planRoundTo.trim() === '' || (Number.isFinite(planRoundToValue) && (planRoundToValue as number) > 0));
+  const planPayload: SpringLetterPricePlanInput = {
+    clientIds: [...selected],
+    mode: planMode,
+    amount: planAmountValue,
+    roundTo: planRoundToValue,
+    apply: false,
+  };
+  // Same rule as the bar above: Apply only lights up while a fresh preview
+  // matches these exact inputs, so he can never apply numbers he did not read.
+  const planKey = JSON.stringify(planPayload);
+  const planCanApply = planValid && planPreview != null && planPreviewedKey === planKey;
+  const planStale = planPreview != null && planPreviewedKey !== planKey;
+
+  // What he has typed into the per-service boxes and not yet saved. A box
+  // emptied back to blank is "use the standard rate", which is a change too.
+  const typedChanges = useMemo(() => {
+    const out: { clientServiceId: number; amount: number | null }[] = [];
+    for (const client of clientsQuery.data ?? []) {
+      for (const service of client.services) {
+        const draft = typedPrices[service.clientServiceId];
+        if (draft === undefined) continue;
+        if (draft.trim() === '') {
+          if (service.customAmount != null) out.push({ clientServiceId: service.clientServiceId, amount: null });
+          continue;
+        }
+        const value = Number(draft);
+        if (!Number.isFinite(value) || value < 0) continue;
+        if (value !== (service.customAmount ?? null)) out.push({ clientServiceId: service.clientServiceId, amount: value });
+      }
+    }
+    return out;
+  }, [clientsQuery.data, typedPrices]);
+  const typedInvalid = Object.values(typedPrices).some((value) => {
+    if (value.trim() === '') return false;
+    const amount = Number(value);
+    return !Number.isFinite(amount) || amount < 0;
+  });
+
   const selectedIds = [...selected];
   const previewQuery = usePreviewSpringLetter(previewClientId ?? 0, {
     query: {
@@ -186,6 +250,53 @@ export default function SpringLetters() {
         toast({ title: 'Seasonal pricing applied', description: `${result.changes.length} service${result.changes.length === 1 ? '' : 's'} updated.` });
       },
       onError: (error) => toast({ title: 'Bulk adjustment failed', description: errorMessage(error), variant: 'destructive' }),
+    });
+  };
+
+  const refreshPrices = () => Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['/api/spring-letters/clients'] }),
+    ...(previewClientId != null
+      ? [queryClient.invalidateQueries({ queryKey: getPreviewSpringLetterQueryKey(previewClientId) })]
+      : []),
+  ]);
+
+  const previewPricePlan = () => {
+    pricePlan.mutate({ data: planPayload }, {
+      onSuccess: (result) => { setPlanPreview(result); setPlanPreviewedKey(planKey); },
+      onError: (error) => toast({ title: 'Preview could not be calculated', description: errorMessage(error), variant: 'destructive' }),
+    });
+  };
+
+  const applyPricePlan = () => {
+    pricePlan.mutate({ data: { ...planPayload, apply: true } }, {
+      onSuccess: async (result) => {
+        setPlanPreview(result);
+        setPlanPreviewedKey(null);
+        // Typed boxes would otherwise keep showing the old figure over the top
+        // of the one just applied.
+        setTypedPrices({});
+        await refreshPrices();
+        const customers = new Set(result.changes.map((change) => change.clientId)).size;
+        toast({
+          title: 'Customer prices updated',
+          description: `${result.changes.length} service${result.changes.length === 1 ? '' : 's'} across ${customers} customer${customers === 1 ? '' : 's'}.`,
+        });
+      },
+      onError: (error) => toast({ title: 'Prices were not changed', description: errorMessage(error), variant: 'destructive' }),
+    });
+  };
+
+  const saveTypedPrices = () => {
+    setPrices.mutate({ data: { prices: typedChanges } }, {
+      onSuccess: async (result) => {
+        setTypedPrices({});
+        await refreshPrices();
+        toast({
+          title: 'Prices saved',
+          description: `${result.saved} set by hand${result.cleared ? `, ${result.cleared} back on the standard rate` : ''}.`,
+        });
+      },
+      onError: (error) => toast({ title: 'Prices were not saved', description: errorMessage(error), variant: 'destructive' }),
     });
   };
 
@@ -403,6 +514,96 @@ export default function SpringLetters() {
                 </label>
                 <span className="text-sm text-muted-foreground">{selected.size} selected</span>
               </div>
+
+              <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+                <div className="flex items-center gap-2">
+                  <UserCog className="h-4 w-4 text-primary" />
+                  <h3 className="font-semibold">Prices for the customers you ticked</h3>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Raise just these customers, or set them all to one price. This does not touch your standard rates, so
+                  everyone else stays where they are. You can also type a price against any one service below.
+                </p>
+                <div className="flex flex-wrap items-end gap-3">
+                  <div>
+                    <Label htmlFor="plan-mode">Change</Label>
+                    <select
+                      id="plan-mode"
+                      className="mt-1 flex h-10 w-44 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={planMode}
+                      onChange={(event) => setPlanMode(event.target.value as SpringLetterPricePlanInputMode)}
+                    >
+                      <option value={SpringLetterPricePlanInputMode.percent}>Raise by percent</option>
+                      <option value={SpringLetterPricePlanInputMode.add}>Add dollars</option>
+                      <option value={SpringLetterPricePlanInputMode.set}>Set the price</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label htmlFor="plan-amount">
+                      {planMode === SpringLetterPricePlanInputMode.percent ? 'Percent' : planMode === SpringLetterPricePlanInputMode.add ? 'Amount to add' : 'Price'}
+                    </Label>
+                    <div className="relative mt-1 w-36">
+                      {planMode !== SpringLetterPricePlanInputMode.percent && <span className="absolute left-3 top-2 text-muted-foreground">$</span>}
+                      <Input
+                        id="plan-amount"
+                        className={planMode === SpringLetterPricePlanInputMode.percent ? 'pr-7' : 'pl-7'}
+                        type="number"
+                        step="0.01"
+                        placeholder={planMode === SpringLetterPricePlanInputMode.percent ? 'e.g. 6' : 'e.g. 55'}
+                        value={planAmount}
+                        onChange={(event) => setPlanAmount(event.target.value)}
+                      />
+                      {planMode === SpringLetterPricePlanInputMode.percent && <span className="absolute right-3 top-2 text-muted-foreground">%</span>}
+                    </div>
+                  </div>
+                  <div>
+                    <Label htmlFor="plan-round-to">Round to nearest (optional)</Label>
+                    <div className="relative mt-1 w-32">
+                      <span className="absolute left-3 top-2 text-muted-foreground">$</span>
+                      <Input id="plan-round-to" className="pl-7" type="number" min="0" step="1" placeholder="e.g. 5" value={planRoundTo} onChange={(event) => setPlanRoundTo(event.target.value)} />
+                    </div>
+                  </div>
+                  <Button variant="outline" onClick={previewPricePlan} disabled={!planValid || pricePlan.isPending}>
+                    <Calculator className="mr-2 h-4 w-4" />{pricePlan.isPending ? 'Calculating…' : 'Preview'}
+                  </Button>
+                  <Button onClick={applyPricePlan} disabled={!planCanApply || pricePlan.isPending}>
+                    <UserCog className="mr-2 h-4 w-4" />{pricePlan.isPending ? 'Applying…' : `Apply to ${selected.size} customer${selected.size === 1 ? '' : 's'}`}
+                  </Button>
+                </div>
+                {!selected.size && <p className="text-sm text-muted-foreground">Tick the customers this should apply to.</p>}
+                {planPreview && (
+                  <div className="space-y-2">
+                    {!planPreview.changes.length ? (
+                      <p className="text-sm text-muted-foreground">Nothing would change for the customers you ticked.</p>
+                    ) : (
+                      <div className="max-h-64 overflow-auto rounded-md border bg-background">
+                        <Table>
+                          <TableHeader>
+                            <TableRow><TableHead>Customer</TableHead><TableHead>Service</TableHead><TableHead>From</TableHead><TableHead>To</TableHead></TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {planPreview.changes.map((change) => (
+                              <TableRow key={change.clientServiceId}>
+                                <TableCell>{change.clientName}</TableCell>
+                                <TableCell>{change.serviceName}</TableCell>
+                                <TableCell>{money(change.from)}</TableCell>
+                                <TableCell className="font-medium text-primary">{money(change.to)}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                    {planPreview.applied ? (
+                      <p className="text-sm text-muted-foreground">Applied — these are the prices these customers will be told.</p>
+                    ) : planStale ? (
+                      <p className="text-sm text-muted-foreground">Inputs changed since this preview. Preview again before applying.</p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Preview only — nothing has been saved yet.</p>
+                    )}
+                  </div>
+                )}
+              </div>
               <div className="max-h-[32rem] space-y-2 overflow-y-auto pr-1">
                 {clientsQuery.data.map((client) => (
                   <div key={client.clientId} className="rounded-lg border p-4">
@@ -415,11 +616,49 @@ export default function SpringLetters() {
                           {!client.email && <Badge variant="destructive">No email address</Badge>}
                         </div>
                         <div className="mt-2 grid gap-1 text-sm">
-                          {client.services.map((service) => (
-                            <div key={service.clientServiceId} className="flex justify-between gap-4 text-muted-foreground">
-                              <span>{service.serviceName}</span><span className="whitespace-nowrap">{money(service.currentAmount)} → <strong className="text-foreground">{money(service.newAmount)}</strong></span>
-                            </div>
-                          ))}
+                          {client.services.map((service) => {
+                            const typed = typedPrices[service.clientServiceId];
+                            const custom = service.customAmount != null;
+                            return (
+                              <div key={service.clientServiceId} className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground">
+                                <span className="min-w-32 flex-1">
+                                  {service.serviceName}
+                                  {custom && typed === undefined && (
+                                    <Badge variant="secondary" className="ml-2 align-middle text-[10px]">their own price</Badge>
+                                  )}
+                                </span>
+                                <span className="whitespace-nowrap">
+                                  {money(service.currentAmount)} → <strong className="text-foreground">{money(service.newAmount)}</strong>
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <span className="relative w-28">
+                                    <span className="absolute left-2 top-1.5 text-xs text-muted-foreground">$</span>
+                                    <Input
+                                      className="h-8 pl-5 text-sm"
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      aria-label={`Price ${client.clientName} pays for ${service.serviceName}`}
+                                      placeholder={service.catalogAmount != null ? String(service.catalogAmount) : 'standard'}
+                                      value={typed ?? (service.customAmount != null ? String(service.customAmount) : '')}
+                                      onChange={(event) => setTypedPrices((current) => ({ ...current, [service.clientServiceId]: event.target.value }))}
+                                    />
+                                  </span>
+                                  {(custom || typed) && (
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-8 w-8"
+                                      title={`Put ${service.serviceName} back on the standard rate`}
+                                      onClick={() => setTypedPrices((current) => ({ ...current, [service.clientServiceId]: '' }))}
+                                    >
+                                      <RotateCcw className="h-3.5 w-3.5" />
+                                    </Button>
+                                  )}
+                                </span>
+                              </div>
+                            );
+                          })}
                           <div className="mt-1 flex justify-between border-t pt-2 font-medium">
                             <span>Total</span><span>{money(client.currentTotal)} → <span className="text-primary">{money(client.newTotal)}</span></span>
                           </div>
@@ -432,6 +671,15 @@ export default function SpringLetters() {
             </>
           )}
           {renewalResult && <RunResults title={`${renewalResult.renewed} customers renewed`} outcomes={renewalResult.outcomes} />}
+          {typedInvalid && (
+            <Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertTitle>Check the prices you typed</AlertTitle><AlertDescription>A price has to be a number and cannot be less than nothing. Clear the box to go back to the standard rate.</AlertDescription></Alert>
+          )}
+          {typedChanges.length > 0 && (
+            <Button variant="outline" onClick={saveTypedPrices} disabled={typedInvalid || setPrices.isPending}>
+              <Save className="mr-2 h-4 w-4" />
+              {setPrices.isPending ? 'Saving prices…' : `Save ${typedChanges.length} typed price${typedChanges.length === 1 ? '' : 's'}`}
+            </Button>
+          )}
           <Button onClick={renewSelected} disabled={!selected.size || renewClients.isPending || clientsQuery.isLoading}>
             <RefreshCw className={`mr-2 h-4 w-4 ${renewClients.isPending ? 'animate-spin' : ''}`} />{renewClients.isPending ? 'Renewing customers…' : `Renew ${selected.size} selected`}
           </Button>

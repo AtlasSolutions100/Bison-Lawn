@@ -183,6 +183,11 @@ export function DispatchMap({
            ${escapeHtml(job.clientAddress ?? '')}<br/>
            ${escapeHtml(job.serviceName ?? '')} — ${money(job.amount ?? 0)}<br/>
            <span style="color:#6f675f">${escapeHtml(job.assignedToName ?? 'Unassigned')}${
+             // Everybody else on the truck. "Document crew member on clean
+             // ups" — a pin that reads one name on a three-man clean-up is the
+             // same wrong answer the row was giving.
+             job.crew?.length ? escapeHtml(`, ${job.crew.map((c) => c.name).join(', ')}`) : ''
+           }${
              job.routeOrder != null ? ` · stop ${job.routeOrder}` : ''
            }${job.scheduledDate ? ` · ${job.scheduledDate}` : ''}</span>
          </div>`,

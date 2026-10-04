@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useListTickets, useCreateTicket, useUpdateTicket, useDeleteTicket, useListUsers } from '@workspace/api-client-react';
+import { useListTickets, useCreateTicket, useUpdateTicket, useDeleteTicket, useListUsers, useListTicketCategories } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,14 +11,20 @@ import { format } from 'date-fns';
 export default function Tickets() {
   const [status, setStatus] = useState<'open'|'done'|''>('open');
   const [assigneeId, setAssigneeId] = useState('');
+  // "Ticket Categories, Account Issue, Billing, Cancel Request, ..." — the
+  // reason for putting a category on a ticket is being able to pull up every
+  // billing question at once, so the filter is the other half of the feature.
+  const [category, setCategory] = useState('');
   
   const queryParams = {
     ...(status && { status: status as any }),
-    ...(assigneeId && { assignedTo: parseInt(assigneeId) })
+    ...(assigneeId && { assignedTo: parseInt(assigneeId) }),
+    ...(category && { category })
   };
 
   const { data: tickets, isLoading } = useListTickets(queryParams);
   const { data: users } = useListUsers();
+  const { data: categories } = useListTicketCategories();
   
   const updateTicket = useUpdateTicket();
   const deleteTicket = useDeleteTicket();
@@ -58,6 +64,14 @@ export default function Tickets() {
           <option value="">All Assignees</option>
           {users?.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
         </select>
+        <select className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm w-48" value={category} onChange={e => setCategory(e.target.value)} data-testid="ticket-category-filter">
+          <option value="">All Categories</option>
+          {categories?.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+          <option value="none">No category yet</option>
+        </select>
+        {category && (
+          <Button variant="ghost" size="sm" className="h-9" onClick={() => setCategory('')}>Clear</Button>
+        )}
       </div>
 
       <div className="flex-1 overflow-auto space-y-3 pb-8">
@@ -76,6 +90,16 @@ export default function Tickets() {
                 {t.description && <p className="text-muted-foreground mt-1 text-sm whitespace-pre-wrap">{t.description}</p>}
                 
                 <div className="flex flex-wrap items-center gap-3 mt-3">
+                  {t.category && (
+                    <button
+                      type="button"
+                      className="bg-secondary text-secondary-foreground border px-2 py-0.5 rounded text-xs font-semibold hover:border-primary/40"
+                      title={`Show only ${t.category} tickets`}
+                      onClick={() => setCategory(t.category!)}
+                    >
+                      {t.category}
+                    </button>
+                  )}
                   {t.clientName && (
                     <span className="bg-accent/10 text-accent-foreground border border-accent/20 px-2 py-0.5 rounded text-xs font-semibold">
                       Client: {t.clientName}
@@ -110,8 +134,12 @@ function NewTicketDialog({ users }: { users: any }) {
   const [description, setDescription] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [assignedTo, setAssignedTo] = useState('');
+  const [category, setCategory] = useState('');
   
   const createTicket = useCreateTicket();
+  // His own list, not a hard-coded one: a category he adds in Settings turns up
+  // here without anybody shipping code.
+  const { data: categories } = useListTicketCategories({}, { query: { enabled: open, queryKey: ['/api/ticket-categories'] } });
   const queryClient = useQueryClient();
 
   const handleSave = () => {
@@ -120,7 +148,8 @@ function NewTicketDialog({ users }: { users: any }) {
         title,
         description,
         dueDate: dueDate || undefined,
-        assignedToId: assignedTo ? parseInt(assignedTo) : undefined
+        assignedToId: assignedTo ? parseInt(assignedTo) : undefined,
+        category: category || null
       }
     }, {
       onSuccess: () => {
@@ -130,6 +159,7 @@ function NewTicketDialog({ users }: { users: any }) {
         setDescription('');
         setDueDate('');
         setAssignedTo('');
+        setCategory('');
       }
     });
   };
@@ -156,6 +186,19 @@ function NewTicketDialog({ users }: { users: any }) {
               className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm" 
               value={description} onChange={e => setDescription(e.target.value)} 
             />
+          </div>
+          <div>
+            <label className="text-sm font-medium mb-1 block">Category</label>
+            <select
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={category}
+              onChange={e => setCategory(e.target.value)}
+              data-testid="ticket-category"
+            >
+              <option value="">No category</option>
+              {categories?.map((c: { id: number; name: string }) => <option key={c.id} value={c.name}>{c.name}</option>)}
+            </select>
+            <p className="text-xs text-muted-foreground mt-1">Add to this list in Settings.</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>

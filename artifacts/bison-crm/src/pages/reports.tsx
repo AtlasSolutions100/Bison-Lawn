@@ -206,6 +206,33 @@ function ExportButton({ reportKey, from, to }: { reportKey: string; from: string
   );
 }
 
+/**
+ * The three money reports from his 2026-09-28 notes, and the sentence that has
+ * to sit next to them.
+ *
+ * He asked for a cash report AND an accrual report, which only makes sense if
+ * the difference between them is in front of him — otherwise two reports with
+ * similar totals look like one of them is wrong. So the difference is stated on
+ * screen wherever one of them is open, not buried in a help page.
+ */
+const MONEY_BASIS_REPORTS = new Set(['cash_report', 'accrual_report', 'cash_vs_accrual_by_month']);
+
+function MoneyBasisNote() {
+  return (
+    <div className="rounded-md border-l-2 border-primary bg-primary/5 p-3 text-sm" data-testid="money-basis-note">
+      <p>
+        <strong>Cash</strong> counts a payment on the day you took it. <strong>Accrual</strong> counts
+        an invoice on its invoice date, paid or not.
+      </p>
+      <p className="mt-1 text-muted-foreground">
+        So a bill you sent in December and got paid for in February is accrual money in December and
+        cash money in February. Cash tells you what is in the bank; accrual tells you what the month
+        earned. That is why both are here.
+      </p>
+    </div>
+  );
+}
+
 /** The report he last opened comes back next visit; it is a convenience, nothing more. */
 const LAST_REPORT_KEY = 'bison.reports.last';
 
@@ -353,6 +380,9 @@ export default function Reports() {
                   <ExportButton reportKey={ask.data.reportKey} from={from} to={to} />
                 </div>
               )}
+              {/* The same sentence when the question lands on one of them, so
+                  he never reads a cash total thinking it is an accrual one. */}
+              {ask.data.reportKey && MONEY_BASIS_REPORTS.has(ask.data.reportKey) && <MoneyBasisNote />}
               {ask.data.columns.length > 0 && (
                 <div className="rounded-md border">
                   <ReportTable columns={ask.data.columns} rows={ask.data.rows} totals={ask.data.totals ?? null} />
@@ -385,6 +415,7 @@ export default function Reports() {
           {pickedEntry && (
             <p className="text-sm text-muted-foreground">{pickedEntry.describes}.</p>
           )}
+          {MONEY_BASIS_REPORTS.has(reportKey) && <MoneyBasisNote />}
           {reportKey === 'email_failures' && (
             <p className="text-xs text-amber-700">
               These are emails Gmail refused to send or that were skipped. A bounce that comes back

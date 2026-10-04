@@ -11,6 +11,6 @@ export interface InvoiceBatchOutcome {
   number: number;
   /** @nullable */
   clientName: string | null;
-  /** no_email, not_verified, void, already_sent, or the error text. do_not_email is not one of them: that box stops bulk notices, not a customer's bill. */
+  /** no_email, not_verified, void, written_off, already_sent, or the error text. do_not_email is not one of them: that box stops bulk notices, not a customer's bill. */
   reason: string;
 }

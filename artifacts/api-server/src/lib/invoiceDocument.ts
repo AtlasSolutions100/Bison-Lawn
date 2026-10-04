@@ -9,6 +9,7 @@ import {
   drawBrandImage,
 } from "./estimateDocument";
 import { firstNameOf } from "./mergeTokens";
+import { owesNothing } from "./invoiceStatus";
 
 export type InvoiceDocumentData = {
   invoice: Invoice;
@@ -44,9 +45,15 @@ export const invoiceNumberOf = (invoice: Pick<Invoice, "id" | "number">) => invo
  * that still showed its old total under "Balance Due" contradicted the very
  * account balance it fed, in red, on both the list and the printed invoice.
  * Any money actually received against it stays on the account as credit.
+ *
+ * A written-off or collections bill owes nothing for the same reason: it is no
+ * longer money he is going to collect, and every total that adds up balances
+ * comes through here, so the one decision holds everywhere. Unlike void it
+ * keeps whatever was already paid against it, so writing off $200 of a $300
+ * bill with $100 on it takes exactly $200 off the account and not $300.
  */
 export const balanceOf = (invoice: Pick<Invoice, "total" | "amountPaid"> & { status?: string | null }) =>
-  invoice.status === "void" ? 0 : Math.max(0, Math.round((invoice.total - invoice.amountPaid) * 100) / 100);
+  owesNothing(invoice.status) ? 0 : Math.max(0, Math.round((invoice.total - invoice.amountPaid) * 100) / 100);
 
 /**
  * The day an invoice is late after. "Due on receipt" stores no due date on
@@ -193,6 +200,15 @@ function drawInvoice(doc: PDFKit.PDFDocument, data: InvoiceDocumentData, company
     doc.fillColor(GREEN).font("Helvetica-Bold").fontSize(13).text("PAID", 54, doc.y + 4, { width: 260 });
   } else if (invoice.status === "void") {
     doc.fillColor(MUTED).font("Helvetica-Bold").fontSize(13).text("VOID", 54, doc.y + 4, { width: 260 });
+  } else if (invoice.status === "written_off" || invoice.status === "collections") {
+    // Printed, because this copy is what ends up in the file on a balance he
+    // gave up on: anyone looking at it later has to see that nobody is still
+    // waiting on the money, and which of the two happened.
+    doc
+      .fillColor(MUTED)
+      .font("Helvetica-Bold")
+      .fontSize(13)
+      .text(invoice.status === "collections" ? "SENT TO COLLECTIONS" : "WRITTEN OFF", 54, doc.y + 4, { width: 260 });
   }
   const titleBottom = doc.y;
 

@@ -6,6 +6,7 @@ import { ClockInToJobBody, ClockOutOfJobBody } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/requireAuth";
 import { logAudit } from "../lib/helpers";
 import { shownName } from "../lib/userAccounts";
+import { isOnJobCrew } from "../lib/jobCrew";
 
 const router: IRouter = Router();
 
@@ -19,11 +20,14 @@ type JobRow = typeof jobsTable.$inferSelect;
  * if the rule changes there it has to change here too, and a clock-in that
  * outlives the dispatch it belongs to is the failure this prevents.
  */
-function canAccessJob(req: Request, job: JobRow): boolean {
+async function canAccessJob(req: Request, job: JobRow): Promise<boolean> {
   if (req.appUser?.role === "admin") return true;
-  return (
-    job.assignedToId === req.appUser?.id && job.dispatched === true && job.visibleToContractor === true
-  );
+  if (!req.appUser || job.dispatched !== true || job.visibleToContractor !== true) return false;
+  if (job.assignedToId === req.appUser.id) return true;
+  // The second and third man on a clean-up clock their own hours. That is the
+  // whole point of "document crew member on clean ups": without it the job's
+  // time is one man's, and the hours he reports back are a guess.
+  return isOnJobCrew(req.appUser.id, job.id);
 }
 
 async function loadAccessibleJob(req: Request, res: Response): Promise<JobRow | null> {
@@ -32,7 +36,7 @@ async function loadAccessibleJob(req: Request, res: Response): Promise<JobRow | 
     res.status(404).json({ error: "Job not found" });
     return null;
   }
-  if (!canAccessJob(req, job)) {
+  if (!(await canAccessJob(req, job))) {
     res.status(403).json({ error: "Forbidden" });
     return null;
   }

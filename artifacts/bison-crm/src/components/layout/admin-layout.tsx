@@ -15,6 +15,7 @@ import {
   Menu,
   SprayCan,
   Mail,
+  Inbox,
   Globe, MessageSquarePlus , Settings2, BookOpen, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
@@ -41,6 +42,9 @@ const ADMIN_NAV: { name: string; href: string; icon: typeof LayoutDashboard; are
   { name: 'Tickets', href: '/tickets', icon: Ticket, area: 'dispatch' },
   { name: 'Web Requests', href: '/web-requests', icon: Globe, area: 'clients' },
   { name: 'Automation', href: '/automation', icon: CloudSun, area: 'settings' },
+  // The screen he called huge: what went out together and who opened it. It
+  // sat inside Automation, which is not where he goes looking for results.
+  { name: 'Email Activity', href: '/email-activity', icon: Inbox, area: 'documents' },
   { name: 'Team', href: '/team', icon: UserCog, area: 'team' },
   { name: 'Feedback', href: '/feedback', icon: MessageSquarePlus },
   { name: 'Settings', href: '/settings', icon: Settings2, area: 'settings' },

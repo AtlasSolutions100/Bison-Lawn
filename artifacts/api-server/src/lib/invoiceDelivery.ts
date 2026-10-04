@@ -219,7 +219,18 @@ export async function billedAccountBalances(clientIds: number[]): Promise<Map<nu
   const round = (n: number) => Math.round(n * 100) / 100;
   const [billed, paid] = await Promise.all([
     db
-      .select({ clientId: invoicesTable.clientId, total: sum(invoicesTable.total) })
+      .select({
+        clientId: invoicesTable.clientId,
+        // A bill he wrote off, or handed to collections, counts at what was
+        // actually paid on it — the same arithmetic recalcClientBalance uses.
+        // Nobody is still waiting on the rest, so the coupon must not ask the
+        // customer for it; counting it at zero instead would leave its own
+        // part-payment on its own and quote them a credit they do not have.
+        total: sql<string>`coalesce(sum(case
+          when ${invoicesTable.status} in ('written_off', 'collections') then ${invoicesTable.amountPaid}
+          else ${invoicesTable.total}
+        end), 0)`,
+      })
       .from(invoicesTable)
       .where(and(inArray(invoicesTable.clientId, ids), issuedInvoice()))
       .groupBy(invoicesTable.clientId),
@@ -269,7 +280,7 @@ export async function loadInvoiceForDocument(invoiceId: number): Promise<Invoice
 
 export type InvoiceEmailOutcome =
   | { status: "sent"; toEmail: string; messageId: string | null }
-  | { status: "skipped"; reason: "no_email" | "not_verified" | "void" | "already_sent" }
+  | { status: "skipped"; reason: "no_email" | "not_verified" | "void" | "already_sent" | "written_off" }
   | { status: "failed"; reason: string };
 
 /**
@@ -306,6 +317,12 @@ export async function emailInvoice(
   const number = invoiceNumberOf(invoice);
 
   if (invoice.status === "void") return { status: "skipped", reason: "void" };
+  // A balance he has written off, or handed to a collector, is not his to ask
+  // for any more: emailing the bill again would chase money he already decided
+  // to stop chasing.
+  if (invoice.status === "written_off" || invoice.status === "collections") {
+    return { status: "skipped", reason: "written_off" };
+  }
   // An invoice that has already been sent or printed was checked by the act of
   // going out; older bills carry no verifiedAt at all, and refusing to resend
   // one of those told the office a bill the customer is holding "has not been

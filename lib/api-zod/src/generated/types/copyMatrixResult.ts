@@ -11,5 +11,10 @@ export interface CopyMatrixResult {
   applied: boolean;
   sourceServiceId: number;
   sourceServiceName: string;
+  /**
+     * "seed ($5 per 1,000 sqft + $85 flat)" — what was added, in one line, or null if nothing was.
+     * @nullable
+     */
+  productCostLabel?: string | null;
   targets: CopyMatrixTarget[];
 }

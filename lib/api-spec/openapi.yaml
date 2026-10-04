@@ -413,6 +413,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DocumentSendResult"
+  /email-activity/summary:
+    get:
+      operationId: getEmailActivitySummary
+      tags: [settings]
+      summary: How many emails went out and how many were opened over the last so many days
+      parameters:
+        - name: days
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 3650 }
+      responses:
+        "200":
+          description: Totals for the window
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailActivitySummary"
   /email-activity/batches:
     get:
       operationId: listEmailBatches
@@ -423,6 +440,21 @@ paths:
           in: query
           required: false
           schema: { type: integer, minimum: 1, maximum: 500 }
+        - name: source
+          in: query
+          required: false
+          description: Only sends that came from one place, e.g. dispatch or automation
+          schema: { type: string }
+        - name: q
+          in: query
+          required: false
+          description: Match on the document, the automation's name, the subject or who sent it
+          schema: { type: string }
+        - name: includeSingles
+          in: query
+          required: false
+          description: "Also list emails that went to one customer on their own, like a single bill"
+          schema: { type: boolean }
       responses:
         "200":
           description: Batches
@@ -432,6 +464,23 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/EmailBatch"
+  /email-activity/batches/{batchId}/overview:
+    get:
+      operationId: getEmailBatchOverview
+      tags: [settings]
+      summary: One bulk send's own line, for a results screen opened on its own
+      parameters:
+        - name: batchId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The batch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailBatch"
   /email-activity/batches/{batchId}:
     get:
       operationId: getEmailBatch
@@ -543,6 +592,17 @@ paths:
         - name: search
           in: query
           schema: { type: string }
+        - name: subAccounts
+          in: query
+          description: >-
+            Whether properties sitting under a master account are in the list.
+            "When adding a sub account, have the previous one unviewable instead
+            of greyed out" — the client list asks for `hide` so a property that
+            moved under a master stops showing up twice, and reads it off the
+            master's own page instead. `only` is the master's side of that.
+            Default `all`, so nothing that was already asking for this list
+            changes.
+          schema: { type: string, enum: [all, hide, only] }
       responses:
         "200":
           description: Clients
@@ -864,6 +924,79 @@ paths:
               schema:
                 type: array
                 items: { type: string }
+  /client-tags:
+    get:
+      operationId: listClientTags
+      tags: [clients]
+      summary: The tag list the office picks from
+      description: >-
+        "Create a tag list for drop down selection, ability to add multiple
+        tags." Every tag on the list plus every tag already sitting on a
+        customer, so nothing the import brought in disappears, with the number
+        of customers carrying each one. Alphanumeric order.
+      responses:
+        "200":
+          description: Tags
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ClientTag"
+    post:
+      operationId: createClientTag
+      tags: [clients]
+      summary: Add a tag to the list
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientTagInput"
+      responses:
+        "201":
+          description: Added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientTag"
+  /client-tags/{id}:
+    patch:
+      operationId: updateClientTag
+      tags: [clients]
+      summary: Fix a tag's spelling everywhere it is used
+      description: >-
+        Renames the tag on the list and on every customer carrying it, which is
+        how a typo that is already out there gets cleaned up instead of living
+        alongside the right spelling forever.
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientTagUpdate"
+      responses:
+        "200":
+          description: Renamed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientTag"
+    delete:
+      operationId: deleteClientTag
+      tags: [clients]
+      summary: Take a tag off the list
+      description: >-
+        Refused while customers still carry it — taking it off the list would
+        leave those tags on the accounts with nothing offering them again. Clear
+        it off the customers first with Remove tags on the client list.
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "204":
+          description: Taken off the list
   /clients/{id}/related:
     get:
       operationId: listRelatedClients
@@ -1207,6 +1340,53 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CopyMatrixResult"
+  /services/{id}/matrix-export:
+    get:
+      operationId: exportServiceMatrix
+      tags: [services]
+      summary: The service's rate matrix as a spreadsheet file
+      description: >-
+        "Ability to extract matrix from crm to excel". A CSV, which Excel and
+        Google Sheets both open straight from a double click, carrying the
+        UTF-8 marker so a field label with an accent survives. The columns are
+        the same ones the importer reads back, so the round trip is the point:
+        export, change the numbers in Excel, import, look at what it read,
+        accept.
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: CSV file
+          content:
+            text/csv:
+              schema: { type: string }
+  /services/{id}/import-matrix:
+    post:
+      operationId: importServiceMatrix
+      tags: [services]
+      summary: Read a rate matrix out of a spreadsheet — preview first, then apply
+      description: >-
+        Feedback #42, the pair of the export. Nothing is saved unless `apply` is
+        true, because a bad import silently repricing his catalogue is the worst
+        thing this could do: the first call reads the file and reports every
+        band it found, every column it ignored and every number it could not
+        read, and he accepts or cancels from that. A file with any error cannot
+        be applied at all.
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MatrixImportInput"
+      responses:
+        "200":
+          description: What the file says (apply=false) or what the service now has (apply=true)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MatrixImportResult"
   /services/matrix-from-rule:
     post:
       operationId: buildMatrixFromRule
@@ -1225,6 +1405,85 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/MatrixRuleResult"
+  /services/{id}/assigned-impact:
+    get:
+      operationId: getServiceAssignedImpact
+      tags: [services]
+      summary: Who already has this service, and what changing it would do to them
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+        - name: fromRate
+          in: query
+          required: false
+          schema: { type: number }
+          description: "The rate the service had before it was saved. On a service with no matrix it is the only way to tell a price somebody typed from one simply still on the old rate."
+      responses:
+        "200":
+          description: The customers on this service and the price/hours each would move to
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceAssignedImpact"
+  /services/{id}/push-to-assigned:
+    post:
+      operationId: pushServiceToAssigned
+      tags: [services]
+      summary: Push a changed price or billable hours onto the customers who already have this service - preview first, then apply
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ServicePushInput"
+      responses:
+        "200":
+          description: What each account would get (apply off) or now has (apply on)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServicePushResult"
+  /services/{id}/season-end:
+    post:
+      operationId: setServiceSeasonEnd
+      tags: [services]
+      summary: One season end for every customer on this service, cancelling the visits past it - preview first, then apply
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ServiceSeasonEndInput"
+      responses:
+        "200":
+          description: What each account would get (apply off) or now has (apply on)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceSeasonEndResult"
+  /client-services/{id}/finish-season:
+    post:
+      operationId: finishClientServiceSeason
+      tags: [clients]
+      summary: This customer finishes the season early - set their last day and cancel the visits after it
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinishSeasonInput"
+      responses:
+        "200":
+          description: What it would cancel (apply off) or did cancel (apply on)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FinishSeasonResult"
   /packages:
     get:
       operationId: listPackages
@@ -1632,6 +1891,25 @@ paths:
         - name: status
           in: query
           schema: { type: string, enum: [scheduled, on_the_way, in_progress, completed, skipped, cancelled] }
+        - name: fieldLabel
+          in: query
+          description: >-
+            One of his custom customer fields by label (Turf Sqft, Gate Code,
+            Sprinkler Zones). On its own it means "only customers who have this
+            filled in". The same filter the dispatch board uses.
+          schema: { type: string }
+        - name: fieldValue
+          in: query
+          description: The custom field's value contains this, any part of it, any case.
+          schema: { type: string }
+        - name: fieldMin
+          in: query
+          description: The custom field read as a number, at least this.
+          schema: { type: number }
+        - name: fieldMax
+          in: query
+          description: The custom field read as a number, at most this.
+          schema: { type: number }
       responses:
         "200":
           description: Waiting list jobs
@@ -1688,6 +1966,30 @@ paths:
         - name: hasNotes
           in: query
           schema: { type: boolean }
+        - name: fieldLabel
+          in: query
+          description: >-
+            "Dispatch board — columns search using custom fields." The label of
+            one of his custom customer fields (Turf Sqft, Gate Code, Sprinkler
+            Zones). On its own it means "only customers who have this filled
+            in", which answers who he has not measured yet. Matched without
+            case, because the label in Settings and the key saved on an old
+            customer are not always capitalised the same.
+          schema: { type: string }
+        - name: fieldValue
+          in: query
+          description: The custom field's value contains this, any part of it, any case.
+          schema: { type: string }
+        - name: fieldMin
+          in: query
+          description: >-
+            The custom field read as a number, at least this. Commas and units
+            are stripped first, so "6,200 sq ft" still compares.
+          schema: { type: number }
+        - name: fieldMax
+          in: query
+          description: The custom field read as a number, at most this.
+          schema: { type: number }
       responses:
         "200":
           description: Jobs
@@ -1754,6 +2056,65 @@ paths:
       responses:
         "204":
           description: Deleted
+  /jobs/{id}/crew:
+    put:
+      operationId: setJobCrew
+      tags: [jobs]
+      summary: Set who else is on this job besides the lead
+      description: >-
+        "Document crew member on clean ups, add crew members to day." The whole
+        crew is sent each time and replaces whoever was on it, because the
+        office is looking at a crew of three and deciding it should be two. The
+        lead stays on the job's own assignedToId and is never stored as crew, so
+        nothing that bills or totals a sub's day changes. Everyone on the crew
+        sees the stop on their own job list and can clock their own hours.
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SetJobCrewInput" }
+      responses:
+        "200":
+          description: The crew as it now stands
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobCrewResult" }
+        "400":
+          description: Somebody on the list is not in the team any more
+        "404":
+          description: No such job
+  /jobs/{id}/route-position:
+    post:
+      operationId: moveRouteStop
+      tags: [jobs]
+      summary: Move one stop to a number and shuffle the rest of the run
+      description: >-
+        "Ability to adjust route and save manually without having to redo all
+        the numbers." Typing a number into one stop used to write that number
+        and nothing else, leaving the day with two stop 3s. This puts the stop
+        at that number and moves everything from there down one place. The run
+        is one person's day — same date, same lead — and only stops that already
+        have a number take part, plus the one being moved, so a day he has part
+        numbered stays part numbered.
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MoveRouteStopInput" }
+      responses:
+        "200":
+          description: The run in its new order
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MoveRouteStopResult" }
+        "400":
+          description: Not a stop number, or the job has no day yet
+        "404":
+          description: No such job
   /jobs/dispatch:
     post:
       operationId: dispatchJobs
@@ -1999,15 +2360,17 @@ paths:
           schema: { type: integer }
         - name: status
           in: query
-          schema: { type: string, enum: [pending, open, paid, partial, void] }
+          schema: { type: string, enum: [pending, open, paid, partial, void, written_off, collections] }
         - name: queue
           in: query
           description: >-
             His invoice tabs. pending = completed jobs waiting for him to verify;
             to_email / to_print = verified and not yet sent by that method;
             open = anything still owed; past_due = open and past its due date
-            (invoice date when the terms are due on receipt).
-          schema: { type: string, enum: [pending, to_email, to_print, open, past_due, paid, void] }
+            (invoice date when the terms are due on receipt); written_off =
+            balances he has given up on or handed to collections, kept for the
+            record and counting toward nothing.
+          schema: { type: string, enum: [pending, to_email, to_print, open, past_due, paid, void, written_off] }
         - name: search
           in: query
           description: Customer name, address or invoice number
@@ -2075,6 +2438,81 @@ paths:
           content:
             application/pdf:
               schema: { type: string, format: binary }
+  /invoices/customer-search:
+    get:
+      operationId: searchInvoiceCustomers
+      tags: [invoices]
+      summary: >-
+        "When creating invoice having ability to search by info on clients
+        account" - one box that matches a customer on anything the office has
+        to hand: name, the name the bill is made out to, service or billing
+        address, city, zip, phone, email, account number, their old Service
+        Autopilot id, or route code.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 15 }
+      responses:
+        "200":
+          description: Matching customers, closest match first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InvoiceCustomerMatch"
+  /invoices/price-service:
+    post:
+      operationId: priceServiceForClient
+      tags: [invoices]
+      summary: >-
+        What one service costs THIS customer - "when adding service to bill
+        pulling info from matrix based on customer account". Reads the
+        customer's own property detail (Turf Sqft, Sprinkler Zones - whichever
+        field the service prices on) through the same matrix the board uses, and
+        says so, instead of dropping the flat rate on the line.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PriceServiceForClientInput"
+      responses:
+        "200":
+          description: The priced line
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PricedServiceLine"
+        "404":
+          description: Customer or service not found
+  /invoices/account-summary:
+    get:
+      operationId: getAccountSummary
+      tags: [invoices]
+      summary: >-
+        "Admin see running total for customer." Everything that makes up what
+        this customer stands at: what they owe now, what is done but not billed
+        yet, credit and prepayments sitting on the account, and anything written
+        off - each with a line saying what it is.
+      parameters:
+        - name: clientId
+          in: query
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: The running total
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountSummary"
+        "404":
+          description: Customer not found
   /invoices/{id}:
     get:
       operationId: getInvoice
@@ -2222,6 +2660,111 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/AuditEvent"
+  /invoices/{id}/unlock:
+    post:
+      operationId: unlockInvoice
+      tags: [invoices]
+      summary: >-
+        "Ability to unlock invoice after being sent out to make changes and edit
+        invoice." Puts the bill back in Needs verification so the change has to
+        be checked and sent again. The customer keeps the copy they were already
+        given, so the day they got it is kept on the invoice and the reason is
+        written into its history.
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UnlockInvoiceInput"
+      responses:
+        "200":
+          description: Unlocked, and back in Needs verification
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invoice"
+        "400":
+          description: Void, written off, or nothing to unlock
+  /invoices/{id}/write-off:
+    post:
+      operationId: writeOffInvoice
+      tags: [invoices]
+      summary: >-
+        "Jackie Wagner - beagle to get rid of balance, via written off and
+        turned into collections." Write the balance off, or mark it sent to
+        collections, instead of deleting the bill. Either way the invoice, its
+        lines and its history stay, the balance stops counting toward what the
+        customer owes, and the account says which it was and why. `restore` puts
+        it back to owed.
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WriteOffInvoiceInput"
+      responses:
+        "200":
+          description: The invoice, with its new status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invoice"
+        "400":
+          description: Nothing owed on it, it is void, or it was never written off
+  /my/jobs/{id}/field-payment:
+    get:
+      operationId: getFieldPaymentOptions
+      tags: [jobs]
+      summary: >-
+        Whether the person on this job may take money for this customer, and
+        which of the customer's bills it can go on. Says plainly why not when
+        they may not, so the phone can explain instead of hiding a button.
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: What this person can do with money on this job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FieldPaymentOptions"
+        "403":
+          description: Not their job
+        "404":
+          description: Job not found
+    post:
+      operationId: recordFieldPayment
+      tags: [jobs]
+      summary: >-
+        "Take payments in the field under invoices with fee percentage." Record
+        a payment for this job's customer against any of their open bills (or as
+        credit on the account), with the card fee added when they pay by card.
+        Only for someone Adam has said may touch money.
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FieldPaymentInput"
+      responses:
+        "201":
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FieldPaymentResult"
+        "400":
+          description: The bill is not this customer's, or is void
+        "403":
+          description: Not allowed to take money
+        "404":
+          description: Job not found
   /jobs/{id}/uncomplete:
     post:
       operationId: uncompleteJob
@@ -2352,6 +2895,12 @@ paths:
         - name: assigned
           in: query
           description: Set to true to return only tickets that have someone assigned.
+          schema: { type: string }
+        - name: category
+          in: query
+          description: >-
+            Only tickets filed under this category name. Pass "none" for the ones nobody
+            has categorised yet.
           schema: { type: string }
       responses:
         "200":
@@ -2868,6 +3417,166 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SpringLetterRenewResult"
+  /spring-letters/prices:
+    post:
+      operationId: setSpringLetterPrices
+      tags: [letters]
+      summary: Set one customer's own price for a service this season
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SpringLetterPricesInput"
+      responses:
+        "200":
+          description: What was saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpringLetterPricesResult"
+  /spring-letters/price-plan:
+    post:
+      operationId: planSpringLetterPrices
+      tags: [letters]
+      summary: Raise, add to or set the price of every service on the selected customers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SpringLetterPricePlanInput"
+      responses:
+        "200":
+          description: Every from and to, saved only when apply was true
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpringLetterPricePlanResult"
+  /ticket-categories:
+    get:
+      operationId: listTicketCategories
+      tags: [settings]
+      summary: His ticket category list
+      parameters:
+        - name: includeInactive
+          in: query
+          description: >-
+            "true" also returns the categories he has turned off, for the Settings screen.
+          schema: { type: string }
+      responses:
+        "200":
+          description: Categories, in his order
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TicketCategory"
+    post:
+      operationId: createTicketCategory
+      tags: [settings]
+      summary: Add a category of his own
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TicketCategoryInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketCategory"
+  /ticket-categories/{id}:
+    patch:
+      operationId: updateTicketCategory
+      tags: [settings]
+      summary: Rename, reorder or turn off a category; a rename takes its tickets with it
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TicketCategoryUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketCategory"
+    delete:
+      operationId: deleteTicketCategory
+      tags: [settings]
+      summary: Take a category off the list; tickets already filed under it keep it
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "204":
+          description: Deleted
+  /customer-fields:
+    get:
+      operationId: listCustomerFields
+      tags: [settings]
+      summary: The fields that show on every customer, plus the one-off labels that do not
+      responses:
+        "200":
+          description: The managed list and the strays
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerFieldList"
+    post:
+      operationId: createCustomerField
+      tags: [settings]
+      summary: Add a field to every customer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerFieldInput"
+      responses:
+        "200":
+          description: The field, with how many customers already had a value for it
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerField"
+  /customer-fields/{id}:
+    patch:
+      operationId: updateCustomerField
+      tags: [settings]
+      summary: Rename or retype a field; a rename carries every customer's saved value across
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerFieldUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerField"
+    delete:
+      operationId: deleteCustomerField
+      tags: [settings]
+      summary: Stop asking every customer for this field; the values already saved stay
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "204":
+          description: Deleted
   /spring-letters/preview/{id}:
     get:
       operationId: previewSpringLetter
@@ -3470,6 +4179,89 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/OnTheWayNoticeResult" }
+  # ---- AI rewrite of what he typed (E4, track AI) ----
+  /ai/polish:
+    post:
+      operationId: polishText
+      tags: [ai]
+      summary: Rewrite the text he is typing for clarity, the way he uses ChatGPT today
+      description: >-
+        Takes only the text in the box he is editing — no customer row, no
+        invoice, no history. Merge tokens such as [clientname] are counted going
+        in and coming back, and a rewrite that changed one is thrown away rather
+        than offered. With no AI key configured it answers available=false and
+        returns his words untouched, so the button explains itself instead of
+        failing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PolishTextInput" }
+      responses:
+        "200":
+          description: The rewrite to show him, or his own words with the reason why not
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PolishTextResult" }
+        "400":
+          description: No text was sent
+        "502":
+          description: The AI provider could not be reached
+
+  /email-sender:
+    get:
+      operationId: getEmailSender
+      tags: [settings]
+      summary: Which address customers see when the app emails them, and why
+      description: >-
+        "Document comes from Koby, needs from Bison Lawn Care." Every email goes
+        out through one connected Gmail mailbox, and Google only allows a From
+        address that mailbox owns or has verified, so the company name goes on
+        the From line and his own address on Reply-To. This says exactly what a
+        customer sees and what it would take to send fully as his own address.
+      responses:
+        "200":
+          description: The sender as it stands
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmailSenderStatus" }
+  /unopened-alerts:
+    get:
+      operationId: getUnopenedAlert
+      tags: [automation]
+      summary: The rule that tells him when an emailed invoice has gone unopened
+      responses:
+        "200":
+          description: The rule, who it would tell about, and anything in the way
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UnopenedAlertPreview" }
+    put:
+      operationId: updateUnopenedAlert
+      tags: [automation]
+      summary: Switch the unopened-email alert on or off and set the number of days
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UnopenedAlertUpdate" }
+      responses:
+        "200":
+          description: The rule as it now stands
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UnopenedAlertPreview" }
+  /unopened-alerts/run:
+    post:
+      operationId: runUnopenedAlertNow
+      tags: [automation]
+      summary: Send the unopened-email alert to his inbox right now
+      responses:
+        "200":
+          description: What was sent, and the rule afterwards
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UnopenedAlertRunResult" }
 
 components:
   parameters:
@@ -4237,9 +5029,12 @@ components:
             $ref: "#/components/schemas/DocumentSendSkip"
     EmailBatch:
       type: object
-      required: [batchId, createdAt, source, sourceLabel, total, sent, failed, skipped, opened]
+      required: [batchId, single, createdAt, source, sourceLabel, total, sent, failed, skipped, opened, trackable]
       properties:
         batchId: { type: string }
+        single:
+          type: boolean
+          description: "true when this line is one email to one customer rather than a send that went out together"
         createdAt: { type: string }
         source: { type: string }
         sourceLabel: { type: string }
@@ -4253,19 +5048,45 @@ components:
         failed: { type: integer }
         skipped: { type: integer }
         opened: { type: integer }
+        trackable:
+          type: integer
+          description: "How many of the sent emails carried a tracking pixel, so the open rate is worked out of these and not out of emails nobody could ever answer for"
+    EmailActivitySummary:
+      type: object
+      required: [days, batches, singles, total, sent, failed, skipped, opened, trackable]
+      properties:
+        days: { type: integer }
+        batches: { type: integer }
+        singles:
+          type: integer
+          description: How many of the emails in the window went to one customer on their own
+
+        total: { type: integer }
+        sent: { type: integer }
+        failed: { type: integer }
+        skipped: { type: integer }
+        opened: { type: integer }
+        trackable:
+          type: integer
+          description: "How many of the sent emails in the window carried a tracking pixel, which is what the open count is out of"
     EmailBatchRecipient:
       type: object
-      required: [id, clientName, status, openCount, createdAt]
+      required: [id, clientName, status, openCount, createdAt, trackable]
       properties:
         id: { type: integer }
         clientId: { type: ["integer", "null"] }
         clientName: { type: string }
+        clientAddress: { type: ["string", "null"] }
+        clientPhone: { type: ["string", "null"] }
         toEmail: { type: ["string", "null"] }
         subject: { type: ["string", "null"] }
         status: { type: string, enum: [sent, failed, skipped] }
         skipReason: { type: ["string", "null"] }
         error: { type: ["string", "null"] }
         openedAt: { type: ["string", "null"] }
+        trackable:
+          type: boolean
+          description: "'false' when this email went out without a tracking pixel, so nothing can ever come back about it and the screen must not say 'not opened yet'"
         openCount: { type: integer }
         sentAt: { type: ["string", "null"] }
         createdAt: { type: string }
@@ -4634,6 +5455,29 @@ components:
         preferredPaymentMethod:
           type: ["string", "null"]
           enum: [check, venmo, zelle, credit_card, cash, ach, other, null]
+    ClientTag:
+      type: object
+      required: [name, count, onList]
+      properties:
+        id:
+          type: ["integer", "null"]
+          description: >-
+            Null for a tag that is only on customers and was never added to the
+            list — an imported one. It still gets offered; it just cannot be
+            renamed or taken off the list until it is on it.
+        name: { type: string }
+        count: { type: integer, description: How many customers carry this tag }
+        onList: { type: boolean, description: "'true' when it is on the managed list rather than only on customers" }
+    ClientTagInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+    ClientTagUpdate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
     ClientContact:
       type: object
       required: [id, clientId, name, createdAt]
@@ -4725,6 +5569,18 @@ components:
           description: >-
             Expected cost to deliver a job in this band, for job costing against
             the rate. Null means no estimate, not zero.
+        minPrice:
+          type: ["number", "null"]
+          description: >-
+            "Never less than": the floor under whatever this band works out to,
+            applied after the base price and every increment. His words on
+            2026-09-28 were "my starting field on matrix has a min and then from
+            there the Price equation need to take over but I cant set a base" —
+            basePrice used to be both the floor and the number the per-unit
+            equation built from, so a band could not charge per square foot from
+            the first square foot and still refuse to go under the minimum.
+            Null means no floor, which is how every band saved before this
+            existed behaves.
     Service:
       type: object
       required: [id, name, quantity, rate]
@@ -4752,7 +5608,12 @@ components:
         minDays: { type: ["integer", "null"] }
         defaultStartDate: { type: ["string", "null"] }
         defaultEndDate: { type: ["string", "null"] }
-        renewDate: { type: ["string", "null"] }
+        renewDate:
+          type: ["string", "null"]
+          description: "The renew date every customer who has this service follows - yyyy-mm-dd, or mm-dd for the same day every year"
+        seasonEndDate:
+          type: ["string", "null"]
+          description: "One season end for every customer who has this service - yyyy-mm-dd, or mm-dd. Push it onto the accounts with the season-end endpoint."
         pricingEquations:
           type: array
           items:
@@ -4782,7 +5643,12 @@ components:
         minDays: { type: ["integer", "null"] }
         defaultStartDate: { type: ["string", "null"] }
         defaultEndDate: { type: ["string", "null"] }
-        renewDate: { type: ["string", "null"] }
+        renewDate:
+          type: ["string", "null"]
+          description: "The renew date every customer who has this service follows - yyyy-mm-dd, or mm-dd for the same day every year"
+        seasonEndDate:
+          type: ["string", "null"]
+          description: "One season end for every customer who has this service - yyyy-mm-dd, or mm-dd. Push it onto the accounts with the season-end endpoint."
         pricingEquations:
           type: array
           items:
@@ -4809,7 +5675,12 @@ components:
         minDays: { type: ["integer", "null"] }
         defaultStartDate: { type: ["string", "null"] }
         defaultEndDate: { type: ["string", "null"] }
-        renewDate: { type: ["string", "null"] }
+        renewDate:
+          type: ["string", "null"]
+          description: "The renew date every customer who has this service follows - yyyy-mm-dd, or mm-dd for the same day every year"
+        seasonEndDate:
+          type: ["string", "null"]
+          description: "One season end for every customer who has this service - yyyy-mm-dd, or mm-dd. Push it onto the accounts with the season-end endpoint."
         pricingEquations:
           type: array
           items:
@@ -4832,6 +5703,16 @@ components:
         price: { type: number }
         sqft: { type: number }
         equationIndex: { type: ["integer", "null"] }
+        minimumApplied:
+          type: boolean
+          description: >-
+            True when the band's "never less than" floor is what set this price,
+            so the live tester can say so rather than leaving him wondering why
+            a bigger property quoted the small number.
+        pricingFieldId:
+          type: ["integer", "null"]
+          description: "Which estimate field the number was measured in; null means turf square footage."
+        pricingFieldLabel: { type: ["string", "null"] }
     CopyMatrixInput:
       type: object
       required: [targetServiceIds]
@@ -4853,12 +5734,40 @@ components:
         copyPricingField:
           type: boolean
           description: "Point each target at the source's Price By field too (default true) — the bands are measured in it."
+        productCost:
+          $ref: "#/components/schemas/MatrixProductCost"
         apply:
           type: boolean
           description: "false (the default) only previews what each target would get; true writes it."
         overwrite:
           type: boolean
           description: "Must be true to replace a target that already has priced bands."
+    MatrixProductCost:
+      type: object
+      description: >-
+        "Be able to add additional dollars (product) based on square footage to
+        original price (ex, Aeration + seed = AE overseed) or Top dressing
+        (beagle to add topdressing cost, product cost/sqft + delivery +
+        Trailer)." Product he buys by the square foot, plus what it costs to get
+        it there. It goes on AFTER the multiplier, because the product is a
+        pass-through cost and not something to take margin on twice.
+      required: [amountPerUnit, perUnits, flatAmount]
+      properties:
+        amountPerUnit:
+          type: number
+          minimum: 0
+          description: "Dollars of product for every perUnits of lawn — the seed, the top dressing."
+        perUnits:
+          type: number
+          exclusiveMinimum: 0
+          description: "How much lawn one amountPerUnit covers, e.g. 1000 sqft a bag."
+        flatAmount:
+          type: number
+          minimum: 0
+          description: "Charged once per job however big the lawn is — delivery, the trailer."
+        label:
+          type: ["string", "null"]
+          description: "What the product is (seed, top dressing), for the preview and the audit line."
     CopyMatrixTarget:
       type: object
       required: [serviceId, serviceName, existingBands, equations, pricingFieldChanged]
@@ -4873,6 +5782,15 @@ components:
           items:
             $ref: "#/components/schemas/PricingEquation"
         pricingFieldChanged: { type: boolean }
+        productAdded:
+          type: array
+          description: >-
+            What the product cost put on each band, in band order, so the
+            preview can show the seed money next to the labour money instead of
+            one merged number. Null for a band that carries no price and was
+            therefore left alone. Empty when no product cost was asked for.
+          items:
+            type: ["number", "null"]
     CopyMatrixResult:
       type: object
       required: [applied, sourceServiceId, sourceServiceName, targets]
@@ -4880,6 +5798,9 @@ components:
         applied: { type: boolean }
         sourceServiceId: { type: integer }
         sourceServiceName: { type: string }
+        productCostLabel:
+          type: ["string", "null"]
+          description: '"seed ($5 per 1,000 sqft + $85 flat)" — what was added, in one line, or null if nothing was.'
         targets:
           type: array
           items:
@@ -4903,6 +5824,71 @@ components:
         costPercent:
           type: ["number", "null"]
           description: "Fill budgeted cost as this percent of each band's rate; null leaves cost blank"
+        minPrice:
+          type: ["number", "null"]
+          description: >-
+            Written onto every band the rule makes as its "never less than"
+            floor. Usually the same as startPrice, but not always: a rule that
+            starts at $0 and charges $5 a thousand still has a minimum charge
+            under it, and that is the sentence he could not write before.
+    MatrixImportInput:
+      type: object
+      required: [csv]
+      properties:
+        csv:
+          type: string
+          minLength: 1
+          maxLength: 500000
+          description: "The whole file as text, as read from the file box or pasted in."
+        fileName:
+          type: ["string", "null"]
+          description: "What the file was called, for the audit line — he will want to know which spreadsheet did this."
+        apply:
+          type: boolean
+          description: "false (the default) only reports what the file says; true replaces the service's matrix with it."
+    MatrixImportColumn:
+      type: object
+      required: [header, field]
+      properties:
+        header:
+          type: string
+          description: "The column name as his file spells it."
+        field:
+          type: ["string", "null"]
+          description: "Which band field it became; null means the column was ignored."
+    MatrixImportResult:
+      type: object
+      required: [applied, serviceId, serviceName, bands, columns, rowsRead, rowsSkipped, warnings, errors, canApply]
+      properties:
+        applied: { type: boolean }
+        serviceId: { type: integer }
+        serviceName: { type: string }
+        existingBands:
+          type: integer
+          description: "Priced bands the service has today — what the import would replace."
+        bands:
+          type: array
+          items:
+            $ref: "#/components/schemas/PricingEquation"
+        columns:
+          type: array
+          items:
+            $ref: "#/components/schemas/MatrixImportColumn"
+        rowsRead: { type: integer }
+        rowsSkipped:
+          type: integer
+          description: "Blank rows under the header, which Excel leaves behind and which are not bands."
+        warnings:
+          type: array
+          description: "Worth his eye but not a reason to refuse the file."
+          items: { type: string }
+        errors:
+          type: array
+          description: "Reasons the file cannot be saved, each naming the row and the column."
+          items: { type: string }
+        canApply:
+          type: boolean
+          description: "false while there is any error; the Accept button stays off until the file is fixed."
     MatrixRuleResult:
       type: object
       required: [equations]
@@ -4998,7 +5984,7 @@ components:
         A service on a customer's account (2026-09-15 walkthrough): the contractor it always goes to,
         the cadence in words, the price and where the matrix got it, a discount that prints as its own
         invoice line, the must-read crew note with its dates, pause state, and what is ahead / behind.
-      required: [id, clientId, serviceId, quantity, amount, scheduleType, active, autoRenew, resumeWhenPaid, retailAmount, discountAmount, netAmount, upcomingCount, upcomingTotal, completedCount, cadenceLabel, billingMode]
+      required: [id, clientId, serviceId, quantity, amount, scheduleType, active, autoRenew, resumeWhenPaid, retailAmount, discountAmount, netAmount, upcomingCount, upcomingTotal, completedCount, cadenceLabel, billingMode, pastSeasons]
       properties:
         id: { type: integer }
         clientId: { type: integer }
@@ -5017,7 +6003,20 @@ components:
         frequencyWeeks: { type: ["integer", "null"] }
         firstServiceDate: { type: ["string", "null"] }
         seasonEndDate: { type: ["string", "null"] }
-        renewDate: { type: ["string", "null"] }
+        renewDate: { type: ["string", "null"], description: "This row own date; it only governs when renewDateOverridden is set" }
+        renewDateOverridden:
+          type: boolean
+          description: "Set when the office typed a renew date for this one customer. Off means the service date governs."
+        serviceRenewDate: { type: ["string", "null"], description: "The renew date on the service itself, as typed (may be mm-dd)" }
+        effectiveRenewDate: { type: ["string", "null"], description: "The date that actually governs this row, resolved into its season" }
+        renewDateFromService: { type: boolean, description: "Set when the date above came from the service rather than this customer" }
+        serviceSeasonEndDate: { type: ["string", "null"], description: "The season end on the service, which every customer with it follows" }
+        seasonStart: { type: ["string", "null"], description: "The day this row season opens - what the account list is ordered by" }
+        pastSeasons:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClientServiceSeason"
+          description: "Seasons already closed by a renewal, newest last - last year details, kept on the account"
         budgetedHours: { type: ["number", "null"] }
         lastRenewedAt: { type: ["string", "null"] }
         assignedToId: { type: ["integer", "null"] }
@@ -5162,6 +6161,177 @@ components:
         resumed: { type: integer }
         renewed: { type: integer }
         renewalsRan: { type: boolean, description: "False when today's renewal pass had already been claimed" }
+    ClientServiceSeason:
+      type: object
+      description: >-
+        One season of an assigned service as it read the day it closed -
+        "Mowing jobs stay on account with last year's details". A snapshot,
+        never recomputed.
+      required: [year, cadence, amount, completedVisits, completedTotal, closedAt]
+      properties:
+        year: { type: integer }
+        cadence: { type: string, description: "Every other Wednesday (odd weeks)" }
+        firstServiceDate: { type: ["string", "null"] }
+        seasonEndDate: { type: ["string", "null"] }
+        startDate: { type: ["string", "null"] }
+        endDate: { type: ["string", "null"] }
+        amount: { type: number }
+        budgetedHours: { type: ["number", "null"] }
+        assignedToId: { type: ["integer", "null"] }
+        assignedToName: { type: ["string", "null"] }
+        discountType: { type: ["string", "null"] }
+        discountValue: { type: ["number", "null"] }
+        discountLabel: { type: ["string", "null"] }
+        completedVisits: { type: integer }
+        completedTotal: { type: number }
+        closedAt: { type: string }
+    ServiceAssignedRow:
+      type: object
+      description: One account that has this service, and what a push would make of it.
+      required: [clientServiceId, clientId, clientName, cadence, active, paused, handTyped, fromAmount, toAmount, upcomingVisits]
+      properties:
+        clientServiceId: { type: integer }
+        clientId: { type: integer }
+        clientName: { type: string }
+        label: { type: ["string", "null"] }
+        cadence: { type: string }
+        active: { type: boolean }
+        paused: { type: boolean }
+        handTyped:
+          type: boolean
+          description: "Set when the price on this account never came from the matrix, so a push leaves it alone unless he says to include it"
+        missingField: { type: ["string", "null"], description: "The property detail the matrix needs and this customer has not got" }
+        pricedFromLabel: { type: ["string", "null"] }
+        pricedFromValue: { type: ["number", "null"] }
+        fromAmount: { type: number }
+        toAmount: { type: number }
+        fromHours: { type: ["number", "null"] }
+        toHours: { type: ["number", "null"] }
+        upcomingVisits: { type: integer }
+        reason: { type: ["string", "null"], description: "Why this one was left alone; only on the skipped list" }
+    ServiceAssignedImpact:
+      type: object
+      description: >-
+        "Making changes to service info. Ask if want to push on to current
+        assigned jobs/customers" - the counts that question has to carry.
+      required: [serviceId, serviceName, billingMode, rate, matrixPriced, clientCount, rowCount, upcomingVisits, priceDiffers, hoursDiffers, handTypedCount, missingFieldCount, rows]
+      properties:
+        serviceId: { type: integer }
+        serviceName: { type: string }
+        billingMode: { type: string, enum: [fixed, time] }
+        rate: { type: number }
+        billableHours: { type: ["number", "null"] }
+        invoiceDescription: { type: ["string", "null"] }
+        seasonEndDate: { type: ["string", "null"] }
+        renewDate: { type: ["string", "null"] }
+        matrixPriced: { type: boolean, description: "Set when the service prices from a rate matrix, so each customer is re-priced against their own measurement" }
+        clientCount: { type: integer }
+        rowCount: { type: integer, description: "Assigned rows, which can be more than the customers - a package can carry the same service twice" }
+        upcomingVisits: { type: integer }
+        priceDiffers: { type: integer, description: "How many accounts pushing the price would actually move - the prices somebody typed and the customers with no measurement are counted separately, because the push leaves those alone" }
+        hoursDiffers: { type: integer, description: "How many accounts pushing the billable hours would actually move" }
+        handTypedCount: { type: integer }
+        missingFieldCount: { type: integer }
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServiceAssignedRow"
+    ServicePushInput:
+      type: object
+      required: [fields]
+      properties:
+        fields:
+          type: array
+          minItems: 1
+          items: { type: string, enum: [price, hours] }
+          description: "What to push onto the accounts"
+        clientServiceIds:
+          type: array
+          items: { type: integer }
+          description: "Only these assigned rows; leave it off for every customer who has the service. An empty list is refused with a 400 - it means nobody was picked, never everybody."
+        fromRate:
+          type: ["number", "null"]
+          description: "The rate the service had before it was saved. On a service with no matrix it is the only way to tell a price somebody typed from one simply still on the old rate."
+        includeCustomPrices:
+          type: boolean
+          description: "Include accounts whose price was typed by hand instead of coming from the matrix"
+        apply: { type: boolean, description: "Off returns the preview and writes nothing" }
+    ServicePushResult:
+      type: object
+      required: [applied, serviceId, serviceName, fields, clientCount, visitsUpdated, rows, skipped]
+      properties:
+        applied: { type: boolean }
+        serviceId: { type: integer }
+        serviceName: { type: string }
+        fields:
+          type: array
+          items: { type: string, enum: [price, hours] }
+        clientCount: { type: integer }
+        visitsUpdated: { type: integer }
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServiceAssignedRow"
+        skipped:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServiceAssignedRow"
+    ServiceSeasonEndRow:
+      type: object
+      required: [clientServiceId, clientId, clientName, visitsCancelled, leftAlone]
+      properties:
+        clientServiceId: { type: integer }
+        clientId: { type: integer }
+        clientName: { type: string }
+        from: { type: ["string", "null"] }
+        to: { type: ["string", "null"] }
+        visitsCancelled: { type: integer }
+        leftAlone: { type: boolean, description: "Set when this customer already finishes earlier and was left where they are" }
+    ServiceSeasonEndInput:
+      type: object
+      required: [seasonEndDate]
+      properties:
+        seasonEndDate:
+          type: string
+          description: "yyyy-mm-dd, or mm-dd for the same day every year"
+        keepEarlierFinishes:
+          type: boolean
+          description: "Defaults on - a customer who already finishes earlier keeps their earlier date"
+        reason: { type: ["string", "null"], description: "Shows on each cancelled visit" }
+        apply: { type: boolean, description: "Off returns the preview and writes nothing" }
+    ServiceSeasonEndResult:
+      type: object
+      required: [applied, serviceId, serviceName, seasonEndDate, customersChanged, visitsCancelled, rows]
+      properties:
+        applied: { type: boolean }
+        serviceId: { type: integer }
+        serviceName: { type: string }
+        seasonEndDate: { type: string }
+        customersChanged: { type: integer }
+        visitsCancelled: { type: integer }
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServiceSeasonEndRow"
+    FinishSeasonInput:
+      type: object
+      required: [lastDate]
+      properties:
+        lastDate: { type: string, description: "yyyy-mm-dd - this customer's last visit of the season" }
+        reason: { type: ["string", "null"], description: "Shows on each cancelled visit" }
+        apply: { type: boolean, description: "Off returns the preview and writes nothing" }
+    FinishSeasonResult:
+      type: object
+      required: [applied, clientServiceId, lastDate, visitsCancelled]
+      properties:
+        applied: { type: boolean }
+        clientServiceId: { type: integer }
+        serviceName: { type: ["string", "null"] }
+        lastDate: { type: string }
+        seasonEndWas: { type: ["string", "null"] }
+        visitsCancelled: { type: integer }
+        service:
+          $ref: "#/components/schemas/ClientService"
     EstimateField:
       type: object
       required: [id, label, fieldType]
@@ -5443,6 +6613,15 @@ components:
         assignedToName:
           type: ["string", "null"]
           description: The contractor's short display name, never an email address.
+        crew:
+          type: array
+          description: >-
+            The other people on this job, the lead excluded. A clean-up is two
+            or three men in one truck; the lead stays on assignedToId so
+            everything that bills and totals a day is unchanged, and these are
+            who else was there and who else sees the stop on their phone.
+          items:
+            $ref: "#/components/schemas/JobCrewMember"
         mapNote: { type: ["string", "null"] }
         cancelReason: { type: ["string", "null"] }
         cancelledAt: { type: ["string", "null"] }
@@ -5505,6 +6684,58 @@ components:
         discountValue: { type: ["number", "null"] }
         discountLabel: { type: ["string", "null"] }
         discountAmount: { type: number, description: "The discount in dollars against the current amount; its own line on the invoice" }
+    JobCrewMember:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: integer }
+        name: { type: string, description: The short display name, never an email address. }
+    SetJobCrewInput:
+      type: object
+      required: [userIds]
+      properties:
+        userIds:
+          type: array
+          description: >-
+            The whole crew, replacing whoever was on it. The lead is dropped if
+            he is in here — that is the same person said twice, not an error.
+          items: { type: integer }
+    JobCrewResult:
+      type: object
+      required: [jobId, crew]
+      properties:
+        jobId: { type: integer }
+        leadId: { type: ["integer", "null"] }
+        crew:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobCrewMember"
+    MoveRouteStopInput:
+      type: object
+      required: [position]
+      properties:
+        position:
+          type: integer
+          minimum: 1
+          description: >-
+            The stop number this job should take. Past the end of the run it
+            goes last rather than refusing the number.
+    MoveRouteStopResult:
+      type: object
+      required: [jobId, position, runSize, updated, stops]
+      properties:
+        jobId: { type: integer }
+        position: { type: integer, description: Where the stop actually landed, after clamping. }
+        runSize: { type: integer, description: How many numbered stops that person has that day. }
+        updated: { type: integer, description: How many stops changed number. }
+        stops:
+          type: array
+          items:
+            type: object
+            required: [jobId, routeOrder]
+            properties:
+              jobId: { type: integer }
+              routeOrder: { type: integer }
     JobInput:
       type: object
       required: [clientId, amount]
@@ -5589,7 +6820,13 @@ components:
         clientDoNotEmail: { type: boolean }
         jobId: { type: ["integer", "null"] }
         serviceName: { type: ["string", "null"] }
-        status: { type: string, enum: [pending, open, paid, partial, void] }
+        status:
+          type: string
+          enum: [pending, open, paid, partial, void, written_off, collections]
+          description: >-
+            written_off = a balance he has given up on; collections = the same
+            balance, being chased by somebody else. Both owe nothing and both
+            keep the bill and its history.
         total: { type: number }
         amountPaid: { type: number }
         balance:
@@ -5630,6 +6867,25 @@ components:
           type: ["string", "null"]
           description: Snapshot of the customer's delivery preference at verify time (email, print, both)
         printedAt: { type: ["string", "null"] }
+        unlockedAt:
+          type: ["string", "null"]
+          description: When somebody unlocked this bill to change it after it had gone out
+        unlockedById: { type: ["integer", "null"] }
+        unlockedByName: { type: ["string", "null"] }
+        previouslySentAt:
+          type: ["string", "null"]
+          description: >-
+            The day the customer was given the copy they still hold, kept when
+            the bill was unlocked. Set means their copy no longer matches ours.
+        writeOffReason: { type: ["string", "null"] }
+        writtenOffAt: { type: ["string", "null"] }
+        writtenOffByName: { type: ["string", "null"] }
+        writeOffLabel:
+          type: ["string", "null"]
+          description: "Written off / Sent to collections - how the account reads it"
+        writtenOffAmount:
+          type: ["number", "null"]
+          description: What was still owed at the moment it was written off, for the account to show
         lines:
           type: array
           items:
@@ -5694,9 +6950,9 @@ components:
         reason:
           type: string
           description: >-
-            no_email, not_verified, void, already_sent, or the error text.
-            do_not_email is not one of them: that box stops bulk notices, not a
-            customer's bill.
+            no_email, not_verified, void, written_off, already_sent, or the
+            error text. do_not_email is not one of them: that box stops bulk
+            notices, not a customer's bill.
     AttachJobInput:
       type: object
       required: [jobId]
@@ -5778,6 +7034,201 @@ components:
         sent: { type: boolean }
         toEmail: { type: string }
         messageId: { type: ["string", "null"] }
+    UnlockInvoiceInput:
+      type: object
+      properties:
+        reason:
+          type: ["string", "null"]
+          maxLength: 500
+          description: Why it is being opened up again, for the bill's own history
+    WriteOffInvoiceInput:
+      type: object
+      required: [how]
+      properties:
+        how:
+          type: string
+          enum: [written_off, collections, restore]
+          description: >-
+            written_off = stop chasing it; collections = somebody else is
+            chasing it; restore = put it back to owed.
+        reason:
+          type: ["string", "null"]
+          maxLength: 500
+          description: Why, in his words - shown on the account next to the amount
+    InvoiceCustomerMatch:
+      type: object
+      required: [id, name, accountBalance, openInvoiceCount, matchedOn]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        nameOnInvoice: { type: ["string", "null"] }
+        status: { type: ["string", "null"] }
+        serviceAddress: { type: ["string", "null"] }
+        city: { type: ["string", "null"] }
+        postalCode: { type: ["string", "null"] }
+        billingAddressLine1: { type: ["string", "null"] }
+        phone: { type: ["string", "null"] }
+        email: { type: ["string", "null"] }
+        billingEmail: { type: ["string", "null"] }
+        accountNumber: { type: ["string", "null"] }
+        billingTerms: { type: ["string", "null"] }
+        invoiceDelivery: { type: ["string", "null"] }
+        accountBalance: { type: number }
+        openInvoiceCount: { type: integer }
+        matchedOn:
+          type: string
+          description: Which detail matched what was typed - name, address, phone, account number, zip
+    PriceServiceForClientInput:
+      type: object
+      required: [clientId, serviceId]
+      properties:
+        clientId: { type: integer }
+        serviceId: { type: integer }
+        quantity: { type: number, minimum: 0.01, default: 1 }
+        measurement:
+          type: ["number", "null"]
+          description: >-
+            A measurement typed on the spot, used instead of the one on the
+            customer's account (a re-measured lawn beats the file).
+    PricedServiceLine:
+      type: object
+      required: [description, serviceName, quantity, unitPrice, total, fromMatrix, flatRate]
+      properties:
+        description: { type: string }
+        serviceName: { type: string }
+        quantity: { type: number }
+        unitPrice: { type: number }
+        total: { type: number }
+        fromMatrix:
+          type: boolean
+          description: "true when the rate came from the matrix for this customer's own measurement"
+        pricedFromLabel:
+          type: ["string", "null"]
+          description: Which detail priced it - Turf Sqft, Sprinkler Zones
+        pricedFromValue: { type: ["number", "null"] }
+        missingField:
+          type: ["string", "null"]
+          description: >-
+            The measurement the matrix needs and this customer does not have, so
+            the line fell back to the flat rate. Null when nothing is missing.
+        flatRate:
+          type: number
+          description: The service's own rate, so the office can see what it would have charged
+    AccountSummary:
+      type: object
+      required:
+        [clientId, owedNow, pastDue, notYetInvoiced, awaitingVerification, credit, writtenOff, runningTotal, withEverything, openInvoiceCount, notInvoicedJobCount, parts]
+      properties:
+        clientId: { type: integer }
+        clientName: { type: string }
+        owedNow:
+          type: number
+          description: Bills they have been given and not paid
+        pastDue:
+          type: number
+          description: The part of owedNow that is past its due date
+        notYetInvoiced:
+          type: number
+          description: Work finished and not billed yet
+        awaitingVerification:
+          type: number
+          description: Bills raised but not checked, so not theirs to owe yet
+        credit:
+          type: number
+          description: Money on the account not put against a bill yet
+        writtenOff:
+          type: number
+          description: Balances given up on or handed to collections
+        runningTotal:
+          type: number
+          description: owedNow minus credit - what they stand at today
+        withEverything:
+          type: number
+          description: runningTotal plus the work that is not billed yet
+        openInvoiceCount: { type: integer }
+        notInvoicedJobCount: { type: integer }
+        oldestUnpaidDate: { type: ["string", "null"] }
+        parts:
+          type: array
+          description: One row per figure with the word that explains it, so nobody has to guess
+          items:
+            type: object
+            required: [key, label, amount, explain]
+            properties:
+              key: { type: string }
+              label: { type: string }
+              amount: { type: number }
+              explain: { type: string }
+    FieldPaymentOptions:
+      type: object
+      required: [allowed, clientId, cardFeeEnabled, cardFeePercent, accountBalance, credit, invoices]
+      properties:
+        allowed: { type: boolean }
+        reason:
+          type: ["string", "null"]
+          description: Why they may not, in plain words, when allowed is false
+        clientId: { type: integer }
+        clientName: { type: ["string", "null"] }
+        accountBalance: { type: number }
+        credit: { type: number }
+        cardFeeEnabled: { type: boolean }
+        cardFeePercent: { type: number }
+        invoices:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldPaymentInvoice"
+    FieldPaymentInvoice:
+      type: object
+      required: [id, number, balance, daysPastDue, isThisJob]
+      properties:
+        id: { type: integer }
+        number: { type: integer }
+        balance: { type: number }
+        invoiceDate: { type: ["string", "null"] }
+        serviceName: { type: ["string", "null"] }
+        daysPastDue: { type: integer }
+        isThisJob:
+          type: boolean
+          description: "true for the bill this job is on, which is the one they usually mean"
+    FieldPaymentInput:
+      type: object
+      required: [amount, method]
+      properties:
+        amount: { type: number, minimum: 0.01 }
+        method: { type: string, enum: [cash, check, credit_card] }
+        invoiceId:
+          type: ["integer", "null"]
+          description: Which of the customer's bills it goes on; omit to leave it as credit on the account
+        reference: { type: ["string", "null"], maxLength: 120 }
+        notes: { type: ["string", "null"], maxLength: 500 }
+    FieldPaymentResult:
+      type: object
+      required: [id, clientId, amount, baseAmount, cardFee, method, createdAt, accountBalance, creditLeft]
+      properties:
+        id: { type: integer }
+        clientId: { type: integer }
+        invoiceId: { type: ["integer", "null"] }
+        invoiceNumber: { type: ["integer", "null"] }
+        jobId: { type: ["integer", "null"] }
+        amount:
+          type: number
+          description: What the customer handed over, fee included
+        baseAmount: { type: number }
+        cardFee: { type: number }
+        cardFeePercent: { type: ["number", "null"] }
+        method: { type: string }
+        reference: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+        createdAt: { type: string }
+        invoiceBalance:
+          type: ["number", "null"]
+          description: What is left on that bill after this payment
+        accountBalance:
+          type: number
+          description: What the customer stands at after this payment
+        creditLeft:
+          type: number
+          description: Anything over the bill, kept on the account
     Payment:
       type: object
       required: [id, clientId, amount, method, createdAt]
@@ -5981,11 +7432,22 @@ components:
       properties:
         cardFeeEnabled: { type: boolean }
         cardFeePercent: { type: number }
+        fieldPaymentUserIds:
+          type: array
+          description: >-
+            Who may take a payment for a customer from the job card. Office
+            people with Invoices already can; this is the list of everyone else
+            he has said may touch money. Empty means nobody else.
+          items: { type: integer }
     BillingSettingsUpdate:
       type: object
       properties:
         cardFeeEnabled: { type: boolean }
         cardFeePercent: { type: number, minimum: 0, maximum: 25 }
+        fieldPaymentUserIds:
+          type: array
+          maxItems: 100
+          items: { type: integer }
     OnSitePaymentInput:
       type: object
       required: [amount, method]
@@ -6081,6 +7543,87 @@ components:
         serviceName: { type: string }
         currentAmount: { type: number }
         newAmount: { type: number }
+        catalogAmount:
+          type: ["number", "null"]
+          description: >-
+            What this row would renew at on the standard rate, so a custom price can be
+            shown against the price it replaced and dropped back to it.
+        customAmount:
+          type: ["number", "null"]
+          description: >-
+            The price set by hand for this one customer. Null means the standard rate.
+    SpringLetterPriceEntry:
+      type: object
+      required: [clientServiceId]
+      properties:
+        clientServiceId: { type: integer }
+        amount:
+          type: ["number", "null"]
+          description: >-
+            The price this customer pays for this service this season. Null drops the row
+            back to the standard rate.
+    SpringLetterPricesInput:
+      type: object
+      required: [prices]
+      properties:
+        prices:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/SpringLetterPriceEntry"
+    SpringLetterPriceChange:
+      type: object
+      required: [clientServiceId, clientId, clientName, serviceName, from, to]
+      properties:
+        clientServiceId: { type: integer }
+        clientId: { type: integer }
+        clientName: { type: string }
+        serviceName: { type: string }
+        from: { type: number }
+        to: { type: number }
+    SpringLetterPricesResult:
+      type: object
+      required: [saved, cleared, changes]
+      properties:
+        saved: { type: integer }
+        cleared: { type: integer, description: How many rows were put back on the standard rate }
+        changes:
+          type: array
+          items:
+            $ref: "#/components/schemas/SpringLetterPriceChange"
+    SpringLetterPricePlanInput:
+      type: object
+      required: [clientIds, mode, amount, apply]
+      properties:
+        clientIds:
+          type: array
+          minItems: 1
+          items: { type: integer }
+        mode:
+          type: string
+          enum: [percent, add, set]
+          description: >-
+            "percent" raises each price by that percent, "add" adds that many dollars,
+            "set" makes every selected service that price.
+        amount: { type: number }
+        roundTo:
+          type: ["number", "null"]
+          description: Round each new price to the nearest this many dollars.
+        apply:
+          type: boolean
+          description: >-
+            "false" calculates and returns the changes without saving anything.
+    SpringLetterPricePlanResult:
+      type: object
+      required: [applied, mode, changes]
+      properties:
+        applied: { type: boolean }
+        mode: { type: string, enum: [percent, add, set] }
+        changes:
+          type: array
+          items:
+            $ref: "#/components/schemas/SpringLetterPriceChange"
+
     SpringLetterClient:
       type: object
       required: [clientId, clientName, services, currentTotal, newTotal]
@@ -6228,6 +7771,11 @@ components:
         assignedToId: { type: ["integer", "null"] }
         assignedToName: { type: ["string", "null"] }
         dueDate: { type: ["string", "null"] }
+        category:
+          type: ["string", "null"]
+          description: >-
+            What the ticket is about, by name (Billing, Cancel Request, ...). The name is
+            stored, not an id, so renaming or deleting a category never rewrites a ticket.
         createdAt: { type: string }
     TicketInput:
       type: object
@@ -6238,6 +7786,7 @@ components:
         description: { type: string }
         assignedToId: { type: ["integer", "null"] }
         dueDate: { type: ["string", "null"] }
+        category: { type: ["string", "null"] }
     TicketUpdate:
       type: object
       properties:
@@ -6246,6 +7795,93 @@ components:
         status: { type: string, enum: [open, done] }
         assignedToId: { type: ["integer", "null"] }
         dueDate: { type: ["string", "null"] }
+        category: { type: ["string", "null"] }
+    TicketCategory:
+      type: object
+      description: >-
+        One entry on his ticket category list. Tickets store the name, so ticketCount is
+        counted from the tickets themselves rather than kept on the row.
+      required: [id, name, active, ticketCount]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        sortOrder: { type: ["integer", "null"] }
+        active:
+          type: boolean
+          description: >-
+            "false" takes it out of the pickers without touching the tickets already filed
+            under it.
+        ticketCount: { type: integer, description: How many tickets are filed under this name }
+        createdAt: { type: string }
+    TicketCategoryInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1 }
+        sortOrder: { type: ["integer", "null"] }
+    TicketCategoryUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        sortOrder: { type: ["integer", "null"] }
+        active: { type: boolean }
+    CustomerField:
+      type: object
+      description: >-
+        A field that shows on EVERY customer. Same rows the estimate builder and the rate
+        matrix read, so one of these can also price a job.
+      required: [id, label, fieldType, filledCount]
+      properties:
+        id: { type: integer }
+        label: { type: string }
+        fieldType: { type: string, enum: [calculable, text, number, boolean] }
+        pricePerUnit: { type: ["number", "null"] }
+        unitSize: { type: ["number", "null"] }
+        sortOrder: { type: ["integer", "null"] }
+        filledCount: { type: integer, description: How many customers have a value saved for it }
+        movedValues:
+          type: ["integer", "null"]
+          description: >-
+            On a rename, how many customers' saved values were carried onto the new label.
+    CustomerFieldUse:
+      type: object
+      description: >-
+        A label typed on one customer's card that is NOT on the list, so it shows only
+        there. Adding it to the list is what makes it appear on everybody.
+      required: [label, filled]
+      properties:
+        label: { type: string }
+        filled: { type: integer }
+    CustomerFieldList:
+      type: object
+      required: [clientCount, managed, unmanaged]
+      properties:
+        clientCount: { type: integer }
+        managed:
+          type: array
+          items:
+            $ref: "#/components/schemas/CustomerField"
+        unmanaged:
+          type: array
+          items:
+            $ref: "#/components/schemas/CustomerFieldUse"
+    CustomerFieldInput:
+      type: object
+      required: [label]
+      properties:
+        label: { type: string, minLength: 1 }
+        fieldType: { type: string, enum: [calculable, text, number, boolean] }
+        pricePerUnit: { type: ["number", "null"] }
+        unitSize: { type: ["number", "null"] }
+        sortOrder: { type: ["integer", "null"] }
+    CustomerFieldUpdate:
+      type: object
+      properties:
+        label: { type: string, minLength: 1 }
+        fieldType: { type: string, enum: [calculable, text, number, boolean] }
+        pricePerUnit: { type: ["number", "null"] }
+        unitSize: { type: ["number", "null"] }
+        sortOrder: { type: ["integer", "null"] }
     FieldNote:
       type: object
       required: [id, jobId, clientId, transcript, source, createdAt]
@@ -6485,3 +8121,125 @@ components:
         jobCount: { type: integer }
         totalAmount: { type: number }
         completedCount: { type: integer }
+    # ---- AI rewrite of what he typed (E4, track AI) ----
+    PolishTone:
+      type: string
+      enum: [clear, professional, friendly]
+      description: Which way to lean the rewrite. Clear is the default he gets from the button.
+    PolishTextInput:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          maxLength: 10000
+          description: Only the words in the box he is editing. Nothing about the customer is sent.
+        tone: { $ref: "#/components/schemas/PolishTone" }
+    PolishTextResult:
+      type: object
+      required: [text, available, changed, tone]
+      properties:
+        text:
+          type: string
+          description: The rewrite to offer him, or his own words back when nothing was changed.
+        available:
+          type: boolean
+          description: "false when no AI key is configured on the server; the text is then his own, untouched."
+        changed:
+          type: boolean
+          description: "true when text is a rewrite he has not seen yet, so the page knows to offer accept or reject."
+        note:
+          type: ["string", "null"]
+          description: Plain-words reason the rewrite was not used, for the page to show instead of failing.
+        tone: { $ref: "#/components/schemas/PolishTone" }
+    EmailSenderStatus:
+      type: object
+      required: [fromName, ownDomain, source, aliases, customersSee]
+      properties:
+        fromName:
+          type: string
+          description: The name on the inbox line — his company, always.
+        fromAddress:
+          type: ["string", "null"]
+          description: The address Google will actually send from, or null when we could not find out.
+        replyTo:
+          type: ["string", "null"]
+          description: His own address off the Settings page, which is what Reply goes to.
+        ownDomain:
+          type: boolean
+          description: "true when the From address is his own, not ours."
+        source:
+          type: string
+          enum: [env, alias, mailbox, unknown]
+        aliases:
+          type: array
+          items: { type: string }
+          description: Verified "send mail as" addresses the connected mailbox offers.
+        customersSee:
+          type: string
+          description: One line to print on the Settings page, exactly as the customer reads it.
+        note:
+          type: ["string", "null"]
+          description: Why we could not do better, in plain words.
+        whatWouldBeNeeded:
+          type: ["string", "null"]
+          description: What it would take to send fully as his own address. Null when it already does.
+    UnopenedAlertRow:
+      type: object
+      required: [emailSendId, clientName, source, sentAt, daysUnopened]
+      properties:
+        emailSendId: { type: integer }
+        clientId: { type: ["integer", "null"] }
+        clientName: { type: string }
+        subject: { type: ["string", "null"] }
+        toEmail: { type: ["string", "null"] }
+        source: { type: string }
+        sentAt: { type: string }
+        daysUnopened: { type: integer }
+    UnopenedAlertPreview:
+      type: object
+      required: [enabled, afterDays, scope, today, wouldReport, stillUnopened]
+      properties:
+        enabled: { type: boolean }
+        afterDays: { type: integer }
+        scope: { type: string, enum: [invoices, all] }
+        notifyEmail:
+          type: ["string", "null"]
+          description: Where the alert goes. Blank falls back to the company email on Settings.
+        lastCheckedDay: { type: ["string", "null"] }
+        lastSentAt: { type: ["string", "null"] }
+        lastError: { type: ["string", "null"] }
+        today: { type: string }
+        wouldReport:
+          type: array
+          items: { $ref: "#/components/schemas/UnopenedAlertRow" }
+          description: What the next run would put in his inbox.
+        stillUnopened:
+          type: array
+          items: { $ref: "#/components/schemas/UnopenedAlertRow" }
+          description: Everything past the cut-off that has still not been opened, reported or not.
+        problem:
+          type: ["string", "null"]
+          description: Plain-words reason nothing would reach him, such as the rule being switched off.
+    UnopenedAlertUpdate:
+      type: object
+      properties:
+        enabled: { type: boolean }
+        afterDays: { type: integer, minimum: 1, maximum: 60 }
+        scope: { type: string, enum: [invoices, all] }
+        notifyEmail:
+          type: ["string", "null"]
+          maxLength: 320
+          description: Blank means the company email on the Settings page.
+    UnopenedAlertRunResult:
+      type: object
+      required: [ran, reported, preview]
+      properties:
+        ran: { type: boolean }
+        reported: { type: integer }
+        to: { type: ["string", "null"] }
+        skipped:
+          type: ["string", "null"]
+          enum: [disabled, no_recipient, already_today, nothing_due, null]
+        error: { type: ["string", "null"] }
+        preview: { $ref: "#/components/schemas/UnopenedAlertPreview" }

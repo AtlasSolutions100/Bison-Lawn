@@ -28,4 +28,20 @@ hasNotes?: boolean;
  */
 search?: string;
 status?: ListWaitingListStatus;
+/**
+ * One of his custom customer fields by label (Turf Sqft, Gate Code, Sprinkler Zones). On its own it means "only customers who have this filled in". The same filter the dispatch board uses.
+ */
+fieldLabel?: string;
+/**
+ * The custom field's value contains this, any part of it, any case.
+ */
+fieldValue?: string;
+/**
+ * The custom field read as a number, at least this.
+ */
+fieldMin?: number;
+/**
+ * The custom field read as a number, at most this.
+ */
+fieldMax?: number;
 };

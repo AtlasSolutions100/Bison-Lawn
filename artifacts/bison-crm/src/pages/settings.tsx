@@ -29,7 +29,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { SmsStatusCard } from '@/components/sms-status-card';
+import { SenderIdentityCard } from '@/components/settings/sender-identity-card';
 import ProductPresets from '@/components/products/product-presets';
+import TicketCategories from '@/components/settings/ticket-categories';
+import CustomerFields from '@/components/settings/customer-fields';
+import { AiPolish } from '@/components/ai-polish';
 
 const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Something went wrong. Please try again.';
@@ -45,8 +49,11 @@ export default function Settings() {
       </div>
 
       <CompanyDetails />
+      <SenderIdentityCard />
       <SmsStatusCard />
       <ProductPresets />
+      <CustomerFields />
+      <TicketCategories />
       <DocumentTemplates />
     </div>
   );
@@ -593,7 +600,29 @@ function DocumentTemplates() {
                         value={draft.body}
                         onChange={(event) => setDraft((current) => ({ ...current, body: event.target.value }))}
                       />
-                      <p className="mt-1 text-xs text-muted-foreground">Wrap a phrase in **two stars** to make it bold, *one star* for italics, and start a line with - for a bullet.</p>
+                      {/* "Be able to make document info bold, underline, italic ext Word
+                          Doc features." The underline marker is two underscores and he
+                          has no way of guessing that, so the box that takes the typing
+                          is the box that has to say it. */}
+                      <p className="mt-1 text-xs text-muted-foreground">Wrap a phrase in **two stars** to make it bold, __two underscores__ to underline it, *one star* for italics, and start a line with - for a bullet.</p>
+                      {/* "Be able to Copy and paste ChatGPT creation into Doc
+                          or have an AI version in CRM." This is the second
+                          half: the letter gets rewritten here instead of in
+                          another tab. Only the letter body goes out, and the
+                          merge tokens are checked on the way back — a rewrite
+                          that turned [clientname] into [client name] is thrown
+                          away, because that prints the brackets to 709 people. */}
+                      {/* Keyed on the template, so clicking a different letter
+                          starts the control over instead of leaving the last
+                          letter's rewrite sitting there ready to be pasted into
+                          this one. */}
+                      <AiPolish
+                        key={String(selectedId)}
+                        value={draft.body}
+                        onAccept={(text) => setDraft((current) => ({ ...current, body: text }))}
+                        what="letter"
+                        testId="template-ai-polish"
+                      />
                     </div>
                     <div className="rounded-lg border bg-muted/40 p-4">
                       <h3 className="font-semibold">Merge tokens</h3>

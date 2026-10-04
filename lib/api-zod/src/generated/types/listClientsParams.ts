@@ -6,8 +6,13 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ListClientsStatus } from './listClientsStatus';
+import type { ListClientsSubAccounts } from './listClientsSubAccounts';
 
 export type ListClientsParams = {
 status?: ListClientsStatus;
 search?: string;
+/**
+ * Whether properties sitting under a master account are in the list. "When adding a sub account, have the previous one unviewable instead of greyed out" — the client list asks for `hide` so a property that moved under a master stops showing up twice, and reads it off the master's own page instead. `only` is the master's side of that. Default `all`, so nothing that was already asking for this list changes.
+ */
+subAccounts?: ListClientsSubAccounts;
 };

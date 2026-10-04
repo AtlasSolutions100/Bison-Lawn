@@ -11,4 +11,14 @@ export interface SpringLetterService {
   serviceName: string;
   currentAmount: number;
   newAmount: number;
+  /**
+     * What this row would renew at on the standard rate, so a custom price can be shown against the price it replaced and dropped back to it.
+     * @nullable
+     */
+  catalogAmount?: number | null;
+  /**
+     * The price set by hand for this one customer. Null means the standard rate.
+     * @nullable
+     */
+  customAmount?: number | null;
 }

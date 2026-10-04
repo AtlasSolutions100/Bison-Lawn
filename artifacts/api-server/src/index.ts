@@ -5,6 +5,7 @@ import { reconcileUserAccounts } from "./lib/userAccounts";
 import { startWeatherScheduler } from "./lib/weatherScheduler";
 import { startClientServiceTicker } from "./lib/clientServiceTick";
 import { startEmailAutomationScheduler } from "./lib/automationRunner";
+import { startUnopenedAlertScheduler } from "./lib/unopenedAlerts";
 import { ensureDocumentTemplatesOnce } from "./lib/documentTemplateSeeds";
 
 const rawPort = process.env["PORT"];
@@ -53,6 +54,11 @@ app.listen(port, (err) => {
   // Daily email automations: past-due notices, estimate follow-ups, seasonal
   // letters — each rule sends only what he has switched on.
   startEmailAutomationScheduler();
+
+  // The one automation that emails HIM: a bill he sent that nobody has opened
+  // after a few days. Switched off until he turns it on, so this does nothing
+  // on a fresh install.
+  startUnopenedAlertScheduler();
 
   // Registers sign-in identities for existing accounts and merges any
   // duplicate accounts (same person, two Clerk identities) already stored.

@@ -169,6 +169,29 @@ export const insertClientSchema = createInsertSchema(clientsTable).omit({ id: tr
 export type InsertClient = z.infer<typeof insertClientSchema>;
 export type Client = typeof clientsTable.$inferSelect;
 
+// ---------- the tag list ----------
+/**
+ * 2026-09-28: "Create a tag list for drop down selection, ability to add
+ * multiple tags." Typing a tag free-hand made a second tag out of every typo —
+ * "backflow" and "backflo" both sat in the filter looking the same from across
+ * the desk — so the office now picks from a list and adding to the list is its
+ * own deliberate step.
+ *
+ * The tag on a customer is still the string in `clients.tags`: nothing points
+ * at a row here, so this table is the PICK LIST and not the tag itself. That is
+ * what keeps every tag already on the 709 imported customers working whether it
+ * was ever added to the list or not — they are offered alongside the managed
+ * ones and nothing had to be migrated.
+ *
+ * Stored lowercase and unique, the same rule `clients.tags` has always used.
+ */
+export const clientTagsTable = pgTable("client_tags", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type ClientTag = typeof clientTagsTable.$inferSelect;
+
 // ---------- client notes ----------
 export const clientNotesTable = pgTable("client_notes", {
   id: serial("id").primaryKey(),
@@ -235,6 +258,23 @@ export type PricingEquation = {
   incrementSqft: number;
   budgetedHours?: number | null;
   budgetedCost?: number | null;
+  /**
+   * "My starting field on matrix has a min and then from there the Price
+   * equation need to take over but I cant set a base." (2026-09-28)
+   *
+   * Before this, `basePrice` was doing two jobs at once: it was both the floor
+   * under the band and the number the per-unit equation added on to. So a band
+   * could not say "charge $5 a thousand from the first square foot, but never
+   * take the job for under $49" — the only way to get a $49 floor was to make
+   * $49 the base, which then also charged $49 before the per-unit money
+   * started. Those are two different numbers in his head, and now they are two
+   * different fields: `basePrice` (+ baseSqft/increment*) is the base the
+   * equation builds from, and this is the floor it may never fall under.
+   *
+   * Null means no floor, which is how every band saved before 2026-10-03
+   * behaves — nothing changes for them.
+   */
+  minPrice?: number | null;
 };
 
 export const servicesTable = pgTable("services", {
@@ -251,7 +291,22 @@ export const servicesTable = pgTable("services", {
   minDays: integer("min_days"),
   defaultStartDate: text("default_start_date"),
   defaultEndDate: text("default_end_date"),
+  /**
+   * 2026-09-28: "Renew date is not client specific but Product based." The
+   * renew date lives here, on the service, and every customer who has that
+   * service follows it; the copy on client_services is only an override the
+   * office typed for one customer. May be written year-free as mm-dd
+   * ("03-01"), because it is the same day every year.
+   */
   renewDate: text("renew_date"),
+  /**
+   * 2026-09-28: "Season End date will be the same for all mowing clients." One
+   * date for the whole service, year-free (mm-dd) or a full date, which new
+   * assignments inherit and which the bulk "season ends on" pushes onto the
+   * customers who already have it. A customer who stops earlier keeps their
+   * own earlier date on their own row.
+   */
+  seasonEndDate: text("season_end_date"),
   pricingEquations: jsonb("pricing_equations").$type<PricingEquation[]>().notNull().default([]),
   // office-controlled: contractors may offer this as one-time extra work on site
   contractorOfferable: boolean("contractor_offerable").notNull().default(false),
@@ -319,6 +374,14 @@ export const packagesTable = pgTable("packages", {
   items: jsonb("items").$type<PackageItem[]>().notNull().default([]),
   // Inherited scheduling defaults (all optional; null means "ask at assign time")
   scheduleType: text("schedule_type"), // window | recurring | one_time
+  /**
+   * 2026-09-28: "When creating packages does not need year as they will be
+   * renewed every year and have the same date window of service." So every
+   * date on a package may be written year-free as mm-dd ("10-01") as well as
+   * a full yyyy-mm-dd. Assigning the package turns a year-free date into the
+   * season it belongs to — this year's window while it is still ahead of us
+   * or open, next year's once it has gone by.
+   */
   startDate: text("start_date"),
   endDate: text("end_date"),
   frequencyWeeks: integer("frequency_weeks"),
@@ -452,6 +515,32 @@ export const estimatesTable = pgTable("estimates", {
 export type Estimate = typeof estimatesTable.$inferSelect;
 
 // ---------- client services (assigned services) ----------
+/**
+ * One season of an assigned service, as it read on the day it closed.
+ *
+ * "Mowing jobs stay on account with last year's details" — a snapshot, never
+ * recomputed, because the point is what the customer actually had that year.
+ */
+export type ClientServiceSeason = {
+  /** The year the season belongs to, from its own start date. */
+  year: number;
+  cadence: string;
+  firstServiceDate: string | null;
+  seasonEndDate: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  amount: number;
+  budgetedHours: number | null;
+  assignedToId: number | null;
+  assignedToName: string | null;
+  discountType: string | null;
+  discountValue: number | null;
+  discountLabel: string | null;
+  completedVisits: number;
+  completedTotal: number;
+  closedAt: string;
+};
+
 export const clientServicesTable = pgTable("client_services", {
   id: serial("id").primaryKey(),
   clientId: integer("client_id").notNull().references(() => clientsTable.id, { onDelete: "cascade" }),
@@ -469,11 +558,33 @@ export const clientServicesTable = pgTable("client_services", {
   firstServiceDate: text("first_service_date"),
   seasonEndDate: text("season_end_date"),
   renewDate: text("renew_date"),
+  /**
+   * 2026-09-28: "Renew date is not client specific but Product based." The
+   * date that governs is the one on the SERVICE, and every customer who has
+   * that service follows it. This row's own renewDate only wins when someone
+   * deliberately typed a different date for this one customer, which is what
+   * this flag records. Off (the default, and what every imported row has)
+   * means "whatever the service says" — so changing the service's renew date
+   * moves all 300 mowing customers at once, the way he expects.
+   */
+  renewDateOverridden: boolean("renew_date_overridden").notNull().default(false),
   budgetedHours: doublePrecision("budgeted_hours"),
   // Stamped when the season rollover repriced this row, so the office can see at a
   // glance who has already been carried into the new year and who still has last
   // year's price.
   lastRenewedAt: timestamp("last_renewed_at"),
+  /**
+   * 2026-09-28: "Mowing jobs stay on account with last year's details."
+   * Renewing rolls the row's dates and price into the new season, which used
+   * to leave nothing on the account saying what last year was. Each rollover
+   * now writes the season it is closing in here first — the cadence, the
+   * contractor, what a visit cost, how many were done and what they came to —
+   * so the account still reads "2026: every other Wednesday with Eich, $58, 24
+   * visits, $1,392" after it has moved on to 2027. The visits themselves are
+   * untouched and still hang off this row, so the history list goes back as
+   * far as it ever did.
+   */
+  pastSeasons: jsonb("past_seasons").$type<ClientServiceSeason[]>().notNull().default([]),
   /**
    * 2026-09-15 walkthrough. An assigned service is his "job on the account":
    * it has a contractor so it is always on that person's board, a cadence
@@ -518,6 +629,19 @@ export const clientServicesTable = pgTable("client_services", {
   // contractTotal / contractMonths, that the office completes to bill it.
   contractMonths: integer("contract_months"),
   contractTotal: doublePrecision("contract_total"),
+  /**
+   * 2026-09-28 notes (G5). Spring letters: "Some options select all and some
+   * custom prices, some increase %." This is the "custom price": what THIS
+   * customer pays for this service, set by hand on the spring-letter screen
+   * because he agreed a figure with them that is not the catalogue rate.
+   *
+   * Null means "use the catalogue rate x quantity", which is how every row
+   * priced before this existed worked. Set, it wins — the renewal, the letter
+   * and the totals on the screen all read it, so the price he typed is the
+   * price the customer is told, and raising everybody 6% the following year
+   * raises it from his figure rather than reverting to the list price.
+   */
+  customAmount: doublePrecision("custom_amount"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 export type ClientService = typeof clientServicesTable.$inferSelect;
@@ -614,15 +738,48 @@ export const jobProductsTable = pgTable("job_products", {
 });
 export type JobProduct = typeof jobProductsTable.$inferSelect;
 
+// ---------- job crew ----------
+/**
+ * The other people on a visit. "Document crew member on clean ups, add crew
+ * members to day" — a fall clean-up is two or three men in one truck, and a
+ * single assigned_to_id could only ever name the one who took the job.
+ *
+ * jobs.assigned_to_id stays the lead and nothing that reads it changes: the
+ * sub tiles, the dollars per sub, the route in Maps, what a sub is owed. This
+ * table is who else was there, so the stop shows up on their phone too and the
+ * clean-up has a record of who actually did it.
+ *
+ * A person is listed once per job — the unique index, not a rule in code, so
+ * two taps on the same name can never leave a crew with Gabe on it twice.
+ */
+export const jobCrewTable = pgTable(
+  "job_crew",
+  {
+    id: serial("id").primaryKey(),
+    jobId: integer("job_id").notNull().references(() => jobsTable.id, { onDelete: "cascade" }),
+    userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("job_crew_job_user_idx").on(t.jobId, t.userId), index("job_crew_user_idx").on(t.userId)],
+);
+export type JobCrewMember = typeof jobCrewTable.$inferSelect;
+
 // ---------- invoices ----------
 export const invoicesTable = pgTable("invoices", {
   id: serial("id").primaryKey(),
   clientId: integer("client_id").notNull().references(() => clientsTable.id, { onDelete: "cascade" }),
   jobId: integer("job_id"),
-  // pending | open | paid | partial | void
+  // pending | open | paid | partial | void | written_off | collections
   // "pending" is a completed job's invoice the office has not verified yet. It
   // is a real status, not a flag, so nothing can email or print it by accident;
   // recalcInvoice leaves it alone until Verify moves it to open.
+  //
+  // "Jackie Wagner — beagle to get rid of balance, via written off and turned
+  // into collections." A balance he will never collect needed a way out that was
+  // not a silent delete, so `written_off` (we are not chasing it) and
+  // `collections` (someone else is chasing it) both keep the invoice, its lines
+  // and its history, and both stop the balance counting toward what the customer
+  // owes — see balanceOf and recalcClientBalance.
   status: text("status").notNull().default("open"),
   total: doublePrecision("total").notNull().default(0),
   amountPaid: doublePrecision("amount_paid").notNull().default(0),
@@ -662,6 +819,24 @@ export const invoicesTable = pgTable("invoices", {
   verifiedById: integer("verified_by_id").references(() => usersTable.id, { onDelete: "set null" }),
   deliveryMethod: text("delivery_method"),
   printedAt: timestamp("printed_at"),
+  /**
+   * "Ability to unlock invoice after being sent out to make changes and edit
+   * invoice."
+   *
+   * Unlocking clears verifiedAt, sentAt and printedAt so the bill drops back
+   * into Needs verification and has to be checked and sent again — otherwise
+   * the edit sits in a bill the queues think is finished. The day the customer
+   * got the old copy is kept here rather than thrown away: whoever opens it
+   * next has to know their copy says something else, and the PDF reprint is
+   * the only thing that will match.
+   */
+  unlockedAt: timestamp("unlocked_at"),
+  unlockedById: integer("unlocked_by_id").references(() => usersTable.id, { onDelete: "set null" }),
+  previouslySentAt: timestamp("previously_sent_at"),
+  /** Why the balance was written off or handed to collections, in his words. */
+  writeOffReason: text("write_off_reason"),
+  writtenOffAt: timestamp("written_off_at"),
+  writtenOffById: integer("written_off_by_id").references(() => usersTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 export type Invoice = typeof invoicesTable.$inferSelect;
@@ -725,6 +900,17 @@ export const billingSettingsTable = pgTable("billing_settings", {
   id: serial("id").primaryKey(),
   cardFeeEnabled: boolean("card_fee_enabled").notNull().default(false),
   cardFeePercent: doublePrecision("card_fee_percent").notNull().default(3),
+  /**
+   * "Take payments in the field under invoices with fee percentage." Who he has
+   * said may do it: the people on this list can put money on any of that
+   * customer's open bills from the job card, not just hand cash to the office.
+   *
+   * A list of people rather than one switch for everybody, because money is the
+   * one thing he does not hand to a whole crew at once. Empty by default, so
+   * nobody gets it until he ticks them — office users with Invoices already
+   * have it through their own access.
+   */
+  fieldPaymentUserIds: jsonb("field_payment_user_ids").$type<number[]>().notNull().default([]),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 export const fieldNotesTable = pgTable("field_notes", {
@@ -823,9 +1009,39 @@ export const ticketsTable = pgTable("tickets", {
   status: text("status").notNull().default("open"), // open | done
   assignedToId: integer("assigned_to_id").references(() => usersTable.id),
   dueDate: text("due_date"),
+  /**
+   * 2026-09-28 notes (G1). "Ticket Categories, Account Issue, Billing, Cancel
+   * Request, ..." — what the ticket is about, so he can pull up every billing
+   * question or every cancel request at once instead of reading 40 titles.
+   *
+   * The NAME is stored, not an id into ticket_categories. A ticket is a record
+   * of something that happened, and renaming or deleting a category later must
+   * not rewrite or blank what a ticket was filed under. Null is "no category",
+   * which is what every ticket raised before this existed is.
+   */
+  category: text("category"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 export type Ticket = typeof ticketsTable.$inferSelect;
+
+/**
+ * His ticket category list, editable because he asked to add his own: "Ticket
+ * Categories, Account Issue, Billing, Cancel Request, Change Service, Email,
+ * Estimate, other, Reschedule request, Review, Schedule Service, Terminate
+ * service, Upsell, Marketing."
+ *
+ * Seeded once with exactly that list. Turning a category off (`active`) rather
+ * than deleting it is the normal way out: the tickets already filed under it
+ * keep their name and still filter, they just stop being offered on new ones.
+ */
+export const ticketCategoriesTable = pgTable("ticket_categories", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  sortOrder: integer("sort_order"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type TicketCategory = typeof ticketCategoriesTable.$inferSelect;
 
 // ---------- letter templates ----------
 // The seasonal letter the office mails every customer. Body is plain text holding
@@ -1229,6 +1445,32 @@ export const automationSendsTable = pgTable(
   },
   (t) => [uniqueIndex("automation_sends_rule_subject_idx").on(t.ruleId, t.subjectKey)],
 );
+
+/**
+ * "Automation sent to admin for unopened invoices/emails" — the one rule that
+ * emails HIM instead of a customer.
+ *
+ * One row, like billing settings and the company profile, because he described
+ * one rule: tell me when a bill I emailed has sat unopened for a few days.
+ * `lastCheckedDay` is a cursor rather than a timestamp so a server that was off
+ * for two days still reports the emails that crossed the line while it was
+ * down, and never reports the same email twice.
+ */
+export const unopenedEmailAlertsTable = pgTable("unopened_email_alerts", {
+  id: serial("id").primaryKey(),
+  // Off like every other rule. Nothing goes to his inbox until he turns it on.
+  enabled: boolean("enabled").notNull().default(false),
+  afterDays: integer("after_days").notNull().default(3),
+  // invoices | all — whether he wants it for bills only or for every email.
+  scope: text("scope").notNull().default("invoices"),
+  // Blank means "the company email on the Settings page".
+  notifyEmail: text("notify_email"),
+  lastCheckedDay: text("last_checked_day"),
+  lastSentAt: timestamp("last_sent_at"),
+  lastError: text("last_error"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export type UnopenedEmailAlert = typeof unopenedEmailAlertsTable.$inferSelect;
 
 /**
  * Where a contractor's phone last said they were. The office answers

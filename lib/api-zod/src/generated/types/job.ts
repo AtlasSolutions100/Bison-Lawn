@@ -7,6 +7,7 @@
  */
 import type { JobBillingMode } from './jobBillingMode';
 import type { JobClientPropertyData } from './jobClientPropertyData';
+import type { JobCrewMember } from './jobCrewMember';
 import type { JobDiscountType } from './jobDiscountType';
 import type { JobProduct } from './jobProduct';
 import type { JobStatus } from './jobStatus';
@@ -55,6 +56,8 @@ export interface Job {
      * @nullable
      */
   assignedToName?: string | null;
+  /** The other people on this job, the lead excluded. A clean-up is two or three men in one truck; the lead stays on assignedToId so everything that bills and totals a day is unchanged, and these are who else was there and who else sees the stop on their phone. */
+  crew?: JobCrewMember[];
   /** @nullable */
   mapNote?: string | null;
   /** @nullable */

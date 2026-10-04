@@ -14,4 +14,6 @@ export interface CopyMatrixTarget {
   existingBands: number;
   equations: PricingEquation[];
   pricingFieldChanged: boolean;
+  /** What the product cost put on each band, in band order, so the preview can show the seed money next to the labour money instead of one merged number. Null for a band that carries no price and was therefore left alone. Empty when no product cost was asked for. */
+  productAdded?: (number | null)[];
 }

@@ -8,6 +8,8 @@
 
 export interface EmailBatch {
   batchId: string;
+  /** true when this line is one email to one customer rather than a send that went out together */
+  single: boolean;
   createdAt: string;
   source: string;
   sourceLabel: string;
@@ -26,4 +28,6 @@ export interface EmailBatch {
   failed: number;
   skipped: number;
   opened: number;
+  /** How many of the sent emails carried a tracking pixel, so the open rate is worked out of these and not out of emails nobody could ever answer for */
+  trackable: number;
 }

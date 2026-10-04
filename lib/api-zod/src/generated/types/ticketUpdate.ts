@@ -17,4 +17,6 @@ export interface TicketUpdate {
   assignedToId?: number | null;
   /** @nullable */
   dueDate?: string | null;
+  /** @nullable */
+  category?: string | null;
 }

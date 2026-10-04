@@ -39,10 +39,20 @@ export async function getOrCreateLetterTemplate() {
   return created;
 }
 
+/**
+ * What this customer pays for this service in the coming season.
+ *
+ * 2026-09-28 notes (G5): "Some options select all and some custom prices, some
+ * increase %." A custom price is a figure he agreed with one customer, so it
+ * beats the catalogue rate everywhere the season is priced — the renew screen,
+ * the renewal itself and the letter the customer reads — or he would type a
+ * price, send the letter, and the letter would quote a different number.
+ */
 export function currentServiceAmount(
-  clientService: Pick<typeof clientServicesTable.$inferSelect, "quantity">,
+  clientService: Pick<typeof clientServicesTable.$inferSelect, "quantity" | "customAmount">,
   service: Pick<typeof servicesTable.$inferSelect, "rate">,
 ) {
+  if (clientService.customAmount != null) return roundMoney(clientService.customAmount);
   return roundMoney(service.rate * clientService.quantity);
 }
 

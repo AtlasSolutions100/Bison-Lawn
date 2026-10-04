@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CopyMatrixInputMode } from './copyMatrixInputMode';
+import type { MatrixProductCost } from './matrixProductCost';
 
 export interface CopyMatrixInput {
   /** @minItems 1 */
@@ -21,6 +22,7 @@ export interface CopyMatrixInput {
   roundTo?: number | null;
   /** Point each target at the source's Price By field too (default true) — the bands are measured in it. */
   copyPricingField?: boolean;
+  productCost?: MatrixProductCost;
   /** false (the default) only previews what each target would get; true writes it. */
   apply?: boolean;
   /** Must be true to replace a target that already has priced bands. */

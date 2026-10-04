@@ -4,6 +4,14 @@ import { AlertCircle, Package, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import {
+  defaultVisits,
+  hasMatrix,
+  pricingFieldFor,
+  serviceLineMath,
+  type MeasureSources,
+  type ServiceLineDraft,
+} from './service-pricing';
 
 /**
  * The services on an estimate, the way he prices them (2026-09-15
@@ -14,90 +22,29 @@ import { cn } from '@/lib/utils';
  * stay together so the customer can accept the package as one line.
  */
 
-export type ServiceLineDraft = {
-  /** Local identity only; never sent. */
-  key: number;
-  serviceId: number;
-  label: string;
-  /** The property measurement the matrix prices from (Turf Sqft, zones). */
-  value: string;
-  /** Blank means the service's own default. */
-  quantity: string;
-  /** Blank means the service's visits per season, or one. */
-  visits: string;
-  packageId: number | null;
-  packageKey: string | null;
-  packageName: string | null;
-};
+// The maths that has to agree with the server lives in service-pricing.ts so a
+// test can run it against the real save route; it is re-exported from here
+// because this is the screen that uses it.
+export {
+  calculableNeedsNumber,
+  defaultVisits,
+  fieldLinePrice,
+  hasMatrix,
+  lineCount,
+  measurementForLine,
+  measurementOf,
+  prefillFieldValue,
+  pricingFieldFor,
+  serviceLineMath,
+  serviceUnitPrice,
+} from './service-pricing';
+export type { MeasureSource, MeasureSources, ServiceLineDraft } from './service-pricing';
 
 let lineKeySeq = 0;
 const nextLineKey = () => ++lineKeySeq;
 export const withLineKey = <T extends object>(line: T): T & { key: number } => ({ key: nextLineKey(), ...line });
 
 export const money = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-/**
- * Which property detail a service prices from. Null pricingFieldId means turf
- * square footage — what every matrix meant before that column existed — so the
- * turf field is found by its label, the same way the server does it.
- */
-export function pricingFieldFor(service: Service, fields: EstimateField[] | undefined): EstimateField | null {
-  if (!fields) return null;
-  if (service.pricingFieldId != null) return fields.find(f => f.id === service.pricingFieldId) ?? null;
-  return (
-    fields.find(f => /turf/i.test(f.label) && /sq/i.test(f.label)) ??
-    fields.find(f => /sq\s?ft|sqft|square/i.test(f.label) && f.fieldType === 'calculable') ??
-    null
-  );
-}
-
-export const hasMatrix = (service: Service) => (service.pricingEquations ?? []).length > 0;
-
-/** Mirrors calculatePrice on the server: the band for `value`, base plus increments. */
-export function serviceUnitPrice(service: Service, value: string): { rate: number; fromMatrix: boolean } {
-  // Work billed by the hour is quoted at the hours it is budgeted for times the
-  // hourly rate, the way the server prices it — the bare $65/hr is not what a
-  // three-hour clean-up costs.
-  if (service.billingMode === 'time') {
-    return { rate: Math.round(service.rate * (service.billableHours ?? 1) * 100) / 100, fromMatrix: false };
-  }
-  const numeric = Number(value.replace(/,/g, ''));
-  const eqs = service.pricingEquations ?? [];
-  if (eqs.length > 0 && value.trim() !== '' && Number.isFinite(numeric)) {
-    let idx = eqs.findIndex(e => e.upToSqft != null && numeric <= e.upToSqft);
-    if (idx === -1) {
-      idx = eqs.findIndex(e => e.upToSqft == null);
-      if (idx === -1) idx = eqs.length - 1;
-    }
-    const eq = eqs[idx];
-    let price = eq.basePrice;
-    if (numeric > eq.baseSqft && eq.incrementSqft > 0) {
-      price += Math.ceil((numeric - eq.baseSqft) / eq.incrementSqft) * eq.incrementPrice;
-    }
-    return { rate: Math.round(price * 100) / 100, fromMatrix: true };
-  }
-  return { rate: Math.round(service.rate * 100) / 100, fromMatrix: false };
-}
-
-/** A typed count, or the fallback when the box is blank. Null when it is not a number. */
-export function lineCount(raw: string, fallback: number): number | null {
-  if (raw.trim() === '') return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : null;
-}
-
-export function defaultVisits(service: Service) {
-  return service.visitsPerSeason ?? 1;
-}
-
-export function serviceLineMath(service: Service, line: ServiceLineDraft) {
-  const unit = serviceUnitPrice(service, line.value);
-  const quantity = lineCount(line.quantity, service.quantity ?? 1);
-  const visits = lineCount(line.visits, defaultVisits(service));
-  const valid = quantity != null && visits != null;
-  const total = valid ? Math.round(unit.rate * quantity * visits * 100) / 100 : null;
-  return { ...unit, quantity, visits, valid, total };
-}
 
 export function newServiceLine(
   service: Service,
@@ -138,6 +85,8 @@ export default function ServiceLinesEditor({
   lines,
   onChange,
   valueFor,
+  fieldValues,
+  propertyData,
 }: {
   services: Service[] | undefined;
   packages: ServicePackage[] | undefined;
@@ -146,8 +95,16 @@ export default function ServiceLinesEditor({
   onChange: (next: ServiceLineDraft[]) => void;
   /** The measurement to start a new line with, from the estimate's own fields or the customer's file. */
   valueFor: (service: Service) => string;
+  /** The property details ticked on this estimate, so a line reads the sqft typed beside it. */
+  fieldValues?: Record<number, { selected: boolean; value: string }> | null;
+  /** What the customer's file holds, so a line reads the account the way the save does. */
+  propertyData?: Record<string, string> | null;
 }) {
   const serviceById = new Map((services ?? []).map(s => [s.id, s]));
+  // The same three places the save reads a measurement from. Leaving the
+  // account out of this is how the screen said $1,260 and the saved quote said
+  // $2,660 for the same 28 mows.
+  const sources: MeasureSources = { fields, fieldValues, propertyData };
   const update = (key: number, patch: Partial<ServiceLineDraft>) =>
     onChange(lines.map(line => (line.key === key ? { ...line, ...patch } : line)));
   const remove = (key: number) => onChange(lines.filter(line => line.key !== key));
@@ -158,7 +115,7 @@ export default function ServiceLinesEditor({
       .filter(line => line.packageKey === packageKey)
       .reduce((sum, line) => {
         const service = serviceById.get(line.serviceId);
-        return sum + (service ? serviceLineMath(service, line).total ?? 0 : 0);
+        return sum + (service ? serviceLineMath(service, line, sources).total ?? 0 : 0);
       }, 0);
 
   return (
@@ -213,8 +170,12 @@ export default function ServiceLinesEditor({
               );
             }
             const field = pricingFieldFor(service, fields);
-            const math = serviceLineMath(service, line);
+            const math = serviceLineMath(service, line, sources);
             const missingMeasure = hasMatrix(service) && !math.fromMatrix;
+            // The box is empty but the save will still price off a number: say
+            // which one and where it came from, because the saved quote is what
+            // the customer reads and he never sees it otherwise.
+            const borrowed = math.fromMatrix && math.measuredFrom !== null && math.measuredFrom !== 'line';
             return (
               <Fragment key={line.key}>
                 {startsPackage && line.packageKey && (
@@ -252,7 +213,7 @@ export default function ServiceLinesEditor({
                           className={cn('mt-1 w-28 h-9', missingMeasure && 'border-amber-500')}
                           value={line.value}
                           onChange={e => update(line.key, { value: e.target.value })}
-                          placeholder={field?.label ?? 'Sqft'}
+                          placeholder={borrowed ? String(math.measurement) : (field?.label ?? 'Sqft')}
                         />
                       </label>
                     )}
@@ -298,7 +259,14 @@ export default function ServiceLinesEditor({
                   </div>
                   {missingMeasure && (
                     <p className="text-xs text-amber-700">
-                      No {field?.label ?? 'Turf Sqft'} to price from, so this is the flat rate ({money(service.rate)}). Type the {field?.label ?? 'Turf Sqft'} to get the matrix price.
+                      No {field?.label ?? 'Turf Sqft'} anywhere — not on this estimate and not on the account — so this is the flat rate ({money(service.rate)}). Type the {field?.label ?? 'Turf Sqft'} to get the matrix price.
+                    </p>
+                  )}
+                  {borrowed && (
+                    <p className="text-xs text-muted-foreground">
+                      Priced off {math.measurement?.toLocaleString()} {field?.label ?? 'Turf Sqft'}{' '}
+                      {math.measuredFrom === 'estimate' ? 'measured on this estimate' : "on the customer's account"}. Type a
+                      different {field?.label ?? 'Turf Sqft'} here to price off that instead.
                     </p>
                   )}
                 </div>

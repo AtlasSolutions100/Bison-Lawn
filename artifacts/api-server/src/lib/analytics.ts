@@ -23,6 +23,15 @@ import { db } from "@workspace/db";
 import { sql, type SQL } from "drizzle-orm";
 import type { PricingEquation } from "@workspace/db";
 import { calculatePrice } from "./helpers";
+// What a customer still owes on one invoice. Imported rather than written out
+// again here: void — and, once the write-off work lands, written off — owes
+// nothing, and a report that worked that out for itself would sooner or later
+// disagree with the balance on the customer's own account.
+import { balanceOf } from "./invoiceDocument";
+// The two ways out of a balance he will never collect, named in one place so
+// the monthly report and the account summary can never disagree about which
+// statuses those are.
+import { WRITE_OFF_STATUSES } from "./invoiceStatus";
 
 export type CostingRow = {
   key: string;
@@ -405,6 +414,10 @@ function turfJobsCte(from: string, to: string) {
   return sql`
     turf_jobs as (
       select j.id, j.scheduled_date, j.amount, j.service_id,
+             -- Carried through so the per-day report can split the same turf
+             -- reading by crew. Reading it a second way would eventually give
+             -- two different square-footage totals for the same week.
+             j.assigned_to_id,
              ${turfNumber(sql`(select pd.value from jsonb_each_text(c.property_data) pd
                  where lower(pd.key) in ('turf sqft', 'turf sq ft', 'turf square feet', 'turf', 'sqft', 'lawn sqft')
                  limit 1)`)} as sqft
@@ -697,6 +710,515 @@ async function jobCostsByService(from: string, to: string): Promise<ReportRow[]>
     }));
 }
 
+/* ------------------------------------------------------------------------- *
+ * 2026-09-28 notes, Reports section. The four he was still missing: a cash
+ * report and an accrual report (R1), how long jobs actually take (R2), the
+ * spread of crews (R3), and square footage per day per crew (R4).
+ * ------------------------------------------------------------------------- */
+
+/**
+ * R1. The two reports he ran every month in Service Autopilot, and the reason
+ * he wants both rather than one:
+ *
+ *   cash    — money that actually arrived, counted on the day the payment was
+ *             taken. This is the one that ties to his bank statement.
+ *   accrual — money he billed, counted on the invoice's own date, whether or
+ *             not a cent of it has come in. This is the one that says what the
+ *             month earned.
+ *
+ * A December invoice paid in February is accrual in December and cash in
+ * February. That gap is the whole point: cash tells him what he can spend,
+ * accrual tells him what the season is worth, and neither one answers the
+ * other's question.
+ *
+ * Both are dated by HIS day, not by UTC, the same as every other report here:
+ * a card he takes at 6 in the evening belongs to that evening.
+ */
+const PAYMENT_DAY = localDay(sql`p.created_at`);
+/** An invoice carries its own office date; fall back to the day it was created. */
+const INVOICE_DAY = sql`coalesce(i.invoice_date, ${localDay(sql`i.created_at`)})`;
+
+async function cashReport(from: string, to: string): Promise<ReportRow[]> {
+  const result = await db.execute(sql`
+    select ${PAYMENT_DAY} as date,
+           c.id as client_id, c.name as client,
+           p.method,
+           coalesce(p.reference, '') as reference,
+           case when i.id is null then ''
+                else 'Invoice #' || coalesce(i.number, i.id)::text end as invoice,
+           p.amount as amount,
+           p.card_fee as card_fee
+    from payments p
+    join clients c on c.id = p.client_id
+    left join invoices i on i.id = p.invoice_id
+    where ${PAYMENT_DAY} between ${from} and ${to}
+    order by 1, c.name
+  `);
+  return (result.rows as Array<Record<string, unknown>>).map((r) => {
+    const amount = Number(r.amount ?? 0);
+    const cardFee = Number(r.card_fee ?? 0);
+    return {
+      date: String(r.date),
+      clientId: Number(r.client_id),
+      client: String(r.client),
+      method: String(r.method),
+      reference: String(r.reference),
+      invoice: String(r.invoice),
+      amount: round(amount),
+      cardFee: round(cardFee),
+      // What the work actually kept. The card surcharge came in with the
+      // payment and went straight back out to the processor, so counting it as
+      // takings would flatter every card month by three percent.
+      net: round(amount - cardFee),
+    };
+  });
+}
+
+async function accrualReport(from: string, to: string): Promise<ReportRow[]> {
+  const result = await db.execute(sql`
+    select ${INVOICE_DAY} as date,
+           c.id as client_id, c.name as client,
+           'Invoice #' || coalesce(i.number, i.id)::text as invoice,
+           i.status as status,
+           i.total as total,
+           i.amount_paid as amount_paid
+    from invoices i
+    join clients c on c.id = i.client_id
+    -- Void is the one status left out: a voided invoice was never a bill, so
+    -- the month never earned it. One waiting in the verify queue IS left in —
+    -- the work is done and the money is earned, and showing it is how he spots
+    -- a bill that has been sitting there unverified.
+    where i.status <> 'void'
+      and ${INVOICE_DAY} between ${from} and ${to}
+    order by 1, c.name
+  `);
+  return (result.rows as Array<Record<string, unknown>>).map((r) => {
+    const total = Number(r.total ?? 0);
+    const amountPaid = Number(r.amount_paid ?? 0);
+    const status = String(r.status);
+    return {
+      date: String(r.date),
+      clientId: Number(r.client_id),
+      client: String(r.client),
+      invoice: String(r.invoice),
+      status,
+      total: round(total),
+      paid: round(amountPaid),
+      balance: round(balanceOf({ total, amountPaid, status })),
+    };
+  });
+}
+
+/** Money he decided he is never going to see: written off, or gone to collections. */
+const WRITTEN_OFF = sql`i.status in (${sql.join(
+  WRITE_OFF_STATUSES.map((s) => sql`${s}`),
+  sql`, `,
+)})`;
+
+/**
+ * The same two figures side by side, a month at a time — how he actually reads
+ * them. Billed and received will not match in any single month and are not
+ * meant to; the gap column is the number he is really after, because a big
+ * negative one means a month's invoices have not been paid yet.
+ *
+ * Except when he gave up on the money. A written-off bill stays in Invoiced,
+ * because the month really did earn it and a write-off in September does not
+ * un-bill March — but it will never be paid, so it sits in the gap for ever and
+ * nothing on the line said why. The Written off column is that explanation: a
+ * gap the same size as it is a balance he closed out, not one still coming in.
+ */
+async function cashVsAccrualByMonth(from: string, to: string): Promise<ReportRow[]> {
+  const result = await db.execute(sql`
+    with cash as (
+      select to_char((${PAYMENT_DAY})::date, 'YYYY-MM') as month,
+             count(*) as payments,
+             coalesce(sum(p.amount), 0) as received
+      from payments p
+      where ${PAYMENT_DAY} between ${from} and ${to}
+      group by 1
+    ),
+    accrual as (
+      select to_char((${INVOICE_DAY})::date, 'YYYY-MM') as month,
+             count(*) as invoices,
+             coalesce(sum(i.total), 0) as invoiced,
+             coalesce(sum(i.total) filter (where ${WRITTEN_OFF}), 0) as written_off
+      from invoices i
+      where i.status <> 'void'
+        and ${INVOICE_DAY} between ${from} and ${to}
+      group by 1
+    )
+    select coalesce(a.month, ca.month) as month,
+           coalesce(a.invoices, 0) as invoices,
+           coalesce(a.invoiced, 0) as invoiced,
+           coalesce(a.written_off, 0) as written_off,
+           coalesce(ca.payments, 0) as payments,
+           coalesce(ca.received, 0) as received
+    from accrual a
+    full outer join cash ca on ca.month = a.month
+    order by 1
+  `);
+  return (result.rows as Array<Record<string, unknown>>).map((r) => {
+    const invoiced = Number(r.invoiced ?? 0);
+    const received = Number(r.received ?? 0);
+    return {
+      month: String(r.month),
+      invoices: Number(r.invoices ?? 0),
+      invoiced: round(invoiced),
+      writtenOff: round(Number(r.written_off ?? 0)),
+      payments: Number(r.payments ?? 0),
+      received: round(received),
+      gap: round(received - invoiced),
+    };
+  });
+}
+
+/**
+ * R2 — "time to complete jobs".
+ *
+ * Two different numbers come out of the clock, and he needs them kept apart:
+ *   crew hours  — every closed entry added up. Two people for an hour is two
+ *                 crew hours, and this is the number the budget is written in.
+ *   on site     — first clock-in to last clock-out on the job. Two people for
+ *                 an hour is one hour on site, and this is "how long did it
+ *                 take", which is what he asked.
+ *
+ * Open entries are ignored, the same as everywhere else here: someone who
+ * forgot to clock out would otherwise make a job look like it took all night.
+ * A job nobody clocked has no time at all and is simply not in these rows —
+ * counted as zero it would make every average look better than the work was.
+ */
+type JobTiming = { crewHours: number; onSiteHours: number; people: number };
+
+// One definition of "closed clock entries on completed work in this range",
+// used by both halves of the report so the two can never cover slightly
+// different work. The users join is on a non-null foreign key, so it cannot
+// drop an entry; it is here because the per-person half needs the name.
+const CLOSED_ENTRIES_IN_RANGE = (from: string, to: string) => sql`
+  from job_time_entries e
+  join jobs j on j.id = e.job_id
+  join users u on u.id = e.user_id
+  where e.clock_out_at is not null
+    and ${COMPLETED}
+    and j.scheduled_date between ${from} and ${to}
+`;
+
+async function jobTimings(from: string, to: string): Promise<Map<number, JobTiming>> {
+  const result = await db.execute(sql`
+    select e.job_id,
+           sum(extract(epoch from (e.clock_out_at - e.clock_in_at)) / 3600.0) as crew_hours,
+           extract(epoch from (max(e.clock_out_at) - min(e.clock_in_at))) / 3600.0 as on_site_hours,
+           count(distinct e.user_id) as people
+    ${CLOSED_ENTRIES_IN_RANGE(from, to)}
+    group by 1
+  `);
+  const map = new Map<number, JobTiming>();
+  for (const r of result.rows as Array<Record<string, unknown>>) {
+    map.set(Number(r.job_id), {
+      crewHours: Number(r.crew_hours ?? 0),
+      onSiteHours: Number(r.on_site_hours ?? 0),
+      people: Number(r.people ?? 0),
+    });
+  }
+  return map;
+}
+
+/** Hours one person clocked on one job. The per-contractor half of R2. */
+async function jobTimingsByPerson(from: string, to: string) {
+  const result = await db.execute(sql`
+    select e.job_id, e.user_id,
+           coalesce(nullif(u.display_name, ''), u.name, 'Unknown') as person,
+           sum(extract(epoch from (e.clock_out_at - e.clock_in_at)) / 3600.0) as hours
+    ${CLOSED_ENTRIES_IN_RANGE(from, to)}
+    group by 1, 2, 3
+  `);
+  return (result.rows as Array<Record<string, unknown>>).map((r) => ({
+    jobId: Number(r.job_id),
+    userId: Number(r.user_id),
+    person: String(r.person),
+    hours: Number(r.hours ?? 0),
+  }));
+}
+
+/**
+ * The budget to put next to the actual. Same rule as the job cost report: the
+ * job's own budgeted hours when it has them, otherwise the hours written on the
+ * matrix band the property falls in. A job with neither shows a blank budget,
+ * never a zero one — no budget is not a free job.
+ */
+const budgetFor = (job: JobCostRaw): number | null => job.budgetedHours ?? bandFor(job)?.budgetedHours ?? null;
+
+const avg = (total: number, count: number) => (count === 0 ? null : round(total / count, 2));
+
+async function timeToCompleteByService(from: string, to: string): Promise<ReportRow[]> {
+  const [jobs, timings] = await Promise.all([jobCostRows(from, to), jobTimings(from, to)]);
+  type Bucket = {
+    service: string; jobs: number; onSite: number; crew: number; people: number;
+    budget: number; budgetCount: number; crewWithBudget: number;
+    fastest: number | null; slowest: number | null;
+  };
+  const groups = new Map<string, Bucket>();
+  for (const job of jobs) {
+    const timing = timings.get(job.id);
+    if (!timing) continue;
+    const key = job.serviceId == null ? "none" : String(job.serviceId);
+    const g = groups.get(key) ?? {
+      service: job.service, jobs: 0, onSite: 0, crew: 0, people: 0,
+      budget: 0, budgetCount: 0, crewWithBudget: 0, fastest: null, slowest: null,
+    };
+    g.jobs += 1;
+    g.onSite += timing.onSiteHours;
+    g.crew += timing.crewHours;
+    g.people += timing.people;
+    const budget = budgetFor(job);
+    // The variance below is only allowed to see the jobs that HAVE a budget, so
+    // their hours are kept apart as they are added. A customer with no turf
+    // figure gives a job no budget at all, and charging its hours against an
+    // average budget it never had would print a fat overrun on a service he
+    // priced right.
+    if (budget != null) { g.budget += budget; g.budgetCount += 1; g.crewWithBudget += timing.crewHours; }
+    g.fastest = g.fastest == null ? timing.onSiteHours : Math.min(g.fastest, timing.onSiteHours);
+    g.slowest = g.slowest == null ? timing.onSiteHours : Math.max(g.slowest, timing.onSiteHours);
+    groups.set(key, g);
+  }
+  return [...groups.values()]
+    .sort((a, b) => b.crew - a.crew)
+    .map((g) => {
+      const avgBudget = avg(g.budget, g.budgetCount);
+      const avgCrew = avg(g.crew, g.jobs);
+      // Both halves over the budgeted jobs only, so the subtraction is the same
+      // work on both sides. It will not always equal the two columns beside it,
+      // and that is why "With budget" is on the row next to it.
+      const avgCrewWithBudget = avg(g.crewWithBudget, g.budgetCount);
+      return {
+        service: g.service,
+        jobs: g.jobs,
+        budgetedJobs: g.budgetCount,
+        avgBudgetedHours: avgBudget,
+        avgOnSiteHours: avg(g.onSite, g.jobs),
+        avgCrewHours: avgCrew,
+        avgCrew: avg(g.people, g.jobs),
+        // Crew hours against the budget, not time on site: the budget is
+        // written as crew hours, so comparing it to a two-man hour would say
+        // every job came in early.
+        varianceHours:
+          avgBudget == null || avgCrewWithBudget == null ? null : round(avgCrewWithBudget - avgBudget, 2),
+        fastestHours: g.fastest == null ? null : round(g.fastest, 2),
+        slowestHours: g.slowest == null ? null : round(g.slowest, 2),
+        totalCrewHours: round(g.crew, 2),
+      };
+    });
+}
+
+async function timeToCompleteByContractor(from: string, to: string): Promise<ReportRow[]> {
+  const [jobs, perPerson, timings] = await Promise.all([
+    jobCostRows(from, to),
+    jobTimingsByPerson(from, to),
+    jobTimings(from, to),
+  ]);
+  const byId = new Map(jobs.map((j) => [j.id, j]));
+  type Bucket = {
+    contractor: string; jobs: number; hours: number; shared: number;
+    budget: number; budgetCount: number; hoursWithBudget: number;
+    fastest: number | null; slowest: number | null;
+  };
+  const groups = new Map<number, Bucket>();
+  for (const entry of perPerson) {
+    const job = byId.get(entry.jobId);
+    if (!job) continue;
+    const g = groups.get(entry.userId) ?? {
+      contractor: entry.person, jobs: 0, hours: 0, shared: 0,
+      budget: 0, budgetCount: 0, hoursWithBudget: 0, fastest: null, slowest: null,
+    };
+    g.jobs += 1;
+    g.hours += entry.hours;
+    // A job two people clocked carries its whole budget into both their rows —
+    // there is no way to split one budget between two men, and hiding the count
+    // would make a shared job look like someone ran badly over on their own.
+    if ((timings.get(entry.jobId)?.people ?? 1) > 1) g.shared += 1;
+    const budget = budgetFor(job);
+    // Same rule as the service half: a job with no budget keeps its hours out
+    // of the variance, or the man gets billed for an overrun on a job nobody
+    // ever gave him a number for.
+    if (budget != null) { g.budget += budget; g.budgetCount += 1; g.hoursWithBudget += entry.hours; }
+    g.fastest = g.fastest == null ? entry.hours : Math.min(g.fastest, entry.hours);
+    g.slowest = g.slowest == null ? entry.hours : Math.max(g.slowest, entry.hours);
+    groups.set(entry.userId, g);
+  }
+  return [...groups.values()]
+    .sort((a, b) => b.hours - a.hours)
+    .map((g) => {
+      const avgBudget = avg(g.budget, g.budgetCount);
+      const avgHours = avg(g.hours, g.jobs);
+      const avgHoursWithBudget = avg(g.hoursWithBudget, g.budgetCount);
+      return {
+        contractor: g.contractor,
+        jobs: g.jobs,
+        budgetedJobs: g.budgetCount,
+        sharedJobs: g.shared,
+        avgBudgetedHours: avgBudget,
+        avgHours,
+        varianceHours:
+          avgBudget == null || avgHoursWithBudget == null ? null : round(avgHoursWithBudget - avgBudget, 2),
+        fastestHours: g.fastest == null ? null : round(g.fastest, 2),
+        slowestHours: g.slowest == null ? null : round(g.slowest, 2),
+        totalHours: round(g.hours, 2),
+      };
+    });
+}
+
+/**
+ * R3 — "spread of crews". Who is loaded and who is light, over a range.
+ *
+ * A stop is a visit on the board with that contractor's name on it. Cancelled
+ * visits are left out because nobody ever drove to them; skips are counted,
+ * because he still routed the man there and the day was still spent.
+ *
+ * Hours come from the contractor's OWN clock entries, not from the jobs
+ * assigned to him, so a day spent helping on somebody else's clean-up shows up
+ * as his hours — which is the point of the report.
+ *
+ * Which is also why the list of men is not the list of leads. The second man in
+ * the truck on a clean-up is crew, never the assigned name, so a sub who only
+ * ever helps would have had no line at all and his hours would have gone
+ * missing out of the total. Everyone the range touched gets a line: whoever was
+ * assigned a visit, whoever was added to a crew, and whoever clocked. A man
+ * with hours and no visits of his own reads as 0 stops and his real hours,
+ * which is exactly the "he is light" answer the report is for.
+ *
+ * The two share columns are what makes it readable at a glance: four men on an
+ * even split sit near 25% each, and the man at 9% is the light one.
+ */
+async function crewSpread(from: string, to: string): Promise<ReportRow[]> {
+  const result = await db.execute(sql`
+    with assigned as (
+      select j.id, j.assigned_to_id, j.scheduled_date, j.status, j.amount
+      from jobs j
+      where j.scheduled_date between ${from} and ${to}
+        and j.status <> 'cancelled'
+    ),
+    clocked as (
+      select e.user_id,
+             sum(extract(epoch from (e.clock_out_at - e.clock_in_at)) / 3600.0) as hours
+      from job_time_entries e
+      join jobs j on j.id = e.job_id
+      where e.clock_out_at is not null
+        and j.scheduled_date between ${from} and ${to}
+      group by 1
+    ),
+    -- Everyone the range touched. The null in here is the "Unassigned" line:
+    -- visits with nobody's name on them still have to be shown, not dropped.
+    people as (
+      select distinct a.assigned_to_id as user_id from assigned a
+      union
+      select h.user_id from clocked h
+      union
+      select jc.user_id from job_crew jc join assigned a on a.id = jc.job_id
+    )
+    select coalesce(nullif(u.display_name, ''), u.name, 'Unassigned') as contractor,
+           count(a.id) as stops,
+           count(a.id) filter (where a.status = 'completed') as completed,
+           count(a.id) filter (where a.status = 'skipped') as skipped,
+           count(distinct a.scheduled_date) as days,
+           coalesce(sum(a.amount) filter (where a.status = 'completed'), 0) as revenue,
+           -- clocked holds one row per man, so max is that man's hours.
+           coalesce(max(h.hours), 0) as hours
+    from people p
+    left join users u on u.id = p.user_id
+    left join assigned a on a.assigned_to_id is not distinct from p.user_id
+    left join clocked h on h.user_id = p.user_id
+    group by p.user_id, u.display_name, u.name
+    order by count(a.id) desc, coalesce(max(h.hours), 0) desc
+  `);
+  const rows = (result.rows as Array<Record<string, unknown>>).map((r) => ({
+    contractor: String(r.contractor),
+    stops: Number(r.stops ?? 0),
+    completed: Number(r.completed ?? 0),
+    skipped: Number(r.skipped ?? 0),
+    days: Number(r.days ?? 0),
+    hours: round(Number(r.hours ?? 0), 2),
+    revenue: round(Number(r.revenue ?? 0)),
+  }));
+  const allStops = rows.reduce((sum, r) => sum + r.stops, 0);
+  const allRevenue = rows.reduce((sum, r) => sum + r.revenue, 0);
+  return rows.map((r) => ({
+    ...r,
+    stopsPerDay: r.days === 0 ? null : round(r.stops / r.days, 1),
+    revenuePerStop: r.stops === 0 ? null : round(r.revenue / r.stops),
+    shareOfStops: allStops === 0 ? null : round((r.stops / allStops) * 100, 1),
+    shareOfRevenue: allRevenue === 0 ? null : round((r.revenue / allRevenue) * 100, 1),
+  }));
+}
+
+/**
+ * R4 — "sqft in a day per crew". The same turf reading as the weekly report,
+ * cut by the day and by whose name was on the visit, because a week is too
+ * coarse to tell him whether a man can take another lawn on a Tuesday.
+ */
+async function sqftByDay(from: string, to: string): Promise<ReportRow[]> {
+  const result = await db.execute(sql`
+    with ${turfJobsCte(from, to)},
+    -- Who actually worked the day: the man whose name is on the visit AND the
+    -- rest of the truck. Counting assigned names alone said "0 crews" on a day
+    -- of unassigned stops, and read a two-man clean-up as one crew.
+    day_people as (
+      select j.scheduled_date as day, j.assigned_to_id as user_id
+      from turf_jobs j
+      where j.assigned_to_id is not null
+      union
+      select j.scheduled_date as day, jc.user_id
+      from turf_jobs j
+      join job_crew jc on jc.job_id = j.id
+    ),
+    day_crews as (
+      select day, count(distinct user_id) as crews from day_people group by 1
+    )
+    select j.scheduled_date as day,
+           count(*) as jobs,
+           count(j.sqft) as jobs_with_sqft,
+           dc.crews as contractors,
+           coalesce(sum(j.sqft), 0) as sqft,
+           coalesce(sum(j.amount), 0) as revenue
+    from turf_jobs j
+    left join day_crews dc on dc.day = j.scheduled_date
+    group by 1, dc.crews
+    order by 1
+  `);
+  return (result.rows as Array<Record<string, unknown>>).map((r) => ({
+    day: String(r.day),
+    jobs: Number(r.jobs),
+    jobsWithSqft: Number(r.jobs_with_sqft),
+    // Blank, not nought: a day whose stops carry nobody's name has no crew
+    // count to give, and a "0" there looks like the work did itself.
+    contractors: r.contractors == null ? null : Number(r.contractors),
+    sqft: Math.round(Number(r.sqft)),
+    revenue: round(Number(r.revenue)),
+  }));
+}
+
+async function sqftByDayByContractor(from: string, to: string): Promise<ReportRow[]> {
+  const result = await db.execute(sql`
+    with ${turfJobsCte(from, to)}
+    select j.scheduled_date as day,
+           coalesce(nullif(u.display_name, ''), u.name, 'Unassigned') as contractor,
+           count(*) as jobs,
+           count(j.sqft) as jobs_with_sqft,
+           coalesce(sum(j.sqft), 0) as sqft,
+           coalesce(sum(j.amount), 0) as revenue
+    from turf_jobs j
+    left join users u on u.id = j.assigned_to_id
+    group by 1, 2
+    order by 1, 5 desc
+  `);
+  return (result.rows as Array<Record<string, unknown>>).map((r) => ({
+    day: String(r.day),
+    contractor: String(r.contractor),
+    jobs: Number(r.jobs),
+    jobsWithSqft: Number(r.jobs_with_sqft),
+    sqft: Math.round(Number(r.sqft)),
+    revenue: round(Number(r.revenue)),
+  }));
+}
+
 /** The named reports the AI layer is allowed to choose between. */
 export const REPORTS: Record<string, ReportDef> = {
   costing_by_sub: {
@@ -824,6 +1346,163 @@ export const REPORTS: Record<string, ReportDef> = {
     ],
     totals: ["jobs", "jobsWithSqft", "sqft", "revenue"],
     run: sqftByWeekByService,
+  },
+  sqft_by_day_by_contractor: {
+    title: "Turf square footage per day, per crew",
+    describes: "square feet of turf each man got through on each day, from the same turf figure as the weekly report",
+    asks: ["How many square feet did each crew do in a day?"],
+    keywords: ["sqft per day", "square feet a day", "sqft in a day", "per day", "a day", "daily sqft", "crew sqft"],
+    columns: [
+      { key: "day", label: "Day", kind: "date" },
+      { key: "contractor", label: "Contractor", kind: "text" },
+      { key: "jobs", label: "Stops", kind: "number" },
+      { key: "jobsWithSqft", label: "With sqft", kind: "number" },
+      { key: "sqft", label: "Sqft", kind: "sqft" },
+      { key: "revenue", label: "Revenue", kind: "money" },
+    ],
+    totals: ["jobs", "jobsWithSqft", "sqft", "revenue"],
+    run: sqftByDayByContractor,
+  },
+  sqft_by_day: {
+    title: "Turf square footage per day",
+    describes: "square feet of turf for the whole company, day by day",
+    asks: ["How many square feet did we do each day?"],
+    keywords: ["sqft a day", "square footage per day", "whole day", "day by day", "each day"],
+    columns: [
+      { key: "day", label: "Day", kind: "date" },
+      { key: "jobs", label: "Stops", kind: "number" },
+      { key: "jobsWithSqft", label: "With sqft", kind: "number" },
+      { key: "contractors", label: "Crews", kind: "number" },
+      { key: "sqft", label: "Sqft", kind: "sqft" },
+      { key: "revenue", label: "Revenue", kind: "money" },
+    ],
+    totals: ["jobs", "jobsWithSqft", "sqft", "revenue"],
+    run: sqftByDay,
+  },
+  cash_report: {
+    title: "Cash report — money received",
+    describes:
+      "every payment that actually came in, counted on the day you took it, paid invoice or not — this is the one that ties to the bank",
+    asks: ["Cash report: what money came in?"],
+    keywords: ["cash", "cash report", "cash basis", "money in", "money received", "received", "collected", "deposits", "came in"],
+    columns: [
+      { key: "date", label: "Date paid", kind: "date" },
+      { key: "client", label: "Customer", kind: "link" },
+      { key: "method", label: "Paid by", kind: "text" },
+      { key: "reference", label: "Ref", kind: "text" },
+      { key: "invoice", label: "Against", kind: "text" },
+      { key: "amount", label: "Amount", kind: "money" },
+      { key: "cardFee", label: "Card fee", kind: "money" },
+      { key: "net", label: "Net", kind: "money" },
+    ],
+    totals: ["amount", "cardFee", "net"],
+    run: cashReport,
+  },
+  accrual_report: {
+    title: "Accrual report — money invoiced",
+    describes:
+      "every invoice dated in the period with what is still owed on it, paid or not — this is the one that says what the period earned",
+    asks: ["Accrual report: what did I invoice?"],
+    keywords: ["accrual", "accrual report", "accrual basis", "invoiced", "billed", "what i billed", "earned", "booked"],
+    columns: [
+      { key: "date", label: "Invoice date", kind: "date" },
+      { key: "client", label: "Customer", kind: "link" },
+      { key: "invoice", label: "Invoice", kind: "text" },
+      { key: "status", label: "Status", kind: "text" },
+      { key: "total", label: "Invoiced", kind: "money" },
+      { key: "paid", label: "Paid", kind: "money" },
+      { key: "balance", label: "Still owed", kind: "money" },
+    ],
+    totals: ["total", "paid", "balance"],
+    run: accrualReport,
+  },
+  cash_vs_accrual_by_month: {
+    title: "Cash against accrual, month by month",
+    describes:
+      "billed against received for each month, with the gap — a big negative gap means that month's invoices have not been paid yet, unless it is money you wrote off",
+    asks: ["How does the money I billed compare to the money I received, month by month?"],
+    keywords: ["cash vs accrual", "cash against accrual", "billed vs received", "by month", "each month", "monthly", "gap"],
+    columns: [
+      { key: "month", label: "Month", kind: "date" },
+      { key: "invoices", label: "Invoices", kind: "number" },
+      { key: "invoiced", label: "Invoiced (accrual)", kind: "money" },
+      // So a gap he closed out himself cannot read as money still coming in.
+      { key: "writtenOff", label: "Written off", kind: "money" },
+      { key: "payments", label: "Payments", kind: "number" },
+      { key: "received", label: "Received (cash)", kind: "money" },
+      { key: "gap", label: "Gap", kind: "money" },
+    ],
+    totals: ["invoices", "invoiced", "writtenOff", "payments", "received", "gap"],
+    run: cashVsAccrualByMonth,
+  },
+  time_to_complete_by_service: {
+    title: "Time to complete jobs, by service",
+    describes:
+      "how long each service actually takes — time on site and crew hours from the clock — next to the hours it was budgeted for",
+    asks: ["How long do jobs actually take, by service?"],
+    keywords: ["time to complete", "how long", "take", "takes", "taking", "on site", "time on site", "duration", "actually takes"],
+    columns: [
+      { key: "service", label: "Service", kind: "text" },
+      { key: "jobs", label: "Clocked jobs", kind: "number" },
+      // How many of those jobs had a budget to compare against. The variance is
+      // worked out over these and no others.
+      { key: "budgetedJobs", label: "With budget", kind: "number" },
+      { key: "avgBudgetedHours", label: "Budget avg", kind: "hours" },
+      { key: "avgOnSiteHours", label: "On site avg", kind: "hours" },
+      { key: "avgCrewHours", label: "Crew hrs avg", kind: "hours" },
+      { key: "avgCrew", label: "Men on job", kind: "number" },
+      { key: "varianceHours", label: "Variance", kind: "hours" },
+      { key: "fastestHours", label: "Fastest", kind: "hours" },
+      { key: "slowestHours", label: "Slowest", kind: "hours" },
+      { key: "totalCrewHours", label: "Crew hrs total", kind: "hours" },
+    ],
+    // Averages are not summable, so only the counts and the real totals are
+    // added up. A "total of the averages" line would be a made-up number.
+    totals: ["jobs", "budgetedJobs", "totalCrewHours"],
+    run: timeToCompleteByService,
+  },
+  time_to_complete_by_contractor: {
+    title: "Time to complete jobs, by contractor",
+    describes:
+      "the hours each man actually clocked per job against the hours those jobs were budgeted for, with how many of them he shared with someone else",
+    asks: ["How long does each contractor take on a job?"],
+    keywords: ["how long does each", "time per contractor", "hours per job", "clocked", "clock", "shared job", "faster", "slower"],
+    columns: [
+      { key: "contractor", label: "Contractor", kind: "text" },
+      { key: "jobs", label: "Clocked jobs", kind: "number" },
+      // Only these jobs are in the variance — the rest never had a budget.
+      { key: "budgetedJobs", label: "With budget", kind: "number" },
+      { key: "sharedJobs", label: "Shared", kind: "number" },
+      { key: "avgBudgetedHours", label: "Budget avg", kind: "hours" },
+      { key: "avgHours", label: "His hrs avg", kind: "hours" },
+      { key: "varianceHours", label: "Variance", kind: "hours" },
+      { key: "fastestHours", label: "Fastest", kind: "hours" },
+      { key: "slowestHours", label: "Slowest", kind: "hours" },
+      { key: "totalHours", label: "His hrs total", kind: "hours" },
+    ],
+    totals: ["jobs", "budgetedJobs", "sharedJobs", "totalHours"],
+    run: timeToCompleteByContractor,
+  },
+  crew_spread: {
+    title: "Spread of crews",
+    describes: "how the work is spread: stops, days out, clocked hours and revenue per contractor, with each man's share",
+    asks: ["How is the work spread across the crews?"],
+    keywords: ["spread", "spread of crews", "distributed", "distribution", "loaded", "light", "busy", "stops", "workload", "even"],
+    columns: [
+      { key: "contractor", label: "Contractor", kind: "text" },
+      { key: "stops", label: "Stops", kind: "number" },
+      { key: "completed", label: "Done", kind: "number" },
+      { key: "skipped", label: "Skipped", kind: "number" },
+      { key: "days", label: "Days out", kind: "number" },
+      { key: "stopsPerDay", label: "Stops / day", kind: "number" },
+      { key: "hours", label: "Clocked hrs", kind: "hours" },
+      { key: "revenue", label: "Revenue", kind: "money" },
+      { key: "revenuePerStop", label: "$ / stop", kind: "money" },
+      { key: "shareOfStops", label: "% of stops", kind: "number" },
+      { key: "shareOfRevenue", label: "% of money", kind: "number" },
+    ],
+    totals: ["stops", "completed", "skipped", "hours", "revenue"],
+    run: crewSpread,
   },
   unapplied_payments: {
     title: "Unapplied, prepaid and overpaid payments",

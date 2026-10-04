@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, ticketsTable, clientsTable, usersTable } from "@workspace/db";
-import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { CreateTicketBody, UpdateTicketBody } from "@workspace/api-zod";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
 import { shownName } from "../lib/userAccounts";
@@ -44,6 +44,12 @@ router.get("/tickets", async (req, res) => {
   // board that is about today's route.
   if (q.dueDate) conds.push(eq(ticketsTable.dueDate, q.dueDate));
   if (q.assigned === "true") conds.push(isNotNull(ticketsTable.assignedToId));
+  // "Ticket Categories, Account Issue, Billing, Cancel Request, ..." — the
+  // point of putting a category on a ticket is pulling up every billing
+  // question at once. Matched on the stored name, because that is what the
+  // ticket carries; "none" is how he finds the ones nobody has filed yet.
+  if (q.category === "none") conds.push(isNull(ticketsTable.category));
+  else if (q.category) conds.push(eq(ticketsTable.category, q.category));
   const rows = await db
     .select()
     .from(ticketsTable)
@@ -52,9 +58,23 @@ router.get("/tickets", async (req, res) => {
   return res.json(await hydrate(rows));
 });
 
+/**
+ * "No category" has to be one value, not two. The picker posts "" when nothing
+ * is chosen, and a ticket filed under the empty string would be invisible to
+ * both the category filter and the "not filed yet" filter.
+ */
+function tidyCategory(value: string | null | undefined): string | null | undefined {
+  if (value === undefined) return undefined;
+  const trimmed = (value ?? "").trim();
+  return trimmed === "" ? null : trimmed;
+}
+
 router.post("/tickets", requireAdmin, async (req, res) => {
   const body = CreateTicketBody.parse(req.body);
-  const [ticket] = await db.insert(ticketsTable).values(body).returning();
+  const [ticket] = await db
+    .insert(ticketsTable)
+    .values({ ...body, category: tidyCategory(body.category) ?? null })
+    .returning();
   return res.status(201).json((await hydrate([ticket]))[0]);
 });
 
@@ -76,7 +96,7 @@ router.patch("/tickets/:id", async (req, res) => {
   }
   const [ticket] = await db
     .update(ticketsTable)
-    .set(body)
+    .set(body.category === undefined ? body : { ...body, category: tidyCategory(body.category) })
     .where(eq(ticketsTable.id, Number(req.params.id)))
     .returning();
   if (!ticket) return res.status(404).json({ error: "Ticket not found" });

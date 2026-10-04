@@ -4,14 +4,14 @@ import { bulletText, hasFormatting, inlineHtml, richTextHtml, stripMarkers, text
 
 test("bold wins over italic, so **word** is never read as two empty italics", () => {
   assert.deepEqual(textRuns("a **bold** b"), [
-    { text: "a ", bold: false, italic: false },
-    { text: "bold", bold: true, italic: false },
-    { text: " b", bold: false, italic: false },
+    { text: "a ", bold: false, italic: false, underline: false },
+    { text: "bold", bold: true, italic: false, underline: false },
+    { text: " b", bold: false, italic: false, underline: false },
   ]);
   assert.deepEqual(textRuns("an *aside* here"), [
-    { text: "an ", bold: false, italic: false },
-    { text: "aside", bold: false, italic: true },
-    { text: " here", bold: false, italic: false },
+    { text: "an ", bold: false, italic: false, underline: false },
+    { text: "aside", bold: false, italic: true, underline: false },
+    { text: " here", bold: false, italic: false, underline: false },
   ]);
   assert.equal(inlineHtml("**Bagging** is *extra*"), "<strong>Bagging</strong> is <em>extra</em>");
 });

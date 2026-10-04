@@ -13,6 +13,14 @@
  *
  * Markers are read AFTER escaping, so nothing a customer or the office types
  * can inject markup into an email.
+ *
+ * Underline is `__like this__`, two underscores. He asked for "bold,
+ * underline, italic ext Word Doc features" and there is no underline in what
+ * ChatGPT pastes back, so this marker is ours to choose. Two underscores is
+ * the thing people already type when they mean underline, it cannot collide
+ * with the asterisk markers, and DOUBLING it is what keeps his merge tokens
+ * safe: a single `_` would read `[bison_full_service]` as an underline around
+ * "full".
  */
 
 const ESCAPES: Record<string, string> = {
@@ -28,31 +36,38 @@ export function escapeHtml(value: string): string {
 }
 
 /** A stretch of text that reads the same the whole way through. */
-export type TextRun = { text: string; bold: boolean; italic: boolean };
+export type TextRun = { text: string; bold: boolean; italic: boolean; underline: boolean };
 
 const BULLET = /^\s*(?:[-*•]|\d+[.)])\s+(.*)$/;
 
+/** Every emphasis marker he can type, tried in this order. */
+const MARKERS = /\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*/;
+
+const plain = (text: string): TextRun => ({ text, bold: false, italic: false, underline: false });
+
 /**
- * Break one line into bold / italic runs, for a renderer that switches fonts
- * rather than emitting tags — the estimate PDF, mainly.
+ * Break one line into bold / underline / italic runs, for a renderer that
+ * switches fonts rather than emitting tags — the estimate PDF, mainly.
  *
  * `**` is matched before `*` so "**bold**" never reads as two italics with an
- * empty middle.
+ * empty middle. `__` is tried before the single `*` for the same reason in
+ * reverse: it is the longer marker, so it has to get first refusal on a line
+ * that mixes the two.
  */
 export function textRuns(line: string): TextRun[] {
   const runs: TextRun[] = [];
   let rest = line;
-  const pattern = /\*\*(.+?)\*\*|\*(.+?)\*/;
   for (;;) {
-    const match = pattern.exec(rest);
+    const match = MARKERS.exec(rest);
     if (!match) break;
-    if (match.index > 0) runs.push({ text: rest.slice(0, match.index), bold: false, italic: false });
-    if (match[1] != null) runs.push({ text: match[1], bold: true, italic: false });
-    else runs.push({ text: match[2]!, bold: false, italic: true });
+    if (match.index > 0) runs.push(plain(rest.slice(0, match.index)));
+    if (match[1] != null) runs.push({ text: match[1], bold: true, italic: false, underline: false });
+    else if (match[2] != null) runs.push({ text: match[2], bold: false, italic: false, underline: true });
+    else runs.push({ text: match[3]!, bold: false, italic: true, underline: false });
     rest = rest.slice(match.index + match[0].length);
   }
-  if (rest) runs.push({ text: rest, bold: false, italic: false });
-  return runs.length ? runs : [{ text: "", bold: false, italic: false }];
+  if (rest) runs.push(plain(rest));
+  return runs.length ? runs : [plain("")];
 }
 
 /** One line as HTML: escaped first, then the markers applied. */
@@ -61,6 +76,9 @@ export function inlineHtml(line: string): string {
     .map((run) => {
       const text = escapeHtml(run.text);
       if (run.bold) return `<strong>${text}</strong>`;
+      // <u> rather than a styled span: it is the element that means underline,
+      // and every mail client that renders anything at all renders it.
+      if (run.underline) return `<u>${text}</u>`;
       if (run.italic) return `<em>${text}</em>`;
       return text;
     })
@@ -134,5 +152,5 @@ export function stripMarkers(body: string): string {
 
 /** Whether a body uses any of the markers, so a preview can say so. */
 export function hasFormatting(body: string): boolean {
-  return body.split(/\r?\n/).some((line) => bulletText(line) != null || /\*\*(.+?)\*\*|\*(.+?)\*/.test(line));
+  return body.split(/\r?\n/).some((line) => bulletText(line) != null || MARKERS.test(line));
 }

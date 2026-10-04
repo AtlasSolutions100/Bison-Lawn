@@ -509,17 +509,28 @@ were substituted by the *remote* shell, which executed a bare
 remote shell should be single-quoted end to end, or written with a quoted
 heredoc. Prefer editing files locally and `scp`-ing them.
 
-## The reports assistant
+## The reports assistant and the Polish button
 
-`XAI_API_KEY` enables the plain-English question box on the Reports page.
-`XAI_MODEL` is optional and defaults to `grok-3` (xAI currently resolves that to
-grok-4.3 on their side). Without a key the reports work in full and only the
-question box is hidden.
+`XAI_API_KEY` enables two things: the plain-English question box on the Reports
+page, and the Polish button beside every box where he types something a customer
+will read. `XAI_MODEL` is optional and defaults to `grok-3` (xAI currently
+resolves that to grok-4.3 on their side). Without a key the reports work in full
+and only the question box is hidden.
 
 The model never writes SQL and never produces a figure. It picks one of the
 curated reports in `lib/analytics.ts` and writes prose around the rows that query
 returned; the rows render beneath the answer so it can be checked. A question no
 report covers is declined rather than answered from the model's own knowledge.
+
+The Polish button (`POST /ai/polish`) sends only the text in the box he is
+editing — no customer row, no invoice, no history. The office emails customers
+about money and about when somebody is turning up at their house, and none of
+that belongs in a third party's logs to make a sentence read better. His merge
+tokens are counted going in and coming back and a rewrite that changed one is
+thrown away, because `[clientname]` turned into `[client name]` prints the
+brackets to 709 people. With no key the button is still there and still presses:
+it answers `available: false` with his words untouched and says so, rather than
+disappearing or erroring over a half-written email.
 
 ## Texting (SMS)
 

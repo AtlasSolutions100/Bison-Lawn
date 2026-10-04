@@ -25,6 +25,7 @@ export interface Invoice {
   jobId?: number | null;
   /** @nullable */
   serviceName?: string | null;
+  /** written_off = a balance he has given up on; collections = the same balance, being chased by somebody else. Both owe nothing and both keep the bill and its history. */
   status: InvoiceStatus;
   total: number;
   amountPaid: number;
@@ -68,6 +69,36 @@ export interface Invoice {
   deliveryMethod?: string | null;
   /** @nullable */
   printedAt?: string | null;
+  /**
+     * When somebody unlocked this bill to change it after it had gone out
+     * @nullable
+     */
+  unlockedAt?: string | null;
+  /** @nullable */
+  unlockedById?: number | null;
+  /** @nullable */
+  unlockedByName?: string | null;
+  /**
+     * The day the customer was given the copy they still hold, kept when the bill was unlocked. Set means their copy no longer matches ours.
+     * @nullable
+     */
+  previouslySentAt?: string | null;
+  /** @nullable */
+  writeOffReason?: string | null;
+  /** @nullable */
+  writtenOffAt?: string | null;
+  /** @nullable */
+  writtenOffByName?: string | null;
+  /**
+     * Written off / Sent to collections - how the account reads it
+     * @nullable
+     */
+  writeOffLabel?: string | null;
+  /**
+     * What was still owed at the moment it was written off, for the account to show
+     * @nullable
+     */
+  writtenOffAmount?: number | null;
   lines: InvoiceLineItem[];
   createdAt: string;
 }

@@ -19,6 +19,7 @@ import { requireAuth } from "../middlewares/requireAuth";
 import { requireArea } from "../lib/access";
 import { addDays, localDay } from "../lib/automationRunner";
 import { balanceOf } from "../lib/invoiceDocument";
+import { WRITE_OFF_LABEL } from "../lib/invoiceStatus";
 import { discountAmountFor } from "../lib/jobGeneration";
 import { logAudit } from "../lib/helpers";
 import { hydrateJobs } from "./jobs";
@@ -166,12 +167,16 @@ router.get("/client-activity", async (req, res) => {
 
   for (const inv of invoices) {
     const balance = balanceOf(inv);
+    // Written off and collections owe nothing, so the balance on its own reads
+    // them as "paid in full" — the one place he looks to work out what
+    // happened on an account would say she paid a bill she never paid.
+    const owedDetail = balance > 0 ? `${money(balance)} still owed` : "paid in full";
     items.push({
       kind: "invoice",
       date: inv.invoiceDate ?? dayOf(inv.createdAt),
       at: inv.createdAt.toISOString(),
       title: `Invoice #${inv.number ?? inv.id}`,
-      detail: inv.status === "void" ? "void" : balance > 0 ? `${money(balance)} still owed` : "paid in full",
+      detail: inv.status === "void" ? "void" : (WRITE_OFF_LABEL[inv.status] ?? owedDetail),
       amount: inv.total,
       status: inv.status,
       actorName: null,

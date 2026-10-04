@@ -12,4 +12,16 @@ export type ListEmailBatchesParams = {
  * @maximum 500
  */
 limit?: number;
+/**
+ * Only sends that came from one place, e.g. dispatch or automation
+ */
+source?: string;
+/**
+ * Match on the document, the automation's name, the subject or who sent it
+ */
+q?: string;
+/**
+ * Also list emails that went to one customer on their own, like a single bill
+ */
+includeSingles?: boolean;
 };

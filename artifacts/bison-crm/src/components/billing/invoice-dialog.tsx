@@ -24,6 +24,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { CheckCircle2, FileText, Plus, Send, Trash2, Undo2 } from 'lucide-react';
 import { RecordPaymentDialog, ApplyCreditDialog } from './payment-dialogs';
+import { InvoiceMoneyNotices, UnlockInvoiceButton, WriteOffInvoiceButton } from './money-actions';
 import {
   DELIVERY_LABEL,
   StatusPill,
@@ -144,7 +145,10 @@ function InvoiceEditor({ invoice, onClose }: { invoice: Invoice; onClose: () => 
   // A bill paid in full at the door is already "paid" but still unchecked:
   // he can fix its lines and must still press Verify before it goes out.
   const isPending = invoice.needsVerification;
-  const editable = invoice.status !== 'void' && (isPending || invoice.status !== 'paid');
+  // A balance he gave up on is locked like a void one: changing its lines
+  // moves the figure the write-off says he let go, and the history line still
+  // names the old one.
+  const editable = !['void', 'written_off', 'collections'].includes(invoice.status) && (isPending || invoice.status !== 'paid');
   const wentOut = Boolean(invoice.sentAt || invoice.printedAt);
   const draftTotal = lines.reduce((sum, l) => sum + (l.description.trim() ? lineTotal(l) : 0), 0);
   const busy =
@@ -339,6 +343,8 @@ function InvoiceEditor({ invoice, onClose }: { invoice: Invoice; onClose: () => 
         </DialogTitle>
       </DialogHeader>
 
+      <InvoiceMoneyNotices invoice={invoice} />
+
       {/* The three numbers he asked to see side by side before a bill goes out. */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
         <Figure label="Invoice total" value={money(dirty ? draftTotal : invoice.total)} hint={dirty ? 'unsaved' : undefined} />
@@ -374,7 +380,21 @@ function InvoiceEditor({ invoice, onClose }: { invoice: Invoice; onClose: () => 
         <TabsContent value="bill" className="space-y-4 pt-3">
           {!editable && (
             <p className="text-sm text-muted-foreground">
-              This invoice is {invoice.status === 'void' ? 'void' : 'paid in full'}, so its lines are locked.
+              This invoice is{' '}
+              {invoice.status === 'void'
+                ? 'void'
+                : invoice.status === 'written_off'
+                  ? 'written off'
+                  : invoice.status === 'collections'
+                    ? 'with collections'
+                    : 'paid in full'}
+              , so its lines are locked.
+            </p>
+          )}
+          {editable && wentOut && (
+            <p className="text-sm text-muted-foreground">
+              This bill already went out. Press <span className="font-medium text-foreground">Unlock</span> below to change it and
+              send it again — the customer keeps the copy they have until you do.
             </p>
           )}
           <div className="space-y-2">
@@ -571,6 +591,8 @@ function InvoiceEditor({ invoice, onClose }: { invoice: Invoice; onClose: () => 
               Void
             </Button>
           )}
+          <UnlockInvoiceButton invoice={invoice} />
+          <WriteOffInvoiceButton invoice={invoice} />
           <Button size="sm" variant="ghost" className="h-9 text-muted-foreground hover:text-destructive" onClick={() => remove(false)} disabled={busy}>
             <Trash2 className="w-3.5 h-3.5 mr-1.5" /> Delete
           </Button>

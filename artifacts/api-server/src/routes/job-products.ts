@@ -8,6 +8,7 @@ import {
 } from "@workspace/api-zod";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
 import { logAudit, roundMoney } from "../lib/helpers";
+import { ensureProductPresetsOnce } from "../lib/settingsSeeds";
 
 /**
  * Parts and fees on a job: the bag fee, the sprinkler parts.
@@ -35,6 +36,10 @@ function presetOut(p: typeof chargePresetsTable.$inferSelect) {
 }
 
 router.get("/product-presets", async (_req, res) => {
+  // His own examples — "Small bags, pinecones, beagle to add to with sprinkler
+  // parts" — are on the list the first time he opens it, at $0 until he sets
+  // the prices. Once, ever: deleting one must not bring it back on a restart.
+  await ensureProductPresetsOnce();
   const rows = await db
     .select()
     .from(chargePresetsTable)
@@ -120,6 +125,10 @@ router.delete("/product-presets/:id", async (req, res) => {
 
 /** The parts the office lets the crew add on their own. */
 router.get("/my/products", requireAuth, async (_req, res) => {
+  // Seeded here too, not only on the office screen: the crew member on a
+  // clean up is as likely to be the first person to open the list as he is,
+  // and an empty list on site is the one place he cannot fix it from.
+  await ensureProductPresetsOnce();
   const rows = await db
     .select()
     .from(chargePresetsTable)

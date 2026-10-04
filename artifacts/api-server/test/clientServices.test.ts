@@ -795,15 +795,54 @@ test("a renew date already gone by does not roll a brand-new assignment forward 
   assert.equal(res.status, 201, JSON.stringify(res.body));
   const cs = await rowById(res.body[0].id);
   assert.equal(cs.autoRenew, true, "a recurring season still renews by itself");
-  assert.equal(renewalDueDate(cs), `${YEAR}-12-31`, "a March date older than the first visit is not a season that ended");
+  // "Renew date is not client specific but Product based." Typing the same
+  // March the service already carries is not this customer's own date, so it
+  // follows the service and lands in the season AFTER this one. The old answer
+  // here was December 31, which was only ever a fallback for having nothing
+  // better; next March is when he actually renews mowing.
+  assert.equal(
+    renewalDueDate(cs, mowing.renewDate),
+    `${YEAR + 1}-03-01`,
+    "a stale March off the service renews next March, not this April",
+  );
 
   const midSeason = `${YEAR}-09-16`;
   assert.equal(isRenewalDue(cs, midSeason), false, "the mowing season is not over");
+  // A finished season does NOT roll over on its own any more, and that is the
+  // point of the change: mowing stops at the end of August, but he renews it in
+  // March, after the spring prices are set. Rolling in September would build
+  // next year's visits at this year's price.
   assert.equal(
     isRenewalDue({ ...cs, seasonEndDate: `${YEAR}-08-31` }, midSeason),
-    true,
-    "a season that really has ended still rolls over",
+    false,
+    "a finished season waits for the renew date the service carries",
   );
+  assert.equal(
+    isRenewalDue({ ...cs, seasonEndDate: `${YEAR}-08-31` }, `${YEAR + 1}-03-02`),
+    true,
+    "and rolls once that date has come",
+  );
+  // With no renew date anywhere, a season that ended is still the signal.
+  assert.equal(
+    isRenewalDue({ ...cs, renewDate: null, renewDateOverridden: false, seasonEndDate: `${YEAR}-08-31` }, midSeason),
+    true,
+    "nothing to wait for, so the end of the season rolls it",
+  );
+
+  // The other half of the same rule: a date he types FOR THIS CUSTOMER, that
+  // is not what the service says, is still theirs and still wins.
+  const own = await post(`/clients/${client.id}/client-services`, admin.id, {
+    serviceId: mowing.id,
+    scheduleType: "recurring",
+    firstServiceDate: `${YEAR}-04-20`,
+    frequency: "weekly",
+    weekday: 1,
+    renewDate: `${YEAR}-11-15`,
+  });
+  assert.equal(own.status, 201, JSON.stringify(own.body));
+  const ownRow = await rowById(own.body[0].id);
+  assert.equal(ownRow.renewDateOverridden, true, "a date of his own is marked as his own");
+  assert.equal(renewalDueDate(ownRow, mowing.renewDate), `${YEAR}-11-15`, "and the service does not overrule it");
 });
 
 test("a one-time job does not put itself back on the board a year later", async () => {

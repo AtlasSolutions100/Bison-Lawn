@@ -1,7 +1,7 @@
 import { db, jobsTable, estimateFieldsTable } from "@workspace/db";
 import type { Client, ClientService, EstimateField, Service } from "@workspace/db";
-import { and, eq, gte, inArray, or } from "drizzle-orm";
-import { priceService, roundMoney, type Executor } from "./helpers";
+import { and, eq, gt, gte, inArray, or } from "drizzle-orm";
+import { numericFieldValue, priceService, pricingFieldOf, roundMoney, type Executor } from "./helpers";
 
 /**
  * Turning an assigned service into visits on the board.
@@ -75,6 +75,165 @@ export function rollDateOneYear(value: string | null): string | null {
 
 function yearEndOf(isoDate: string): string {
   return `${isoDate.slice(0, 4)}-12-31`;
+}
+
+// ---- dates he means every year ----
+
+/**
+ * "When creating packages does not need year as they will be renewed every
+ * year and have the same date window of service." So a window, a season end
+ * and a renew date can all be written as a bare month and day — "10-01" — and
+ * the year is worked out when the thing is actually put on an account.
+ */
+const MONTH_DAY_RE = /^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+const FULL_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** True for a year-free "mm-dd". */
+export function isMonthDay(value: string | null | undefined): boolean {
+  return value != null && MONTH_DAY_RE.test(value);
+}
+
+/** "2026-10-01" or "10-01" → "10-01". */
+export function monthDayOf(value: string | null | undefined): string | null {
+  if (!value) return null;
+  if (isMonthDay(value)) return value;
+  if (FULL_DATE_RE.test(value)) return value.slice(5);
+  return null;
+}
+
+/**
+ * The same check `dateFieldError` does, widened to accept a year-free date.
+ * Returns the complaint in his words, or null when the value is fine.
+ */
+export function seasonDateError(label: string, value: string | null | undefined): string | null {
+  if (value == null || value === "") return null;
+  if (isMonthDay(value)) {
+    const [month, day] = value.split("-").map(Number);
+    // A leap day with no year is legal: it resolves to the 28th in a common year.
+    const longest = new Date(Date.UTC(2024, month, 0)).getUTCDate();
+    if (day > longest) return `${label} is not a real calendar date`;
+    return null;
+  }
+  if (!FULL_DATE_RE.test(value)) {
+    return `${label} must be a date — either yyyy-mm-dd, or mm-dd for the same day every year`;
+  }
+  const parsed = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+    return `${label} is not a real calendar date`;
+  }
+  return null;
+}
+
+/** mm-dd in `year`, with Feb 29 falling back to the 28th in a common year. */
+function inYear(monthDay: string, year: number): string {
+  const [month, day] = monthDay.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${year}-${String(month).padStart(2, "0")}-${String(Math.min(day, lastDay)).padStart(2, "0")}`;
+}
+
+/**
+ * Turn a date he means every year into the one season it belongs to.
+ *
+ * `onOrAfter` is the day the season is being judged from — today when a
+ * package is assigned, the row's own start date when a renew date is resolved
+ * against it. A year-free date lands in that day's year, or the next one if it
+ * has already gone by. A full date is left exactly as typed unless
+ * `rollStale` says otherwise, which is for dates that came off a service years
+ * ago ("it renews March 1", typed in 2020) where the month and day are the
+ * only part that was ever meant.
+ */
+export function resolveSeasonDate(
+  value: string | null | undefined,
+  onOrAfter: string | null = null,
+  opts: { rollStale?: boolean } = {},
+): string | null {
+  if (!value) return null;
+  const from = onOrAfter ?? todayLocal();
+  const md = monthDayOf(value);
+  if (!md) return value;
+  if (FULL_DATE_RE.test(value) && (!opts.rollStale || value >= from)) return value;
+  const candidate = inYear(md, Number(from.slice(0, 4)));
+  return candidate >= from ? candidate : inYear(md, Number(from.slice(0, 4)) + 1);
+}
+
+/**
+ * A window as a pair, so a season that runs over New Year (blow-outs from
+ * November into February) stays one window and an open window stays open.
+ * The window only moves to next year once the whole of it is behind us, and
+ * only when he left both sides year-free: a date typed with a year is the year
+ * he asked for.
+ */
+export function resolveSeasonWindow(
+  start: string | null | undefined,
+  end: string | null | undefined,
+  today = todayLocal(),
+): { startDate: string | null; endDate: string | null } {
+  const year = Number(today.slice(0, 4));
+  const startMd = monthDayOf(start);
+  const endMd = monthDayOf(end);
+  // Nothing year-free: the dates are what he typed, and nobody moves them.
+  if (!isMonthDay(start) && !isMonthDay(end)) {
+    return { startDate: start ?? null, endDate: end ?? null };
+  }
+  // A side he typed WITH a year is the year he meant ("2026-10-01 for one year
+  // only"), so it never moves and the year-free side lands in its season. Only
+  // a window that is year-free on both sides may roll into next year — moving a
+  // date he deliberately dated was putting a one-off October 2026 window into
+  // 2027 just because the other box said 05-30.
+  if (start && !isMonthDay(start)) {
+    const startYear = Number(start.slice(0, 4));
+    const endDate = inYear(endMd!, startYear);
+    return { startDate: start, endDate: endDate < start ? inYear(endMd!, startYear + 1) : endDate };
+  }
+  if (end && !isMonthDay(end)) {
+    const endYear = Number(end.slice(0, 4));
+    const startDate = inYear(startMd!, endYear);
+    return { startDate: startDate > end ? inYear(startMd!, endYear - 1) : startDate, endDate: end };
+  }
+  let startDate = startMd ? inYear(startMd, year) : null;
+  let endDate = endMd ? inYear(endMd, year) : null;
+  if (startDate && endDate && endDate < startDate) endDate = inYear(endMd!, year + 1);
+  const last = endDate ?? startDate;
+  if (last && last < today) {
+    startDate = startMd ? inYear(startMd, year + 1) : startDate;
+    // With no start date at all, next year is the only season left to put a
+    // year-free end in: its own year is the one already behind us, which left
+    // a package entry sitting on an end date four months past.
+    endDate = endMd ? inYear(endMd, startDate ? Number(startDate.slice(0, 4)) : year + 1) : endDate;
+    if (startDate && endDate && endDate < startDate) endDate = inYear(endMd!, Number(startDate.slice(0, 4)) + 1);
+  }
+  return { startDate, endDate };
+}
+
+/** The day this row's season begins — what "order by window of start times" means. */
+export function seasonStartOf(
+  cs: Pick<ClientService, "scheduleType" | "startDate" | "firstServiceDate">,
+): string | null {
+  if (cs.scheduleType === "window") return cs.startDate ?? cs.firstServiceDate ?? null;
+  return cs.firstServiceDate ?? cs.startDate ?? null;
+}
+
+/**
+ * The renew date that actually governs this row.
+ *
+ * "Renew date is not client specific but Product based": the service's date
+ * wins and every customer with that service follows it, resolved against the
+ * row's own season so "03-01" on the service means the March after this
+ * customer's season. The row's own date is used only when the office
+ * deliberately set one for this customer (renewDateOverridden), and for rows
+ * that predate the flag it is still the fallback when the service has no date
+ * of its own.
+ */
+export function effectiveRenewDate(
+  cs: Pick<ClientService, "renewDate" | "renewDateOverridden" | "scheduleType" | "startDate" | "firstServiceDate">,
+  serviceRenewDate: string | null | undefined,
+): string | null {
+  if (cs.renewDateOverridden && cs.renewDate) return cs.renewDate;
+  if (serviceRenewDate) {
+    const anchor = seasonStartOf(cs);
+    return resolveSeasonDate(serviceRenewDate, anchor, { rollStale: true });
+  }
+  return cs.renewDate ?? null;
 }
 
 /**
@@ -269,26 +428,13 @@ export async function resolveServicePrice(
 
   if (!hasMatrix) return { ...base, amount: roundMoney(svc.rate * quantity) };
 
-  let field: EstimateField | null = null;
-  if (svc.pricingFieldId != null) {
-    [field] = await tx.select().from(estimateFieldsTable).where(eq(estimateFieldsTable.id, svc.pricingFieldId));
-  } else {
-    // No field named means turf square footage, the way every matrix meant
-    // before the field existed; find the customer's sqft field by its label.
-    const fields = await tx.select().from(estimateFieldsTable);
-    field =
-      fields.find((f) => /turf/i.test(f.label) && /sq/i.test(f.label)) ??
-      fields.find((f) => /sq\s?ft|sqft|square/i.test(f.label) && f.fieldType === "calculable") ??
-      null;
-  }
+  // "Which detail does this price from" is answered in one place now, because
+  // the estimate builder has to get the same answer off the same account.
+  const allFields = await tx.select().from(estimateFieldsTable);
+  const field: EstimateField | null = pricingFieldOf(svc, allFields);
   const label = field?.label ?? "Turf Sqft";
-  const onFile = client?.propertyData?.[label];
-  const value =
-    opts.sqft != null && Number.isFinite(opts.sqft) && opts.sqft > 0
-      ? opts.sqft
-      : onFile != null && String(onFile).trim() !== "" && Number.isFinite(Number(String(onFile).replace(/,/g, "")))
-        ? Number(String(onFile).replace(/,/g, ""))
-        : null;
+  const onFile = numericFieldValue(client?.propertyData?.[label]);
+  const value = opts.sqft != null && Number.isFinite(opts.sqft) && opts.sqft > 0 ? opts.sqft : onFile;
   if (value == null || value <= 0) {
     return { ...base, amount: roundMoney(svc.rate * quantity), missingField: label };
   }
@@ -452,6 +598,50 @@ export async function regenerateFutureJobs(
   await tx.delete(jobsTable).where(futureScheduledVisits(cs.id, from));
   const created = await generateJobs(cs, svc, tx, { from });
   return created.length;
+}
+
+/**
+ * Call off the visits past the day a customer actually finishes.
+ *
+ * "Season End date will be the same for all mowing clients. If some decide to
+ * end earlier having the ability to cancel upcoming or future jobs." Cancelled
+ * rather than deleted: the office asked for them, and a visit that quietly
+ * vanished is the thing he could never explain to a customer. A cancel is not
+ * a skip either — it counts against nobody and the crew never sees it.
+ */
+export async function cancelVisitsAfter(
+  csId: number,
+  lastDate: string,
+  reason: string,
+  tx: Executor = db,
+): Promise<number> {
+  const rows = await tx
+    .update(jobsTable)
+    .set({ status: "cancelled", cancelReason: reason, cancelledAt: new Date(), dispatched: false })
+    .where(
+      and(
+        eq(jobsTable.clientServiceId, csId),
+        eq(jobsTable.status, "scheduled"),
+        gt(jobsTable.scheduledDate, lastDate),
+      ),
+    )
+    .returning({ id: jobsTable.id });
+  return rows.length;
+}
+
+/** How many visits a season end on `lastDate` would call off, before anything is written. */
+export async function visitsAfterCount(csId: number, lastDate: string, tx: Executor = db): Promise<number> {
+  const rows = await tx
+    .select({ id: jobsTable.id })
+    .from(jobsTable)
+    .where(
+      and(
+        eq(jobsTable.clientServiceId, csId),
+        eq(jobsTable.status, "scheduled"),
+        gt(jobsTable.scheduledDate, lastDate),
+      ),
+    );
+  return rows.length;
 }
 
 /** Take future visits off the board without touching the row (pause, switch off). */

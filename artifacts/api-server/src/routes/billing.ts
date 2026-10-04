@@ -10,8 +10,9 @@ import {
   servicesTable,
   billingSettingsTable,
   auditEventsTable,
+  usersTable,
 } from "@workspace/db";
-import { and, asc, desc, eq, gte, ilike, inArray, isNotNull, isNull, lt, ne, or, sql, sum, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, isNotNull, isNull, lt, notInArray, or, sql, sum, type SQL } from "drizzle-orm";
 import {
   ApplyPaymentBody,
   AttachJobToInvoiceBody,
@@ -22,6 +23,10 @@ import {
   CreatePaymentBody,
   SendInvoiceBody,
   UncompleteJobBody,
+  UnlockInvoiceBody,
+  WriteOffInvoiceBody,
+  PriceServiceForClientBody,
+  RecordFieldPaymentBody,
 } from "@workspace/api-zod";
 import { UpdateBillingSettingsBody } from "@workspace/api-zod";
 import { requireAuth, requireAdmin, requireArea } from "../middlewares/requireAuth";
@@ -35,8 +40,10 @@ import {
 } from "../lib/helpers";
 import { dueDateFrom, nextInvoiceNumber, officeTimeZone, todayISO } from "../lib/invoiceNumbers";
 import { balanceOf, createInvoicePdf, createInvoicesPdf, daysPastDueOf, invoiceNumberOf } from "../lib/invoiceDocument";
+import { NOT_OWED_STATUSES, WRITE_OFF_LABEL, isWriteOff, owesNothing } from "../lib/invoiceStatus";
 import { billedAccountBalances, emailInvoice, emailInvoices, loadInvoiceForDocument } from "../lib/invoiceDelivery";
-import { discountAmountFor } from "../lib/jobGeneration";
+import { discountAmountFor, resolveServicePrice } from "../lib/jobGeneration";
+import { can } from "../lib/access";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -94,25 +101,62 @@ router.use(["/invoices", "/payments"], async (_req, _res, next) => {
 
 // ---- billing settings (card fee) ----
 // Contractors need read access to disclose the card fee on site; only admins may change it.
+const settingsShape = (s: {
+  cardFeeEnabled: boolean;
+  cardFeePercent: number;
+  fieldPaymentUserIds: number[] | null;
+}) => ({
+  cardFeeEnabled: s.cardFeeEnabled,
+  cardFeePercent: s.cardFeePercent,
+  fieldPaymentUserIds: s.fieldPaymentUserIds ?? [],
+});
+
 router.get("/billing-settings", requireAuth, async (_req, res) => {
-  const s = await getBillingSettings();
-  return res.json({ cardFeeEnabled: s.cardFeeEnabled, cardFeePercent: s.cardFeePercent });
+  return res.json(settingsShape(await getBillingSettings()));
 });
 
 router.patch("/billing-settings", requireAuth, requireAdmin, async (req, res) => {
   const body = UpdateBillingSettingsBody.parse(req.body);
   const existing = await getBillingSettings();
+  // Who may take money in the field is a list of people, so it is cleaned the
+  // way a list of people has to be: whole numbers, each person once, and
+  // nobody who is not actually on the team. A typo in that list is somebody
+  // handling cash who was never meant to.
+  const patch: Record<string, unknown> = { ...body };
+  let grantedNames: string[] | null = null;
+  if (body.fieldPaymentUserIds !== undefined) {
+    const wanted = [...new Set((body.fieldPaymentUserIds ?? []).filter((id) => Number.isInteger(id) && id > 0))];
+    const people = wanted.length
+      ? await db
+          .select({ id: usersTable.id, name: usersTable.name, displayName: usersTable.displayName })
+          .from(usersTable)
+          .where(inArray(usersTable.id, wanted))
+      : [];
+    patch.fieldPaymentUserIds = people.map((p) => p.id);
+    grantedNames = people.map((p) => (p.displayName?.trim() || p.name));
+  }
   const [updated] = await db
     .update(billingSettingsTable)
-    .set({ ...body, updatedAt: new Date() })
+    .set({ ...patch, updatedAt: new Date() })
     .where(eq(billingSettingsTable.id, existing.id))
     .returning();
+  const changes: string[] = [];
+  if (body.cardFeeEnabled !== undefined || body.cardFeePercent !== undefined) {
+    changes.push(`Card fee ${updated.cardFeeEnabled ? "enabled" : "disabled"} at ${updated.cardFeePercent}%`);
+  }
+  if (grantedNames) {
+    changes.push(
+      grantedNames.length
+        ? `Can take payments in the field: ${grantedNames.join(", ")}`
+        : "Nobody outside the office can take payments in the field",
+    );
+  }
   await logAudit({
     actorName: req.appUser?.name,
     action: "billing_settings_updated",
-    description: `Card fee ${updated.cardFeeEnabled ? "enabled" : "disabled"} at ${updated.cardFeePercent}%`,
+    description: changes.join("; ") || "Billing settings saved",
   });
-  return res.json({ cardFeeEnabled: updated.cardFeeEnabled, cardFeePercent: updated.cardFeePercent });
+  return res.json(settingsShape(updated));
 });
 
 type InvoiceRow = typeof invoicesTable.$inferSelect;
@@ -220,6 +264,24 @@ async function hydrateInvoices(rows: InvoiceRow[]) {
     ? await db.select({ id: servicesTable.id, name: servicesTable.name }).from(servicesTable).where(inArray(servicesTable.id, serviceIds))
     : [];
 
+  // Who unlocked it and who wrote it off, by name. "Unlocked" and "written
+  // off" are both things one person did to a bill somebody else is looking at,
+  // so the name belongs next to the fact and not in a separate click.
+  const actorIds = [
+    ...new Set(
+      rows
+        .flatMap((r) => [r.unlockedById, r.writtenOffById])
+        .filter((x): x is number => x != null),
+    ),
+  ];
+  const actors = actorIds.length
+    ? await db
+        .select({ id: usersTable.id, name: usersTable.name, displayName: usersTable.displayName })
+        .from(usersTable)
+        .where(inArray(usersTable.id, actorIds))
+    : [];
+  const actorMap = new Map(actors.map((a) => [a.id, a.displayName?.trim() || a.name]));
+
   const cMap = new Map(clients.map((c) => [c.id, c]));
   const jMap = new Map(jobs.map((j) => [j.id, j]));
   const sMap = new Map(services.map((s) => [s.id, s.name]));
@@ -254,6 +316,13 @@ async function hydrateInvoices(rows: InvoiceRow[]) {
       daysPastDue: daysPastDueOf(inv, today),
       lastPaymentMethod: payMap.get(inv.clientId) ?? null,
       needsVerification: awaitingVerification(inv),
+      unlockedByName: inv.unlockedById != null ? (actorMap.get(inv.unlockedById) ?? null) : null,
+      writtenOffByName: inv.writtenOffById != null ? (actorMap.get(inv.writtenOffById) ?? null) : null,
+      writeOffLabel: WRITE_OFF_LABEL[inv.status] ?? null,
+      // What was still owed the moment he gave up on it. Read off the row
+      // rather than worked out now, because balanceOf on a written-off bill is
+      // zero by design — the point of the figure is to say how much he let go.
+      writtenOffAmount: isWriteOff(inv.status) ? roundMoney(inv.total - inv.amountPaid) : null,
       lines: lineMap.get(inv.id) ?? [],
     };
   });
@@ -275,9 +344,13 @@ const OWED = ["open", "partial"] as const;
  * Older invoices carry no verifiedAt at all (the column came with this build),
  * and asking him to Verify a bill he emailed in July, or one that a restart
  * caught before the backfill ran, is worse than trusting the send.
+ *
+ * A balance he has given up on is not waiting on him either: a bill written
+ * off before it was ever checked sat in Needs verification for good, still in
+ * the count, while the running total had already dropped it.
  */
 const awaitingVerification = (inv: Pick<InvoiceRow, "verifiedAt" | "status" | "sentAt" | "printedAt">) =>
-  inv.verifiedAt == null && inv.status !== "void" && inv.sentAt == null && inv.printedAt == null;
+  inv.verifiedAt == null && !owesNothing(inv.status) && inv.sentAt == null && inv.printedAt == null;
 
 const effectiveDue = sql`coalesce(${invoicesTable.dueDate}, ${invoicesTable.invoiceDate})`;
 
@@ -296,7 +369,7 @@ function queueCondition(queue: string, today: string): SQL | null {
       // awaitingVerification) and stays out of this tab and its count.
       return and(
         isNull(invoicesTable.verifiedAt),
-        ne(invoicesTable.status, "void"),
+        notInArray(invoicesTable.status, [...NOT_OWED_STATUSES]),
         isNull(invoicesTable.sentAt),
         isNull(invoicesTable.printedAt),
       )!;
@@ -329,6 +402,10 @@ function queueCondition(queue: string, today: string): SQL | null {
       return eq(invoicesTable.status, "paid");
     case "void":
       return eq(invoicesTable.status, "void");
+    case "written_off":
+      // Both ways out of a balance in one tab: he thinks of them together
+      // ("written off and turned into collections"), and the row says which.
+      return inArray(invoicesTable.status, ["written_off", "collections"]);
     default:
       return null;
   }
@@ -375,7 +452,38 @@ router.post("/invoices", async (req, res) => {
   }
   // Insert and rebalance together: the new total and the balance must never be
   // visible out of step, and the recalc needs the client lock to hold across both.
-  const inv = await db.transaction(async (tx) => {
+  //
+  // "Client not found" is thrown from inside that transaction, and the global
+  // handler turns anything it has not been taught about into a 500 — so trying
+  // to bill a customer who had just been deleted in another tab said "Something
+  // went wrong. Please try again." and no amount of trying again would help.
+  // The caller is told what is actually wrong.
+  let inv: Awaited<ReturnType<typeof createTypedInvoice>>;
+  try {
+    inv = await createTypedInvoice(body, req.appUser?.id ?? null);
+  } catch (error) {
+    const status = (error as { status?: number }).status;
+    if (status && error instanceof Error) return res.status(status).json({ error: error.message });
+    throw error;
+  }
+  await logAudit({
+    clientId: inv.clientId,
+    actorName: req.appUser?.name,
+    action: "invoice_created",
+    description: `Created invoice #${invoiceNumberOf(inv)} for ${money(inv.total)}; goes out by ${inv.deliveryMethod}`,
+    entityType: "invoice",
+    entityId: inv.id,
+  });
+  return res.status(201).json(await hydrateInvoice(inv));
+});
+
+/**
+ * The bill the office typed itself, written with its balance in one go. Split
+ * out of the route so the route can say what went wrong instead of letting a
+ * "Client not found" out of the transaction as an unexplained 500.
+ */
+async function createTypedInvoice(body: ReturnType<typeof CreateInvoiceBody.parse>, actorId: number | null) {
+  return await db.transaction(async (tx) => {
     const { lines, ...invoiceFields } = body;
     const [client] = await tx.select().from(clientsTable).where(eq(clientsTable.id, body.clientId));
     if (!client) throw Object.assign(new Error("Client not found"), { status: 404 });
@@ -400,7 +508,7 @@ router.post("/invoices", async (req, res) => {
         // goes straight to the email or print queue rather than back to him
         // to check what he just wrote.
         verifiedAt: new Date(),
-        verifiedById: req.appUser?.id ?? null,
+        verifiedById: actorId,
         deliveryMethod: deliveryMethodFor(client),
       })
       .returning();
@@ -418,16 +526,7 @@ router.post("/invoices", async (req, res) => {
     const [fresh] = await tx.select().from(invoicesTable).where(eq(invoicesTable.id, row.id));
     return fresh;
   });
-  await logAudit({
-    clientId: inv.clientId,
-    actorName: req.appUser?.name,
-    action: "invoice_created",
-    description: `Created invoice #${invoiceNumberOf(inv)} for ${money(inv.total)}; goes out by ${inv.deliveryMethod}`,
-    entityType: "invoice",
-    entityId: inv.id,
-  });
-  return res.status(201).json(await hydrateInvoice(inv));
-});
+}
 
 // ---- batch email / print ----
 // Registered ahead of /invoices/:id so "email" and "print.pdf" are never read
@@ -450,12 +549,19 @@ router.get("/invoices/print.pdf", async (req, res) => {
   for (const id of ids) {
     const data = await loadInvoiceForDocument(id);
     // Void bills do not go in envelopes, and a pending one has not been
-    // checked yet — the single PDF button is there for looking at those.
-    if (!data || data.invoice.status === "void" || awaitingVerification(data.invoice)) continue;
+    // checked yet — the single PDF button is there for looking at those. Nor
+    // does a balance he wrote off or handed to a collector: posting it would
+    // ask for money he already decided to stop chasing, which is the same
+    // reason emailInvoice skips them.
+    if (!data || data.invoice.status === "void" || owesNothing(data.invoice.status) || awaitingVerification(data.invoice)) {
+      continue;
+    }
     batch.push(data);
   }
   if (batch.length === 0) {
-    return res.status(400).json({ error: "None of those invoices can be printed (void or not yet verified)" });
+    return res
+      .status(400)
+      .json({ error: "None of those invoices can be printed (void, written off, or not yet verified)" });
   }
 
   const pdf = await createInvoicesPdf(batch);
@@ -483,6 +589,249 @@ router.get("/invoices/print.pdf", async (req, res) => {
     `inline; filename="${batch.length === 1 ? `Invoice-${invoiceNumberOf(batch[0]!.invoice)}` : `Invoices-${todayISO()}`}.pdf"`,
   );
   return res.end(pdf);
+});
+
+/**
+ * "When creating invoice having ability to search by info on clients account."
+ *
+ * One box, every way the office knows a customer: the name, the name the bill
+ * is made out to, either address, the city, the zip, the phone (however it was
+ * typed — digits are compared to digits, so (208) 555-0134 is found by
+ * 2085550134), the email, the account number they quote on a cheque, their old
+ * Service Autopilot id and the route code. Raising a bill from a cheque stub or
+ * a voicemail should not need the customer's exact spelling.
+ *
+ * Registered ahead of /invoices/:id or Express reads "customer-search" as an
+ * invoice id.
+ */
+router.get("/invoices/customer-search", async (req, res) => {
+  const q = String((req.query as Record<string, string | undefined>).q ?? "").trim();
+  if (!q) return res.status(400).json({ error: "Type a name, address, phone or account number" });
+  const rawLimit = Number((req.query as Record<string, string | undefined>).limit ?? 15);
+  const limit = Number.isFinite(rawLimit) ? Math.min(50, Math.max(1, Math.trunc(rawLimit))) : 15;
+  const like = `%${q}%`;
+  const digits = q.replace(/\D/g, "");
+  // Four digits is the shortest thing worth treating as a phone number: fewer
+  // than that and every customer in Post Falls matches.
+  const phoneDigits = digits.length >= 4 ? `%${digits}%` : null;
+  const bareDigits = sql`regexp_replace(coalesce(${clientsTable.phone}, ''), '[^0-9]', '', 'g')`;
+
+  const parts: SQL[] = [
+    ilike(clientsTable.name, like),
+    ilike(clientsTable.nameOnInvoice, like),
+    ilike(clientsTable.serviceAddress, like),
+    ilike(clientsTable.addressLine2, like),
+    ilike(clientsTable.billingAddressLine1, like),
+    ilike(clientsTable.city, like),
+    ilike(clientsTable.postalCode, like),
+    ilike(clientsTable.billingPostalCode, like),
+    ilike(clientsTable.phone, like),
+    ilike(clientsTable.email, like),
+    ilike(clientsTable.billingEmail, like),
+    ilike(clientsTable.accountNumber, like),
+    ilike(clientsTable.externalId, like),
+    ilike(clientsTable.mapCode, like),
+  ];
+  if (phoneDigits) parts.push(sql`${bareDigits} like ${phoneDigits}`);
+
+  const rows = await db
+    .select()
+    .from(clientsTable)
+    .where(or(...parts))
+    // His own account number first, then names that start with what he typed,
+    // then everything else — so typing "DUPL1001" or "Wagner" puts the one he
+    // means at the top instead of alphabetically among the near misses.
+    .orderBy(
+      sql`case
+        when lower(coalesce(${clientsTable.accountNumber}, '')) = lower(${q}) then 0
+        when lower(${clientsTable.name}) = lower(${q}) then 1
+        when lower(${clientsTable.name}) like lower(${q + "%"}) then 2
+        else 3
+      end`,
+      asc(clientsTable.name),
+    )
+    .limit(limit);
+
+  const matched = (client: typeof clientsTable.$inferSelect): string => {
+    const has = (value: string | null | undefined) => (value ?? "").toLowerCase().includes(q.toLowerCase());
+    if (has(client.accountNumber) || has(client.externalId)) return "account number";
+    if (has(client.name) || has(client.nameOnInvoice)) return "name";
+    if (has(client.serviceAddress) || has(client.addressLine2) || has(client.billingAddressLine1)) return "address";
+    if (has(client.city)) return "city";
+    if (has(client.postalCode) || has(client.billingPostalCode)) return "zip";
+    if (has(client.email) || has(client.billingEmail)) return "email";
+    if (has(client.mapCode)) return "route code";
+    return "phone";
+  };
+
+  // How many bills each of them still owes, so the office can see at a glance
+  // that it is picking the account with the open balance on it.
+  const open = rows.length
+    ? await db
+        .select({ clientId: invoicesTable.clientId, n: sql<number>`count(*)::int` })
+        .from(invoicesTable)
+        .where(and(inArray(invoicesTable.clientId, rows.map((r) => r.id)), inArray(invoicesTable.status, [...OWED])))
+        .groupBy(invoicesTable.clientId)
+    : [];
+  const openMap = new Map(open.map((o) => [o.clientId, Number(o.n)]));
+
+  return res.json(
+    rows.map((client) => ({
+      id: client.id,
+      name: client.name,
+      nameOnInvoice: client.nameOnInvoice,
+      status: client.status,
+      serviceAddress: client.serviceAddress,
+      city: client.city,
+      postalCode: client.postalCode,
+      billingAddressLine1: client.billingAddressLine1,
+      phone: client.phone,
+      email: client.email,
+      billingEmail: client.billingEmail,
+      accountNumber: client.accountNumber,
+      billingTerms: client.billingTerms,
+      invoiceDelivery: client.invoiceDelivery,
+      accountBalance: roundMoney(client.accountBalance),
+      openInvoiceCount: openMap.get(client.id) ?? 0,
+      matchedOn: matched(client),
+    })),
+  );
+});
+
+/**
+ * "When adding service to bill pulling info from matrix based on customer
+ * account."
+ *
+ * The flat rate on a service is the rate for nobody in particular: a 30,000
+ * sqft lawn and a 3,000 sqft lawn are not the same mow, and putting $45 on both
+ * bills is how the invoice stopped matching the matrix. This prices the line
+ * the same way a completed job prices itself — through resolveServicePrice,
+ * which reads the customer's own measurement and the service's own bands — and
+ * says which measurement it used, so the office can see where the number came
+ * from instead of trusting it.
+ *
+ * When the customer has no measurement on file the line still gets the flat
+ * rate, and `missingField` names what is missing so the screen can say so
+ * rather than quietly charging the wrong price.
+ */
+router.post("/invoices/price-service", async (req, res) => {
+  const body = PriceServiceForClientBody.parse(req.body);
+  const [client] = await db.select().from(clientsTable).where(eq(clientsTable.id, body.clientId));
+  if (!client) return res.status(404).json({ error: "Customer not found" });
+  const [svc] = await db.select().from(servicesTable).where(eq(servicesTable.id, body.serviceId));
+  if (!svc) return res.status(404).json({ error: "Service not found" });
+
+  const quantity = body.quantity ?? 1;
+  let priced;
+  try {
+    priced = await resolveServicePrice(db, svc, client, {
+      quantity,
+      sqft: body.measurement ?? null,
+    });
+  } catch (error) {
+    const status = (error as { status?: number }).status;
+    if (status === 400) return res.status(400).json({ error: (error as Error).message });
+    throw error;
+  }
+  // resolveServicePrice returns the amount for the whole quantity; the invoice
+  // line carries a rate and a quantity separately, so it is divided back out
+  // and the line total is recomputed from the two numbers that will print.
+  const unitPrice = roundMoney(quantity > 0 ? priced.amount / quantity : priced.amount);
+  return res.json({
+    description: svc.invoiceDescription?.trim() || svc.name,
+    serviceName: svc.name,
+    quantity,
+    unitPrice,
+    total: roundMoney(unitPrice * quantity),
+    fromMatrix: priced.pricedFromLabel != null,
+    pricedFromLabel: priced.pricedFromLabel,
+    pricedFromValue: priced.pricedFromValue,
+    missingField: priced.missingField,
+    flatRate: roundMoney(svc.rate),
+  });
+});
+
+/**
+ * "Admin see running total for customer."
+ *
+ * The one number on the customer's page was the account balance and nothing
+ * else, which is true and incomplete: it says nothing about the work already
+ * done and not billed, nothing about money he is holding for them, and nothing
+ * about the balance he gave up on. Every part is returned with the word that
+ * explains it, because a figure nobody can explain gets argued about on the
+ * phone.
+ */
+router.get("/invoices/account-summary", async (req, res) => {
+  const clientId = Number((req.query as Record<string, string | undefined>).clientId);
+  if (!Number.isInteger(clientId) || clientId <= 0) {
+    return res.status(400).json({ error: "Which customer?" });
+  }
+  const [client] = await db.select().from(clientsTable).where(eq(clientsTable.id, clientId));
+  if (!client) return res.status(404).json({ error: "Customer not found" });
+
+  const today = todayISO();
+  const [invoices, credit, notBilled] = await Promise.all([
+    db.select().from(invoicesTable).where(eq(invoicesTable.clientId, clientId)),
+    db
+      .select({ total: sum(paymentsTable.amount) })
+      .from(paymentsTable)
+      .where(and(eq(paymentsTable.clientId, clientId), isNull(paymentsTable.invoiceId))),
+    db
+      .select({ total: sum(jobsTable.amount), n: sql<number>`count(*)::int` })
+      .from(jobsTable)
+      .where(and(eq(jobsTable.clientId, clientId), eq(jobsTable.status, "completed"), isNull(jobsTable.invoiceId))),
+  ]);
+
+  // Only bills the customer has actually been given count against them. One
+  // waiting to be checked is our delay, so it is its own figure rather than
+  // part of what they owe.
+  const waiting = invoices.filter((inv) => awaitingVerification(inv) && !owesNothing(inv.status));
+  const issued = invoices.filter((inv) => !awaitingVerification(inv) && !owesNothing(inv.status));
+  const owedRows = issued.filter((inv) => balanceOf(inv) > 0);
+  const total = (rows: InvoiceRow[]) => roundMoney(rows.reduce((acc, inv) => acc + balanceOf(inv), 0));
+
+  const owedNow = total(owedRows);
+  const pastDue = total(owedRows.filter((inv) => daysPastDueOf(inv, today) > 0));
+  const awaiting = total(waiting);
+  const writtenOff = roundMoney(
+    invoices.filter((inv) => isWriteOff(inv.status)).reduce((acc, inv) => acc + Math.max(0, inv.total - inv.amountPaid), 0),
+  );
+  const onAccount = roundMoney(Number(credit[0]?.total ?? 0));
+  const notYetInvoiced = roundMoney(Number(notBilled[0]?.total ?? 0));
+  const runningTotal = roundMoney(owedNow - onAccount);
+  const withEverything = roundMoney(runningTotal + awaiting + notYetInvoiced);
+  const oldestUnpaidDate =
+    owedRows
+      .map((inv) => inv.invoiceDate)
+      .filter((d): d is string => Boolean(d))
+      .sort()[0] ?? null;
+
+  return res.json({
+    clientId,
+    clientName: client.name,
+    owedNow,
+    pastDue,
+    notYetInvoiced,
+    awaitingVerification: awaiting,
+    credit: onAccount,
+    writtenOff,
+    runningTotal,
+    withEverything,
+    openInvoiceCount: owedRows.length,
+    notInvoicedJobCount: Number(notBilled[0]?.n ?? 0),
+    oldestUnpaidDate,
+    // The word next to each figure. Short on purpose: it has to fit under the
+    // number on his screen and still answer "what is this".
+    parts: [
+      { key: "owedNow", label: "Owed now", amount: owedNow, explain: "Bills they have, not paid" },
+      { key: "pastDue", label: "Past due", amount: pastDue, explain: "Of that, past the due date" },
+      { key: "credit", label: "Credit", amount: onAccount, explain: "Money we hold, not on a bill" },
+      { key: "awaitingVerification", label: "Not checked", amount: awaiting, explain: "Billed, waiting on you" },
+      { key: "notYetInvoiced", label: "Not billed", amount: notYetInvoiced, explain: "Work done, no bill yet" },
+      { key: "writtenOff", label: "Written off", amount: writtenOff, explain: "Given up or collections" },
+      { key: "runningTotal", label: "Running total", amount: runningTotal, explain: "Owed less credit" },
+    ],
+  });
 });
 
 router.get("/invoices/:id", async (req, res) => {
@@ -523,6 +872,12 @@ router.patch("/invoices/:id", async (req, res) => {
     // skip the one check the queue exists for. (A paid-at-the-door bill is
     // already "paid" and still unchecked; the same rule holds for it.)
     if (awaitingVerification(existing) && body.status && body.status !== "void") return "pending" as const;
+    // A written-off bill is finished with. Editing it would move the figure
+    // the write-off line in its history says he let go, and nothing would say
+    // so — the same reason sending it and paying against it are both refused.
+    if (isWriteOff(existing.status) && Object.entries(body).some(([k, v]) => k !== "status" && v !== undefined)) {
+      return "written_off" as const;
+    }
     const { lines, ...invoiceFields } = body;
     const patch: Partial<typeof invoicesTable.$inferInsert> = { ...invoiceFields };
 
@@ -581,6 +936,11 @@ router.patch("/invoices/:id", async (req, res) => {
   if (!outcome) return res.status(404).json({ error: "Invoice not found" });
   if (outcome === "pending") {
     return res.status(400).json({ error: "This invoice has not been verified yet. Press Verify instead." });
+  }
+  if (outcome === "written_off") {
+    return res
+      .status(400)
+      .json({ error: "That balance was written off, so its lines are locked. Put it back to owed first." });
   }
   const { existing, row: fresh, released } = outcome;
 
@@ -711,6 +1071,7 @@ router.post("/invoices/:id/send", async (req, res) => {
   if (outcome.status === "skipped") {
     const reasons: Record<typeof outcome.reason, string> = {
       void: "This invoice is void. Un-void it before sending.",
+      written_off: "This balance was written off. Put it back to owed before billing them for it again.",
       not_verified: "This invoice has not been verified yet. Check it and press Verify first.",
       no_email: "No email address on file for this customer. Add one, or print the PDF instead.",
       already_sent: "This invoice was already emailed.",
@@ -778,6 +1139,203 @@ router.post("/invoices/:id/verify", async (req, res) => {
     description:
       `Verified invoice #${invoiceNumberOf(row)} (${money(row.total)}) for ${client.name}; goes out by ${how}` +
       (row.dueDate ? `, due ${row.dueDate}` : ""),
+    entityType: "invoice",
+    entityId: row.id,
+  });
+  return res.json(await hydrateInvoice(row));
+});
+
+/**
+ * "Ability to unlock invoice after being sent out to make changes and edit
+ * invoice."
+ *
+ * A bill that has gone out is finished as far as every queue is concerned, so
+ * editing it quietly would leave the change sitting in a bill nothing was ever
+ * going to send again — and the customer holding a different one. Unlocking
+ * says out loud what it means: their copy does not change, this one goes back
+ * to Needs verification, and it has to be checked and sent again before it is
+ * a bill anybody can act on.
+ *
+ * The day they were given the old copy is kept (previouslySentAt) rather than
+ * thrown away with sentAt. Whoever opens the bill next has to know there is
+ * another version in somebody's inbox, and which day it went.
+ */
+router.post("/invoices/:id/unlock", async (req, res) => {
+  const body = UnlockInvoiceBody.parse(req.body ?? {});
+  const invoiceId = Number(req.params.id);
+  const reason = body.reason?.trim() || null;
+  const outcome = await db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(invoicesTable)
+      .where(eq(invoicesTable.id, invoiceId))
+      .for("update");
+    if (!existing) return { error: "not_found" as const };
+    if (existing.status === "void") return { error: "void" as const };
+    if (isWriteOff(existing.status)) return { error: "written_off" as const };
+    if (awaitingVerification(existing)) return { error: "already_open" as const };
+
+    // Whichever way they got it. Both stamps are cleared so the bill lands
+    // back in the right queue for its delivery method once it is verified
+    // again, and the latest of the two is what we remember them holding.
+    const handedOver =
+      existing.sentAt && existing.printedAt
+        ? existing.sentAt > existing.printedAt
+          ? existing.sentAt
+          : existing.printedAt
+        : (existing.sentAt ?? existing.printedAt ?? existing.previouslySentAt ?? null);
+
+    await tx
+      .update(invoicesTable)
+      .set({
+        verifiedAt: null,
+        verifiedById: null,
+        sentAt: null,
+        printedAt: null,
+        unlockedAt: new Date(),
+        unlockedById: req.appUser?.id ?? null,
+        previouslySentAt: handedOver,
+      })
+      .where(eq(invoicesTable.id, invoiceId));
+    // The status follows from the money and from verifiedAt being empty, so it
+    // is settled here rather than set by hand: an unpaid bill goes back to
+    // pending, one paid in full stays paid and still shows as needing a check.
+    await recalcInvoice(invoiceId, tx);
+    await recalcClientBalance(existing.clientId, tx);
+    const [row] = await tx.select().from(invoicesTable).where(eq(invoicesTable.id, invoiceId));
+    return { existing, row, handedOver };
+  });
+  if ("error" in outcome) {
+    const messages = {
+      not_found: [404, "Invoice not found"],
+      void: [400, "This invoice is void. Un-void it first, then unlock it."],
+      written_off: [400, "This balance was written off. Put it back to owed first, then unlock it."],
+      already_open: [400, "This invoice is already in Needs verification — just edit it."],
+    } as const;
+    const [status, error] = messages[outcome.error as keyof typeof messages];
+    return res.status(status).json({ error });
+  }
+  const { existing, row, handedOver } = outcome;
+  // His day, not the server's. A bill emailed at half five in the evening is
+  // stored as tomorrow in UTC, and the history line is read side by side with
+  // the banner on the bill, which says the Pacific day.
+  const dayOf = (at: Date | null) => {
+    if (!at) return null;
+    try {
+      return new Intl.DateTimeFormat("en-CA", { timeZone: officeTimeZone() }).format(at);
+    } catch {
+      return at.toISOString().slice(0, 10);
+    }
+  };
+  await logAudit({
+    clientId: row.clientId,
+    actorName: req.appUser?.name,
+    action: "invoice_unlocked",
+    description:
+      `Unlocked invoice #${invoiceNumberOf(row)} (${money(row.total)}) to change it` +
+      (handedOver
+        ? `; the customer already has the copy from ${dayOf(handedOver)}, which will not change` +
+          (existing.sentAt ? " (emailed)" : existing.printedAt ? " (printed)" : "")
+        : "") +
+      "; it is back in Needs verification and has to be checked and sent again" +
+      (reason ? ` — ${reason}` : ""),
+    entityType: "invoice",
+    entityId: row.id,
+  });
+  return res.json(await hydrateInvoice(row));
+});
+
+/**
+ * "Jackie Wagner — beagle to get rid of balance, via written off and turned
+ * into collections."
+ *
+ * A balance he is never going to see had only one way out: delete the invoice,
+ * which takes the work, the lines and the history with it and leaves nobody
+ * able to answer what happened. Writing it off keeps all of that and stops the
+ * balance counting — see balanceOf and recalcClientBalance, which both read the
+ * status. Collections is the same arithmetic with a different answer to "why":
+ * somebody else is chasing it now, so it must not sit in his past-due list
+ * making him ring her again.
+ *
+ * Either one can be undone, because a wrong write-off is somebody's balance.
+ * Whatever was already paid stays on the bill, so writing off $200 of a $300
+ * bill with $100 on it takes exactly $200 off the account.
+ */
+router.post("/invoices/:id/write-off", async (req, res) => {
+  const body = WriteOffInvoiceBody.parse(req.body);
+  const invoiceId = Number(req.params.id);
+  const reason = body.reason?.trim() || null;
+  const outcome = await db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(invoicesTable)
+      .where(eq(invoicesTable.id, invoiceId))
+      .for("update");
+    if (!existing) return { error: "not_found" as const };
+
+    if (body.how === "restore") {
+      if (!isWriteOff(existing.status)) return { error: "not_written_off" as const };
+      await tx
+        .update(invoicesTable)
+        .set({ status: "open", writeOffReason: null, writtenOffAt: null, writtenOffById: null })
+        .where(eq(invoicesTable.id, invoiceId));
+    } else {
+      if (existing.status === "void") return { error: "void" as const };
+      if (existing.status === body.how) return { error: "already" as const };
+      const owed = roundMoney(existing.total - existing.amountPaid);
+      if (owed <= 0) return { error: "nothing_owed" as const };
+      await tx
+        .update(invoicesTable)
+        .set({
+          status: body.how,
+          writeOffReason: reason,
+          writtenOffAt: new Date(),
+          writtenOffById: req.appUser?.id ?? null,
+        })
+        .where(eq(invoicesTable.id, invoiceId));
+    }
+    // Payments stay attached on purpose: part of this bill was really paid and
+    // that money belongs to this bill, not to a floating credit. Only the part
+    // nobody is going to pay comes off the account.
+    await recalcInvoice(invoiceId, tx);
+    const balance = await recalcClientBalance(existing.clientId, tx);
+    const [row] = await tx.select().from(invoicesTable).where(eq(invoicesTable.id, invoiceId));
+    return { existing, row, balance };
+  });
+  if ("error" in outcome) {
+    const messages = {
+      not_found: [404, "Invoice not found"],
+      void: [400, "This invoice is void, so there is no balance to write off."],
+      already: [400, "This invoice is already marked that way."],
+      nothing_owed: [400, "Nothing is owed on this invoice, so there is nothing to write off."],
+      not_written_off: [400, "This invoice was not written off, so there is nothing to put back."],
+    } as const;
+    const [status, error] = messages[outcome.error as keyof typeof messages];
+    return res.status(status).json({ error });
+  }
+  const { existing, row, balance } = outcome;
+  const number = invoiceNumberOf(row);
+  const letGo = roundMoney(existing.total - existing.amountPaid);
+  const description =
+    body.how === "restore"
+      ? `Put invoice #${number} back to owed (${money(roundMoney(row.total - row.amountPaid))} owing again) — it had been ${
+          (WRITE_OFF_LABEL[existing.status] ?? existing.status).toLowerCase()
+        }` + (reason ? ` — ${reason}` : "")
+      : `${body.how === "collections" ? "Sent" : "Wrote off"} ${money(letGo)} on invoice #${number}${
+          body.how === "collections" ? " to collections" : ""
+        }; it stops counting toward what they owe, which is now ${money(balance)}` +
+        (existing.amountPaid > 0 ? `. The ${money(existing.amountPaid)} already paid stays on the bill` : "") +
+        (reason ? ` — ${reason}` : "");
+  await logAudit({
+    clientId: row.clientId,
+    actorName: req.appUser?.name,
+    action:
+      body.how === "restore"
+        ? "invoice_write_off_undone"
+        : body.how === "collections"
+          ? "invoice_sent_to_collections"
+          : "invoice_written_off",
+    description,
     entityType: "invoice",
     entityId: row.id,
   });
@@ -1090,6 +1648,266 @@ router.post("/jobs/:id/uncomplete", requireAuth, requireArea("invoices"), async 
   });
 });
 
+// ---- taking money in the field ----
+
+/**
+ * "Take payments in the field under invoices with fee percentage."
+ *
+ * The phone could already take a payment for the job it was standing on. What
+ * it could not do is take the cheque the customer actually wrote — which is
+ * usually for the bill that came last month, not for today's mow — so the sub
+ * either turned it down or it landed on the wrong bill and the office unpicked
+ * it later.
+ *
+ * Money is the one thing he does not hand to a whole crew, so this is gated
+ * twice: the person must be somebody allowed to touch money (office access to
+ * Invoices, or ticked by him on the Invoices screen), and it must be their own
+ * job — the same rule the rest of the phone app uses, so a sub cannot take a
+ * payment for a customer they were never sent to.
+ */
+function fieldMoneyRefusal(
+  user: typeof usersTable.$inferSelect | undefined,
+  job: typeof jobsTable.$inferSelect,
+  allowedIds: number[],
+): string | null {
+  if (!user) return "Sign in again before taking a payment.";
+  if (user.active === false) return "This account has been turned off.";
+  const theirJob =
+    user.role === "admin" || (job.assignedToId === user.id && job.dispatched === true && job.visibleToContractor === true);
+  if (!theirJob) return "This job is not yours, so you cannot take money for it.";
+  if (can(user, "invoices") || allowedIds.includes(user.id)) return null;
+  return "Taking payments is not turned on for you. Ask Adam to tick you on the Invoices screen.";
+}
+
+/** The customer's open bills, this job's own one first — that is the one they usually mean. */
+async function fieldPaymentInvoices(clientId: number, jobInvoiceId: number | null) {
+  const today = todayISO();
+  const rows = await db
+    .select()
+    .from(invoicesTable)
+    .where(and(eq(invoicesTable.clientId, clientId), inArray(invoicesTable.status, [...OWED, "pending"])))
+    .orderBy(asc(invoicesTable.invoiceDate), asc(invoicesTable.id));
+  const jobIds = [...new Set(rows.map((r) => r.jobId).filter((x): x is number => x != null))];
+  const jobs = jobIds.length
+    ? await db.select({ id: jobsTable.id, serviceId: jobsTable.serviceId }).from(jobsTable).where(inArray(jobsTable.id, jobIds))
+    : [];
+  const serviceIds = [...new Set(jobs.map((j) => j.serviceId).filter((x): x is number => x != null))];
+  const services = serviceIds.length
+    ? await db.select({ id: servicesTable.id, name: servicesTable.name }).from(servicesTable).where(inArray(servicesTable.id, serviceIds))
+    : [];
+  const jMap = new Map(jobs.map((j) => [j.id, j.serviceId]));
+  const sMap = new Map(services.map((s) => [s.id, s.name]));
+  return rows
+    .filter((inv) => balanceOf(inv) > 0)
+    .map((inv) => {
+      const serviceId = inv.jobId != null ? jMap.get(inv.jobId) : null;
+      return {
+        id: inv.id,
+        number: invoiceNumberOf(inv),
+        balance: balanceOf(inv),
+        invoiceDate: inv.invoiceDate,
+        serviceName: serviceId != null ? (sMap.get(serviceId) ?? null) : null,
+        daysPastDue: daysPastDueOf(inv, today),
+        isThisJob: jobInvoiceId != null && inv.id === jobInvoiceId,
+      };
+    })
+    .sort((a, b) => (a.isThisJob === b.isThisJob ? 0 : a.isThisJob ? -1 : 1));
+}
+
+router.get("/my/jobs/:id/field-payment", requireAuth, async (req, res) => {
+  const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, Number(req.params.id)));
+  if (!job) return res.status(404).json({ error: "Job not found" });
+  const settings = await getBillingSettings();
+  const allowedIds = settings.fieldPaymentUserIds ?? [];
+  const refusal = fieldMoneyRefusal(req.appUser, job, allowedIds);
+  // Somebody else's job is a flat no, the way every other job route answers
+  // it. Not being allowed to touch money is different: the screen has to be
+  // able to say why, so that comes back as a 200 with the reason.
+  if (refusal && /not yours/.test(refusal)) return res.status(403).json({ error: refusal });
+
+  const [client] = await db.select().from(clientsTable).where(eq(clientsTable.id, job.clientId));
+  const [credit] = await db
+    .select({ total: sum(paymentsTable.amount) })
+    .from(paymentsTable)
+    .where(and(eq(paymentsTable.clientId, job.clientId), isNull(paymentsTable.invoiceId)));
+  const balances = await billedAccountBalances([job.clientId]);
+  return res.json({
+    allowed: refusal == null,
+    reason: refusal,
+    clientId: job.clientId,
+    clientName: client?.name ?? null,
+    accountBalance: balances.get(job.clientId) ?? 0,
+    credit: roundMoney(Number(credit?.total ?? 0)),
+    cardFeeEnabled: settings.cardFeeEnabled,
+    cardFeePercent: settings.cardFeePercent,
+    invoices: refusal == null ? await fieldPaymentInvoices(job.clientId, job.invoiceId) : [],
+  });
+});
+
+router.post("/my/jobs/:id/field-payment", requireAuth, async (req, res) => {
+  const body = RecordFieldPaymentBody.parse(req.body);
+  const jobId = Number(req.params.id);
+  const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, jobId));
+  if (!job) return res.status(404).json({ error: "Job not found" });
+  const settings = await getBillingSettings();
+  const refusal = fieldMoneyRefusal(req.appUser, job, settings.fieldPaymentUserIds ?? []);
+  if (refusal) return res.status(403).json({ error: refusal });
+
+  // The disclosed arithmetic, worked out once here so the receipt, the bill
+  // and the audit line all quote the same three numbers.
+  //
+  // No bill picked, no fee. The surcharge is only ever charged back to the
+  // customer as a line on the bill it is paid against, so with nothing to put
+  // that line on there is nowhere for the customer to see it — and taking it
+  // anyway credited their account the processor's cut as well, handing them
+  // money they never paid and leaving the receivables short by it.
+  const applyFee =
+    body.method === "credit_card" && body.invoiceId != null && settings.cardFeeEnabled && settings.cardFeePercent > 0;
+  const baseAmount = roundMoney(body.amount);
+  const cardFee = applyFee ? roundMoney((baseAmount * settings.cardFeePercent) / 100) : 0;
+  const handedOver = roundMoney(baseAmount + cardFee);
+  const feeNote = applyFee ? `Includes ${money(cardFee)} card processing fee (${settings.cardFeePercent}%).` : null;
+  const notes = [body.notes?.trim() || null, feeNote].filter(Boolean).join(" ") || null;
+
+  const outcome = await db.transaction(async (tx) => {
+    // Lock order is invoice -> client, the same as every other money path, and
+    // the job is locked first so a completion cannot invoice underneath us.
+    const [lockedJob] = await tx.select().from(jobsTable).where(eq(jobsTable.id, jobId)).for("update");
+    if (!lockedJob) return { error: "not_found" as const };
+
+    let invoice: InvoiceRow | null = null;
+    if (body.invoiceId != null) {
+      const [row] = await tx
+        .select()
+        .from(invoicesTable)
+        .where(eq(invoicesTable.id, body.invoiceId))
+        .for("update");
+      if (!row) return { error: "invoice_not_found" as const };
+      if (row.clientId !== lockedJob.clientId) return { error: "wrong_client" as const };
+      if (row.status === "void") return { error: "void" as const };
+      if (isWriteOff(row.status)) return { error: "written_off" as const };
+      invoice = row;
+    }
+
+    if (invoice && cardFee > 0) {
+      // The surcharge is a real charge, so it goes on the bill as its own line
+      // and the total moves with it — written as a line it survives every later
+      // edit and the customer can see what it was.
+      const before = await tx
+        .select({ total: invoiceLineItemsTable.total })
+        .from(invoiceLineItemsTable)
+        .where(eq(invoiceLineItemsTable.invoiceId, invoice.id));
+      const linesAddUp = before.length > 0 && sumLines(before) === roundMoney(invoice.total);
+      await tx.insert(invoiceLineItemsTable).values({
+        invoiceId: invoice.id,
+        description: CARD_FEE_LINE,
+        serviceDate: null,
+        quantity: 1,
+        unitPrice: cardFee,
+        total: cardFee,
+        sortOrder: before.length,
+        jobId: null,
+      });
+      const after = await tx
+        .select({ total: invoiceLineItemsTable.total })
+        .from(invoiceLineItemsTable)
+        .where(eq(invoiceLineItemsTable.invoiceId, invoice.id));
+      // A legacy bill whose stored total never matched its lines is not
+      // restated here: taking a payment is no place to redraw the customer's
+      // invoice, so the fee is added to the total we already had.
+      const total = linesAddUp ? sumLines(after) : roundMoney(invoice.total + cardFee);
+      await tx.update(invoicesTable).set({ total }).where(eq(invoicesTable.id, invoice.id));
+      invoice = { ...invoice, total };
+    }
+
+    const remaining = invoice ? Math.max(0, roundMoney(invoice.total - invoice.amountPaid)) : handedOver;
+    const applied = invoice ? Math.min(handedOver, remaining) : handedOver;
+    const creditLeft = invoice ? roundMoney(handedOver - applied) : 0;
+
+    const [payment] = await tx
+      .insert(paymentsTable)
+      .values({
+        clientId: lockedJob.clientId,
+        invoiceId: invoice && applied > 0 ? invoice.id : null,
+        jobId,
+        amount: applied > 0 ? applied : creditLeft,
+        cardFee,
+        method: body.method,
+        reference: body.reference?.trim() || null,
+        notes,
+      })
+      .returning();
+    // Anything over the bill is theirs, not ours: it sits on the account as
+    // credit for the office to put against the next one.
+    if (invoice && applied > 0 && creditLeft > 0) {
+      await tx.insert(paymentsTable).values({
+        clientId: lockedJob.clientId,
+        invoiceId: null,
+        jobId,
+        amount: creditLeft,
+        cardFee: 0,
+        method: body.method,
+        reference: body.reference?.trim() || null,
+        notes: "Over the bill — kept as credit on the account",
+      });
+    }
+    if (invoice) await recalcInvoice(invoice.id, tx);
+    const accountBalance = await recalcClientBalance(lockedJob.clientId, tx);
+    const fresh = invoice
+      ? (await tx.select().from(invoicesTable).where(eq(invoicesTable.id, invoice.id)))[0]
+      : null;
+    return { payment, invoice: fresh ?? null, creditLeft, accountBalance, client: lockedJob.clientId };
+  });
+
+  if ("error" in outcome) {
+    const messages = {
+      not_found: [404, "Job not found"],
+      invoice_not_found: [404, "That bill could not be found"],
+      wrong_client: [400, "That bill belongs to a different customer"],
+      void: [400, "That bill is void, so there is nothing to pay on it"],
+      written_off: [400, "That balance was written off, so there is nothing to pay on it"],
+    } as const;
+    const [status, error] = messages[outcome.error as keyof typeof messages];
+    return res.status(status).json({ error });
+  }
+  const { payment, invoice, creditLeft, accountBalance } = outcome;
+  const [client] = await db.select({ name: clientsTable.name }).from(clientsTable).where(eq(clientsTable.id, payment.clientId));
+  await logAudit({
+    clientId: payment.clientId,
+    actorName: req.appUser?.name,
+    action: "payment_recorded",
+    description:
+      `Took ${money(handedOver)} from ${client?.name ?? "the customer"} in the field on job #${jobId} by ${payment.method}` +
+      (payment.reference ? ` (ref ${payment.reference})` : "") +
+      (cardFee > 0 ? `; ${money(baseAmount)} plus ${money(cardFee)} card fee at ${settings.cardFeePercent}%` : "") +
+      (invoice
+        ? `; put on invoice #${invoiceNumberOf(invoice)}, ${money(balanceOf(invoice))} left on it`
+        : "; kept as credit on the account") +
+      (creditLeft > 0 ? `; ${money(creditLeft)} over the bill stays as credit` : "") +
+      `. They now stand at ${money(accountBalance)}`,
+    entityType: "payment",
+    entityId: payment.id,
+  });
+  return res.status(201).json({
+    id: payment.id,
+    clientId: payment.clientId,
+    invoiceId: payment.invoiceId,
+    invoiceNumber: invoice ? invoiceNumberOf(invoice) : null,
+    jobId: payment.jobId,
+    amount: handedOver,
+    baseAmount,
+    cardFee,
+    cardFeePercent: applyFee ? settings.cardFeePercent : null,
+    method: payment.method,
+    reference: payment.reference,
+    notes: payment.notes,
+    createdAt: payment.createdAt.toISOString(),
+    invoiceBalance: invoice ? balanceOf(invoice) : null,
+    accountBalance,
+    creditLeft,
+  });
+});
+
 // ---- payments ----
 
 type PaymentRow = typeof paymentsTable.$inferSelect;
@@ -1185,6 +2003,12 @@ router.post("/payments", async (req, res) => {
       if (!invoice) return { error: "not_found" as const };
       if (invoice.clientId !== body.clientId) return { error: "wrong_client" as const };
       if (invoice.status === "void") return { error: "void" as const };
+      // A balance he gave up on is not a bill anybody pays against. Money that
+      // does turn up after a write-off is real money, so it is not refused —
+      // it goes on the account as credit, which is what the office would do
+      // with it anyway, and the write-off is put back by hand if he means to
+      // chase it again.
+      if (isWriteOff(invoice.status)) return { error: "written_off" as const };
     }
 
     const received = roundMoney(body.amount);
@@ -1225,6 +2049,11 @@ router.post("/payments", async (req, res) => {
   if ("error" in result) {
     if (result.error === "not_found") return res.status(404).json({ error: "Invoice not found" });
     if (result.error === "wrong_client") return res.status(400).json({ error: "Invoice does not belong to this client" });
+    if (result.error === "written_off") {
+      return res.status(400).json({
+        error: "That balance was written off. Put it back to owed first, or take the money as credit on the account.",
+      });
+    }
     return res.status(400).json({ error: "Cannot record a payment against a void invoice" });
   }
   const { payment, invoice, creditAmount } = result;
@@ -1262,6 +2091,9 @@ router.post("/payments/:id/apply", async (req, res) => {
     if (!invoice) return { error: "invoice_not_found" as const };
     if (invoice.clientId !== credit.clientId) return { error: "wrong_client" as const };
     if (invoice.status === "void") return { error: "void" as const };
+    // Same rule as taking a new payment: nothing lands on a balance that has
+    // been written off or handed to collections.
+    if (isWriteOff(invoice.status)) return { error: "written_off" as const };
 
     const remainingBalance = Math.max(0, roundMoney(invoice.total - invoice.amountPaid));
     const appliedAmount = Math.min(roundMoney(credit.amount), remainingBalance);
@@ -1305,6 +2137,9 @@ router.post("/payments/:id/apply", async (req, res) => {
     if (result.error === "invoice_not_found") return res.status(404).json({ error: "Invoice not found" });
     if (result.error === "already_applied") return res.status(400).json({ error: "Payment is already attached to an invoice" });
     if (result.error === "wrong_client") return res.status(400).json({ error: "Invoice belongs to a different client" });
+    if (result.error === "written_off") {
+      return res.status(400).json({ error: "That balance was written off. Put it back to owed first." });
+    }
     return res.status(400).json({ error: "Cannot apply credit to a void invoice" });
   }
   await logAudit({

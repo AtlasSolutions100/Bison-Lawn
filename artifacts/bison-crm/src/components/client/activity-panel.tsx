@@ -288,6 +288,10 @@ export function ActivityTimelineCard({ clientId }: { clientId: number }) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <CardTitle className="text-lg font-bold flex items-center gap-2">
             <Activity className="w-5 h-5 text-muted-foreground" /> Activity
+            {/* "Activity on account most recent to latest." It always came back
+                newest first; saying so on the card is how he can tell at a
+                glance that it is, instead of reading two dates to check. */}
+            <span className="text-xs font-normal text-muted-foreground" data-testid="activity-order">Newest first</span>
             {openNotes.length > 0 && <Badge tone="warn">{openNotes.length} open {openNotes.length === 1 ? 'note' : 'notes'}</Badge>}
           </CardTitle>
           <div className="flex flex-wrap items-center gap-2 text-sm">

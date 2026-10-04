@@ -14,9 +14,11 @@ import {
   usePreviewClientServicePrice,
   useListServices,
   useListPackages,
-  useListUsers,
+  useFinishClientServiceSeason,
   type ClientService,
   type ClientServicePrice,
+  type ClientServiceSeason,
+  type FinishSeasonResult,
   type Job,
 } from '@workspace/api-client-react';
 import { Button } from '@/components/ui/button';
@@ -28,10 +30,12 @@ import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { contractorColor, initialsOf } from '@/lib/contractor-color';
+import { useContractors } from '@/components/dispatch/contractors';
 import { format, parseISO } from 'date-fns';
 import {
   AlertTriangle,
   Calendar,
+  CalendarX,
   ChevronDown,
   ChevronRight,
   Clock,
@@ -163,7 +167,11 @@ function draftFrom(cs: ClientService): Draft {
     seasonEndDate: cs.seasonEndDate ?? '',
     startDate: cs.startDate ?? '',
     endDate: cs.endDate ?? '',
-    renewDate: cs.renewDate ?? '',
+    // "Renew date is not client specific but Product based": the box shows the
+    // date that actually governs, which is the service's unless somebody typed
+    // one for this customer. Saving it unchanged keeps it following the
+    // service — the server only calls it an override when it differs.
+    renewDate: cs.effectiveRenewDate ?? cs.renewDate ?? '',
     amount: String(cs.amount),
     quantity: String(cs.quantity),
     budgetedHours: cs.budgetedHours != null ? String(cs.budgetedHours) : '',
@@ -235,6 +243,8 @@ function ServiceForm({
   set,
   billingMode,
   priceNote,
+  renewNote,
+  seasonNote,
   contractors,
   showOnOff,
 }: {
@@ -242,6 +252,10 @@ function ServiceForm({
   set: (patch: Partial<Draft>) => void;
   billingMode: 'fixed' | 'time';
   priceNote?: React.ReactNode;
+  /** Where the renew date comes from — the service, or this one customer. */
+  renewNote?: React.ReactNode;
+  /** Where the season end comes from, same idea. */
+  seasonNote?: React.ReactNode;
   contractors: { id: number; name: string }[];
   showOnOff: boolean;
 }) {
@@ -307,6 +321,7 @@ function ServiceForm({
             </Field>
             <Field label="Season end" hint="Blank runs to Dec 31, then auto-renews.">
               <Input type="date" value={draft.seasonEndDate} onChange={e => set({ seasonEndDate: e.target.value })} />
+              {seasonNote}
             </Field>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -455,6 +470,7 @@ function ServiceForm({
         )}
         <Field label="Renew date (optional)">
           <Input type="date" className="h-8" value={draft.renewDate} onChange={e => set({ renewDate: e.target.value })} />
+          {renewNote}
         </Field>
       </div>
     </div>
@@ -673,16 +689,23 @@ function EditDialog({
   const pause = usePauseClientService();
   const resume = useResumeClientService();
   const renew = useRenewClientService();
+  const finish = useFinishClientServiceSeason();
   const { toast } = useToast();
   const [draft, setDraft] = useState<Draft>(() => draftFrom(cs));
   const set = (patch: Partial<Draft>) => setDraft(d => ({ ...d, ...patch }));
   const [error, setError] = useState<string | null>(null);
   const [pausing, setPausing] = useState(false);
+  // "If some decide to end earlier having the ability to cancel upcoming or
+  // future jobs." The last day, and what it would call off, before it does.
+  const [finishing, setFinishing] = useState(false);
+  const [lastDate, setLastDate] = useState('');
+  const [finishReason, setFinishReason] = useState('');
+  const [finishPreview, setFinishPreview] = useState<FinishSeasonResult | null>(null);
   const [pauseReason, setPauseReason] = useState('');
   const [pauseUntil, setPauseUntil] = useState('');
   const [resumeWhenPaid, setResumeWhenPaid] = useState(false);
   const [wholePackage, setWholePackage] = useState(false);
-  const busy = update.isPending || remove.isPending || pause.isPending || resume.isPending || renew.isPending;
+  const busy = update.isPending || remove.isPending || pause.isPending || resume.isPending || renew.isPending || finish.isPending;
 
   const fail = (e: unknown) => setError(errText(e, 'Could not save. Check the schedule and try again.'));
 
@@ -728,6 +751,32 @@ function EditDialog({
     });
   };
 
+  /**
+   * "Season End date will be the same for all mowing clients. If some decide
+   * to end earlier having the ability to cancel upcoming or future jobs."
+   * Checked first so the number of visits it calls off is on screen before he
+   * presses anything.
+   */
+  const doFinish = (apply: boolean) => {
+    setError(null);
+    finish.mutate(
+      { id: cs.id, data: { lastDate, reason: finishReason.trim() || null, apply } },
+      {
+        onSuccess: (result) => {
+          setFinishPreview(result);
+          if (!apply) return;
+          onDone();
+          toast({
+            title: `Season ends ${result.lastDate}`,
+            description: `${result.visitsCancelled} upcoming visit(s) cancelled.`,
+          });
+          onClose();
+        },
+        onError: fail,
+      },
+    );
+  };
+
   const doRemove = () => {
     if (!window.confirm(`Remove ${cs.serviceName} from this account? Visits not yet done come off the board; history stays.`)) return;
     remove.mutate({ id: cs.id }, {
@@ -740,6 +789,19 @@ function EditDialog({
   const priceNote = cs.pricedFromLabel && draft.amount === String(cs.amount)
     ? <p className="text-xs text-primary mt-1">From the matrix: {cs.pricedFromLabel} {cs.pricedFromValue?.toLocaleString()}</p>
     : null;
+  // "Renew date is not client specific but Product based."
+  const renewNote = cs.renewDateFromService ? (
+    <p className="text-xs text-muted-foreground mt-1">
+      From the service — every customer on {cs.serviceName} follows it. Change it here and it becomes this customer’s own; empty the box to follow the service again.
+    </p>
+  ) : cs.renewDateOverridden ? (
+    <p className="text-xs text-primary mt-1">Set for this customer only. Empty the box to go back to the service’s date.</p>
+  ) : null;
+  const seasonNote = cs.serviceSeasonEndDate ? (
+    <p className="text-xs text-muted-foreground mt-1">
+      The service says the season ends {cs.serviceSeasonEndDate}. An earlier date here finishes this customer early.
+    </p>
+  ) : null;
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
@@ -780,15 +842,51 @@ function EditDialog({
               <Button type="button" onClick={doPause} disabled={busy}><Pause className="w-4 h-4 mr-1" /> {pause.isPending ? 'Pausing…' : 'Pause'}</Button>
             </DialogFooter>
           </div>
+        ) : finishing ? (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              The season ends for everyone else on {cs.serviceName}
+              {cs.serviceSeasonEndDate ? ` on ${cs.serviceSeasonEndDate}` : cs.seasonEndDate ? ` on ${dayLabel(cs.seasonEndDate)}` : ''}.
+              Give this customer’s last day and the visits after it are cancelled — they stay on the account marked cancelled, so you can see they were called off.
+            </p>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Their last visit">
+                <Input type="date" value={lastDate} onChange={e => { setLastDate(e.target.value); setFinishPreview(null); }} />
+              </Field>
+              <Field label="Why (shows on each cancelled visit)">
+                <Input value={finishReason} placeholder="Selling the house" onChange={e => setFinishReason(e.target.value)} />
+              </Field>
+            </div>
+            {finishPreview && !finishPreview.applied && (
+              <p className="text-sm">
+                That would cancel <b>{finishPreview.visitsCancelled}</b> upcoming visit{finishPreview.visitsCancelled === 1 ? '' : 's'}
+                {finishPreview.seasonEndWas ? ` and move the season end from ${finishPreview.seasonEndWas}` : ''}.
+              </p>
+            )}
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => { setFinishing(false); setFinishPreview(null); }}>Back</Button>
+              <Button type="button" variant="outline" disabled={!lastDate || busy} onClick={() => doFinish(false)}>
+                {finish.isPending && !finishPreview ? 'Checking…' : 'Check it first'}
+              </Button>
+              <Button type="button" disabled={!lastDate || busy || !finishPreview} onClick={() => doFinish(true)}>
+                Finish the season
+              </Button>
+            </DialogFooter>
+          </div>
         ) : (
           <form onSubmit={save} className="space-y-4">
-            <ServiceForm draft={draft} set={set} billingMode={billingMode} priceNote={priceNote} contractors={contractors} showOnOff />
+            <ServiceForm draft={draft} set={set} billingMode={billingMode} priceNote={priceNote} renewNote={renewNote} seasonNote={seasonNote} contractors={contractors} showOnOff />
+            {cs.pastSeasons.length > 0 && <PastSeasons seasons={cs.pastSeasons} />}
             {error && <p className="text-sm text-destructive">{error}</p>}
             <div className="flex flex-wrap gap-2 border-t pt-4">
               {cs.pausedAt ? (
                 <Button type="button" variant="outline" onClick={doResume} disabled={busy}><Play className="w-4 h-4 mr-1" /> Resume</Button>
               ) : (
                 <Button type="button" variant="outline" onClick={() => setPausing(true)} disabled={busy}><Pause className="w-4 h-4 mr-1" /> Pause…</Button>
+              )}
+              {cs.scheduleType === 'recurring' && (
+                <Button type="button" variant="outline" onClick={() => setFinishing(true)} disabled={busy}><CalendarX className="w-4 h-4 mr-1" /> Finish early…</Button>
               )}
               <Button type="button" variant="outline" onClick={doRenew} disabled={busy}><RefreshCw className="w-4 h-4 mr-1" /> Renew now</Button>
               <Button type="button" variant="ghost" className="text-destructive hover:text-destructive ml-auto" onClick={doRemove} disabled={busy}><Trash2 className="w-4 h-4 mr-1" /> Remove</Button>
@@ -801,6 +899,44 @@ function EditDialog({
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ------------------------------------------------------------ last year ----
+
+/**
+ * "Mowing jobs stay on account with last year's details."
+ *
+ * Renewing rolls the dates and the price into the new season, so without this
+ * the account only ever showed the year it is in now. Each closed season was
+ * written down as it read on the day it closed — the cadence, the contractor,
+ * what a visit cost, how many got done — and that is what this shows, newest
+ * first. The visits themselves never moved: they are still in the history list
+ * below.
+ */
+function PastSeasons({ seasons }: { seasons: ClientServiceSeason[] }) {
+  const newestFirst = [...seasons].sort((a, b) => b.year - a.year);
+  return (
+    <div className="rounded-lg border">
+      <div className="border-b bg-muted/50 px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+        Earlier seasons on this account
+      </div>
+      <div className="divide-y text-sm">
+        {newestFirst.map(s => (
+          <div key={`${s.year}-${s.closedAt}`} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-3 py-2">
+            <span>
+              <b className="tabular-nums">{s.year}</b> · {s.cadence}
+              {s.assignedToName && <> with {s.assignedToName}</>}
+              {s.firstServiceDate && <span className="text-muted-foreground"> · {dayLabel(s.firstServiceDate)}{s.seasonEndDate ? ` to ${dayLabel(s.seasonEndDate)}` : ''}</span>}
+            </span>
+            <span className="whitespace-nowrap tabular-nums text-muted-foreground">
+              {money(s.amount)} a visit · <b className="text-foreground">{s.completedVisits}</b> done · {money(s.completedTotal)}
+              {s.discountValue ? <> · −{s.discountType === 'percent' ? `${s.discountValue}%` : money(s.discountValue)} {s.discountLabel ?? 'discount'}</> : null}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -893,6 +1029,10 @@ function ServiceRow({ cs, expanded, onToggle, onOpen, onSwitch }: {
             {cs.contractorNote && <Tag tone={cs.noteActiveToday ? 'good' : 'muted'}><StickyNote className="inline w-3 h-3 mr-0.5" />crew note</Tag>}
             {!cs.autoRenew && <Tag>no auto-renew</Tag>}
             {renewedYear != null && <Tag tone="good">renewed {renewedYear}</Tag>}
+            {/* "Mowing jobs stay on account with last year's details." */}
+            {cs.pastSeasons.length > 0 && (
+              <Tag>{cs.pastSeasons.map(s => s.year).sort().slice(-2).join(', ')} on file</Tag>
+            )}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
             <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> {cs.cadenceLabel}{cs.scheduleType === 'window' && cs.startDate ? `: ${format(parseISO(cs.startDate), 'MMM d')} – ${cs.endDate ? format(parseISO(cs.endDate), 'MMM d') : ''}` : ''}</span>
@@ -924,7 +1064,16 @@ function ServiceRow({ cs, expanded, onToggle, onOpen, onSwitch }: {
           </div>
         </div>
       </div>
-      {expanded && <Visits csId={cs.id} />}
+      {expanded && (
+        <>
+          {cs.pastSeasons.length > 0 && (
+            <div className="px-4 pb-3">
+              <PastSeasons seasons={cs.pastSeasons} />
+            </div>
+          )}
+          <Visits csId={cs.id} />
+        </>
+      )}
     </div>
   );
 }
@@ -933,19 +1082,17 @@ function ServiceRow({ cs, expanded, onToggle, onOpen, onSwitch }: {
 
 export default function AssignedServicesPanel({ clientId }: { clientId: number }) {
   const { data: rows, isLoading } = useListClientServices(clientId);
-  const { data: users } = useListUsers();
   const update = useUpdateClientService();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [editing, setEditing] = useState<ClientService | null>(null);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
-  // Contractors first, then anyone else who can be sent out (the owner mows too).
-  const contractors = useMemo(() => {
-    const list = (users ?? []).filter(u => u.active !== false);
-    const label = (u: { name: string; displayName?: string | null }) => u.displayName?.trim() || u.name;
-    return [...list.filter(u => u.role === 'contractor'), ...list.filter(u => u.role !== 'contractor')].map(u => ({ id: u.id, name: label(u) }));
-  }, [users]);
+  // Who this service can be handed to. Same list as the dispatch board's, from
+  // the same place: a name he can assign on the board and not on the account
+  // (or the other way round) is the kind of difference that had him reporting
+  // the person he had just added was missing.
+  const contractors = useContractors();
 
   // The account's services, its jobs, the board and the waiting list all
   // change together, so one refresh reaches every list that shows a visit.
@@ -968,16 +1115,24 @@ export default function AssignedServicesPanel({ clientId }: { clientId: number }
     });
   };
 
-  // Rows grouped by package, single services after.
-  const groups = useMemo(() => {
-    const byPkg = new Map<number | null, ClientService[]>();
+  /*
+    "Package listing on account based on window of start times" — the server
+    hands the rows back in the order the work happens in the year (spring
+    clean-up, aeration, mowing, blow-out), with each package's rows together
+    and the package sitting where its earliest entry falls. So the blocks are
+    built by walking that order rather than by pulling the packages out first,
+    which used to push every single service below every package no matter when
+    it starts.
+  */
+  const blocks = useMemo(() => {
+    const out: { key: string; packageId: number | null; rows: ClientService[] }[] = [];
     for (const r of rows ?? []) {
-      const key = r.packageId ?? null;
-      byPkg.set(key, [...(byPkg.get(key) ?? []), r]);
+      const key = r.packageId != null ? `p${r.packageId}` : `s${r.id}`;
+      const last = out[out.length - 1];
+      if (last && last.key === key) last.rows.push(r);
+      else out.push({ key, packageId: r.packageId ?? null, rows: [r] });
     }
-    const packaged = [...byPkg.entries()].filter(([k]) => k != null);
-    const single = byPkg.get(null) ?? [];
-    return { packaged, single };
+    return out;
   }, [rows]);
 
   const live = (rows ?? []).filter(r => r.active && !r.pausedAt);
@@ -1007,15 +1162,21 @@ export default function AssignedServicesPanel({ clientId }: { clientId: number }
         ) : (
           <>
             <div className="divide-y">
-              {groups.packaged.map(([pkgId, list]) => (
-                <div key={pkgId}>
-                  <div className="px-4 pt-3 pb-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Package · {list[0].packageName ?? `#${pkgId}`}</div>
-                  <div className="divide-y">
-                    {list.map(cs => <ServiceRow key={cs.id} cs={cs} expanded={expanded.has(cs.id)} onToggle={() => toggle(cs.id)} onOpen={() => setEditing(cs)} onSwitch={on => switchRow(cs, on)} />)}
+              {blocks.map(block => (
+                block.packageId != null ? (
+                  <div key={block.key}>
+                    <div className="px-4 pt-3 pb-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                      Package · {block.rows[0].packageName ?? `#${block.packageId}`}
+                      {block.rows[0].seasonStart && <span className="font-normal normal-case"> · starts {format(parseISO(block.rows[0].seasonStart), 'MMM d')}</span>}
+                    </div>
+                    <div className="divide-y">
+                      {block.rows.map(cs => <ServiceRow key={cs.id} cs={cs} expanded={expanded.has(cs.id)} onToggle={() => toggle(cs.id)} onOpen={() => setEditing(cs)} onSwitch={on => switchRow(cs, on)} />)}
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <ServiceRow key={block.key} cs={block.rows[0]} expanded={expanded.has(block.rows[0].id)} onToggle={() => toggle(block.rows[0].id)} onOpen={() => setEditing(block.rows[0])} onSwitch={on => switchRow(block.rows[0], on)} />
+                )
               ))}
-              {groups.single.map(cs => <ServiceRow key={cs.id} cs={cs} expanded={expanded.has(cs.id)} onToggle={() => toggle(cs.id)} onOpen={() => setEditing(cs)} onSwitch={on => switchRow(cs, on)} />)}
             </div>
             <div className="border-t bg-muted/30 px-4 py-3 flex flex-wrap gap-x-6 gap-y-1 text-sm">
               <span className="text-muted-foreground">Per visit, all live services: retail <b className="text-foreground">{money(totals.retail)}</b></span>

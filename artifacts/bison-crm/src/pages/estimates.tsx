@@ -33,11 +33,16 @@ import {
 } from '@/lib/estimate-draft-storage';
 import ClientPicker, { NEW_PROSPECT, clientCaption } from '@/components/estimates/client-picker';
 import ServiceLinesEditor, {
+  calculableNeedsNumber,
+  fieldLinePrice,
   lineCount,
+  measurementOf,
   money,
+  prefillFieldValue,
   pricingFieldFor,
   serviceLineMath,
   withLineKey,
+  type MeasureSources,
   type ServiceLineDraft,
 } from '@/components/estimates/service-lines';
 
@@ -666,14 +671,6 @@ export default function Estimates() {
   );
 }
 
-function fieldLinePrice(field: EstimateField, value: string): number | null {
-  if (field.fieldType !== 'calculable') return null;
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric) || value.trim() === '') return null;
-  const unitSize = field.unitSize && field.unitSize > 0 ? field.unitSize : 1;
-  return Math.round((numeric / unitSize) * (field.pricePerUnit ?? 0) * 100) / 100;
-}
-
 type SelectionState = Record<number, { selected: boolean; value: string }>;
 type CustomLineDraft = { key: number; label: string; value: string; price: string };
 
@@ -930,8 +927,11 @@ function EstimateBuilder({
     const property = (clients.find(c => String(c.id) === clientId)?.propertyData ?? {}) as Record<string, string>;
     const next: SelectionState = {};
     for (const f of fields) {
-      const saved = property[f.label];
-      next[f.id] = { selected: saved != null, value: saved ?? '' };
+      // The import wrote his square footage with a comma ("14,500"). Copied in
+      // raw it showed as an empty number box with "Enter a number" beside it
+      // and held the Save button down, so prefillFieldValue puts the plain
+      // number in instead.
+      next[f.id] = prefillFieldValue(f, property[f.label]);
     }
     setFieldValues(next);
     // Which services are wanted on this particular estimate is never implied by
@@ -1031,8 +1031,25 @@ function EstimateBuilder({
     if (!field) return '';
     const typed = fieldValues[field.id];
     if (typed && typed.value.trim() !== '') return typed.value;
-    return propertyData[field.label] ?? '';
+    // The import wrote his square footage with a comma ("14,500"), and a number
+    // box shows nothing at all for that — which is how 615 E 18th came up with
+    // an empty sqft and the flat rate beside a matrix that had the right band
+    // all along. The measurement goes in as a plain number.
+    const onFile = measurementOf(propertyData[field.label]);
+    return onFile == null ? '' : String(onFile);
   };
+
+  /**
+   * The three places the save reads a service line's measurement from, handed
+   * to the builder so the price on screen is the price that gets stored. The
+   * builder used to look only at the box on the line, so clearing that box
+   * showed the flat rate while the save priced the band off the account — and
+   * nothing on the screen ever showed him the number that was really kept.
+   */
+  const measureSources: MeasureSources = useMemo(
+    () => ({ fields, fieldValues, propertyData }),
+    [fields, fieldValues, propertyData],
+  );
 
   const lines = useMemo(() => {
     const result: EstimateLine[] = [];
@@ -1046,7 +1063,7 @@ function EstimateBuilder({
     }
     for (const line of serviceLines) {
       const service = services?.find(s => s.id === line.serviceId);
-      const math = service ? serviceLineMath(service, line) : null;
+      const math = service ? serviceLineMath(service, line, measureSources) : null;
       result.push({
         serviceId: line.serviceId,
         label: line.label,
@@ -1070,17 +1087,20 @@ function EstimateBuilder({
       });
     }
     return result;
-  }, [fields, services, fieldValues, serviceLines, carriedLines, customLines]);
+  }, [fields, services, fieldValues, serviceLines, carriedLines, customLines, measureSources]);
 
   const total = lines.reduce((sum, l) => sum + (l.calculatedPrice ?? 0), 0);
+  // Only a detail the server would actually refuse blocks the save. A comma off
+  // the import is a number to him and a number to the server, so it is one here
+  // too — it used to hold Save down on every estimate for an imported customer.
   const invalidCalculable = (fields ?? []).some(f => {
     const state = fieldValues[f.id];
-    return state?.selected && f.fieldType === 'calculable' && (state.value.trim() === '' || !Number.isFinite(Number(state.value)));
+    return !!state?.selected && calculableNeedsNumber(f, state.value);
   });
   const invalidCustom = customLines.some(c => c.label.trim() === '' || customLinePrice(c.price) == null);
   const invalidService = serviceLines.some(line => {
     const service = services?.find(s => s.id === line.serviceId);
-    return !service || !serviceLineMath(service, line).valid;
+    return !service || !serviceLineMath(service, line, measureSources).valid;
   });
   // A discount larger than the rest of the estimate would owe the customer
   // money; the server rejects it, so flag it here before the save round-trip.
@@ -1364,6 +1384,8 @@ function EstimateBuilder({
             lines={serviceLines}
             onChange={setServiceLines}
             valueFor={valueFor}
+            fieldValues={fieldValues}
+            propertyData={propertyData}
           />
         </div>
 

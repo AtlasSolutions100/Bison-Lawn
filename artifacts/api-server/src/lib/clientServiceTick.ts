@@ -1,13 +1,17 @@
-import { db, automationRunsTable, clientServicesTable, clientsTable, servicesTable } from "@workspace/db";
-import type { ClientService } from "@workspace/db";
-import { and, eq, isNotNull, lte, or } from "drizzle-orm";
-import { logAudit, type Executor } from "./helpers";
+import { db, automationRunsTable, clientServicesTable, clientsTable, jobsTable, servicesTable, usersTable } from "@workspace/db";
+import type { ClientService, ClientServiceSeason, Service } from "@workspace/db";
+import { and, eq, gte, isNotNull, lte, or, sql } from "drizzle-orm";
+import { logAudit, roundMoney, type Executor } from "./helpers";
 import { logger } from "./logger";
 import {
+  cadenceLabel,
+  effectiveRenewDate,
   generateJobs,
   regenerateFutureJobs,
+  resolveSeasonDate,
   resolveServicePrice,
   rollDateOneYear,
+  seasonStartOf,
   todayLocal,
 } from "./jobGeneration";
 
@@ -23,14 +27,78 @@ import {
 const TICK_MS = 5 * 60 * 1000;
 const RUN_KIND = "client_services";
 
-/** Same month and day next year for every date the row carries. */
-function rolledDates(cs: ClientService) {
+/**
+ * Same month and day next year for every date the row carries — except the
+ * two that belong to the service rather than the customer.
+ *
+ * "Season End date will be the same for all mowing clients" and "renew date is
+ * not client specific but Product based": when the service carries one, the
+ * new season takes the service's, so a customer who finished early this year
+ * is back on the standard season next year and nobody drifts. A date the
+ * office deliberately set for this one customer (renewDateOverridden) still
+ * just rolls a year.
+ */
+function rolledDates(cs: ClientService, svc: Pick<Service, "seasonEndDate" | "renewDate"> | null) {
+  const firstServiceDate = rollDateOneYear(cs.firstServiceDate);
+  const startDate = rollDateOneYear(cs.startDate);
+  const anchor = firstServiceDate ?? startDate;
+  const seasonEndDate = svc?.seasonEndDate
+    ? resolveSeasonDate(svc.seasonEndDate, anchor, { rollStale: true })
+    : rollDateOneYear(cs.seasonEndDate);
+  const renewDate =
+    !cs.renewDateOverridden && svc?.renewDate
+      ? resolveSeasonDate(svc.renewDate, anchor, { rollStale: true })
+      : rollDateOneYear(cs.renewDate);
   return {
-    startDate: rollDateOneYear(cs.startDate),
+    startDate,
     endDate: rollDateOneYear(cs.endDate),
-    firstServiceDate: rollDateOneYear(cs.firstServiceDate),
-    seasonEndDate: rollDateOneYear(cs.seasonEndDate),
-    renewDate: rollDateOneYear(cs.renewDate),
+    firstServiceDate,
+    seasonEndDate,
+    renewDate,
+  };
+}
+
+/**
+ * The season this row is finishing, written down before the rollover
+ * overwrites it: "Mowing jobs stay on account with last year's details."
+ */
+async function snapshotSeason(cs: ClientService, tx: Executor): Promise<ClientServiceSeason> {
+  const start = seasonStartOf(cs);
+  const end = seasonOverDate(cs);
+  const [who] = cs.assignedToId
+    ? await tx.select().from(usersTable).where(eq(usersTable.id, cs.assignedToId))
+    : [];
+  const [done] = await tx
+    .select({
+      count: sql<number>`count(*)`,
+      total: sql<number>`coalesce(sum(${jobsTable.amount}), 0)`,
+    })
+    .from(jobsTable)
+    .where(
+      and(
+        eq(jobsTable.clientServiceId, cs.id),
+        eq(jobsTable.status, "completed"),
+        ...(start ? [gte(jobsTable.scheduledDate, start)] : []),
+        ...(end ? [lte(jobsTable.scheduledDate, end)] : []),
+      ),
+    );
+  return {
+    year: Number((start ?? todayLocal()).slice(0, 4)),
+    cadence: cadenceLabel(cs),
+    firstServiceDate: cs.firstServiceDate,
+    seasonEndDate: cs.seasonEndDate,
+    startDate: cs.startDate,
+    endDate: cs.endDate,
+    amount: cs.amount,
+    budgetedHours: cs.budgetedHours,
+    assignedToId: cs.assignedToId,
+    assignedToName: who ? (who.displayName?.trim() || who.name) : null,
+    discountType: cs.discountType,
+    discountValue: cs.discountValue,
+    discountLabel: cs.discountLabel,
+    completedVisits: Number(done?.count ?? 0),
+    completedTotal: roundMoney(Number(done?.total ?? 0)),
+    closedAt: new Date().toISOString(),
   };
 }
 
@@ -73,10 +141,14 @@ export function seasonOverDate(cs: ClientService): string | null {
  * March 1"), not a season that ended; taking it at face value rolled a brand
  * new assignment forward a year on the next tick.
  */
-export function renewalDueDate(cs: ClientService): string | null {
+export function renewalDueDate(cs: ClientService, serviceRenewDate?: string | null): string | null {
   if (cs.scheduleType === "contract") return contractLastInstallment(cs);
   const start = cs.firstServiceDate ?? cs.startDate;
-  if (cs.renewDate && (!start || cs.renewDate >= start)) return cs.renewDate;
+  // The service's date governs unless this customer was given one of their
+  // own; effectiveRenewDate has already put a year-free "03-01" into the
+  // season this row belongs to.
+  const renewDate = effectiveRenewDate(cs, serviceRenewDate);
+  if (renewDate && (!start || renewDate >= start)) return renewDate;
   if (cs.seasonEndDate) return cs.seasonEndDate;
   if (cs.endDate) return cs.endDate;
   if (cs.firstServiceDate) return `${cs.firstServiceDate.slice(0, 4)}-12-31`;
@@ -112,8 +184,12 @@ export async function renewClientService(
   if (!svc) return null;
   const [client] = await tx.select().from(clientsTable).where(eq(clientsTable.id, cs.clientId));
 
+  // Last year's details before anything moves, so the account still says what
+  // this customer had in the season that just closed.
+  const season = await snapshotSeason(cs, tx);
   const patch: Partial<typeof clientServicesTable.$inferInsert> = {
-    ...rolledDates(cs),
+    ...rolledDates(cs, svc),
+    pastSeasons: [...(cs.pastSeasons ?? []), season].slice(-10),
     lastRenewedAt: new Date(),
   };
   let priceNote = "";
@@ -141,7 +217,10 @@ export async function renewClientService(
     description:
       `Renewed "${svc.name}" for the new season` +
       (renewed.firstServiceDate ? ` starting ${renewed.firstServiceDate}` : renewed.startDate ? ` (window ${renewed.startDate} to ${renewed.endDate})` : "") +
-      `; ${created} visit(s) put on the board${priceNote}`,
+      `; ${created} visit(s) put on the board${priceNote}` +
+      `. The ${season.year} season stays on the account: ${season.cadence}` +
+      (season.assignedToName ? ` with ${season.assignedToName}` : "") +
+      `, $${season.amount}, ${season.completedVisits} visit(s) done`,
   });
   return renewed;
 }
@@ -217,10 +296,10 @@ export async function resumeDueServices(today = todayLocal()): Promise<number> {
  * to go on, a date sitting in the past rolled the row a year that same night
  * and took the rest of this year's visits off the board.
  */
-export function isRenewalDue(cs: ClientService, today: string): boolean {
+export function isRenewalDue(cs: ClientService, today: string, serviceRenewDate?: string | null): boolean {
   if (!cs.active || !cs.autoRenew || cs.pausedAt != null) return false;
   if (cs.scheduleType === "one_time") return false;
-  const due = renewalDueDate(cs);
+  const due = renewalDueDate(cs, serviceRenewDate);
   if (!due || due >= today) return false;
   const seasonOver = seasonOverDate(cs);
   if (seasonOver && seasonOver >= today) return false;
@@ -229,13 +308,16 @@ export function isRenewalDue(cs: ClientService, today: string): boolean {
 
 /** Carry every auto-renewing service whose season is over into the next one. */
 export async function renewDueServices(today = todayLocal()): Promise<number> {
+  // The service comes along for the ride because the renew date that governs
+  // is its own ("renew date is not client specific but Product based").
   const candidates = await db
-    .select()
+    .select({ cs: clientServicesTable, serviceRenewDate: servicesTable.renewDate })
     .from(clientServicesTable)
+    .innerJoin(servicesTable, eq(clientServicesTable.serviceId, servicesTable.id))
     .where(and(eq(clientServicesTable.active, true), eq(clientServicesTable.autoRenew, true)));
   let renewed = 0;
-  for (const cs of candidates) {
-    if (!isRenewalDue(cs, today)) continue;
+  for (const { cs, serviceRenewDate } of candidates) {
+    if (!isRenewalDue(cs, today, serviceRenewDate)) continue;
     // One transaction per row: a bad date on one account must not stop the
     // other 700 from rolling over.
     try {

@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * written_off = a balance he has given up on; collections = the same balance, being chased by somebody else. Both owe nothing and both keep the bill and its history.
+ */
 export type InvoiceStatus = typeof InvoiceStatus[keyof typeof InvoiceStatus];
 
 
@@ -15,4 +18,6 @@ export const InvoiceStatus = {
   paid: 'paid',
   partial: 'partial',
   void: 'void',
+  written_off: 'written_off',
+  collections: 'collections',
 } as const;

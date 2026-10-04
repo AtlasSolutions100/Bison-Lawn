@@ -8,7 +8,7 @@ import {
 } from "@workspace/db";
 import type { BillingSettings } from "@workspace/db";
 import type { EstimateField, PricingEquation } from "@workspace/db";
-import { and, eq, ne, sum } from "drizzle-orm";
+import { eq, sql, sum } from "drizzle-orm";
 
 /** Round a monetary value to whole cents. */
 export function roundMoney(value: number) {
@@ -71,20 +71,28 @@ export async function logAudit(opts: {
  * itself has no way to check that a caller measured in the right unit — use
  * priceService() below when you have a Service row and want that checked for
  * you instead of silently pricing a zone count as if it were square footage.
+ *
+ * A band's `minPrice` is the last word: "I cant set a base" (2026-09-28) was
+ * him running into basePrice doing double duty as the floor. The floor is now
+ * its own number, applied after the base and the increments have had their
+ * say, so a band can read "start at $49, then $5 per 1,000 over 5,000 — never
+ * less than $49". `minimumApplied` is reported back so the office can see the
+ * floor did the work rather than wondering why a big-sounding property quoted
+ * the small number.
  */
 export function calculatePrice(
   equations: PricingEquation[],
   value: number,
-): { price: number; equationIndex: number | null } {
-  if (!equations || equations.length === 0) return { price: 0, equationIndex: null };
+): { price: number; equationIndex: number | null; minimumApplied: boolean } {
+  if (!equations || equations.length === 0) return { price: 0, equationIndex: null, minimumApplied: false };
 
   // A band carrying no money at all is a placeholder — an empty row left by an
   // "Add tier" click or by an import that had nothing to put in it. It used to
   // match like any other band and price the job at zero: on the live system a
   // 30,000 sqft mow quoted $0.00, and so would the invoice raised when that job
   // completed. Only bands that actually carry a price may price a job.
-  const priced = equations.filter((e) => e.basePrice > 0 || e.incrementPrice > 0);
-  if (priced.length === 0) return { price: 0, equationIndex: null };
+  const priced = equations.filter(isPricedBand);
+  if (priced.length === 0) return { price: 0, equationIndex: null, minimumApplied: false };
 
   let match = priced.find((e) => e.upToSqft != null && value <= e.upToSqft);
   // No ceiling reached: an open-ended band if there is one, otherwise the
@@ -101,7 +109,50 @@ export function calculatePrice(
     const extra = value - eq_.baseSqft;
     price += Math.ceil(extra / eq_.incrementSqft) * eq_.incrementPrice;
   }
-  return { price: Math.round(price * 100) / 100, equationIndex: idx };
+  // The floor goes on last, over the base and every increment. A floor of null
+  // (every band saved before this existed) leaves the number exactly where the
+  // equation put it.
+  const floor = eq_.minPrice ?? null;
+  const minimumApplied = floor != null && floor > price;
+  if (minimumApplied) price = floor;
+  return { price: Math.round(price * 100) / 100, equationIndex: idx, minimumApplied };
+}
+
+/**
+ * A property measurement the way it was actually typed or imported: "14,500",
+ * " 6200 ", "$95". Service Autopilot exported square footage with thousands
+ * separators, so the number sitting on his own account at 615 E 18th reads
+ * "14,500" — and a bare Number() on that is NaN. That is how a 14,500 sqft lawn
+ * came out of the estimate builder at the flat rate while the matrix tester on
+ * the Services page said the band price: two paths, two different ideas of what
+ * "the number on the account" is. Null means "nothing usable here", which is the
+ * caller's cue to fall back, not to price at zero.
+ */
+export function numericFieldValue(raw: unknown): number | null {
+  if (raw == null) return null;
+  const text = String(raw).replace(/[$,\s]/g, "");
+  if (text === "") return null;
+  const n = Number(text);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Which property detail a service prices from. A null pricingFieldId means turf
+ * square footage — what every matrix meant before that column existed — so the
+ * turf field is found by its label. The estimate builder, the matrix tester and
+ * the assigned-service price all have to answer this the same way, or the same
+ * service reads a different number off the same account.
+ */
+export function pricingFieldOf(
+  service: { pricingFieldId: number | null },
+  fields: readonly EstimateField[],
+): EstimateField | null {
+  if (service.pricingFieldId != null) return fields.find((f) => f.id === service.pricingFieldId) ?? null;
+  return (
+    fields.find((f) => /turf/i.test(f.label) && /sq/i.test(f.label)) ??
+    fields.find((f) => /sq\s?ft|sqft|square/i.test(f.label) && f.fieldType === "calculable") ??
+    null
+  );
 }
 
 /**
@@ -130,7 +181,7 @@ export function priceService(
   service: { pricingEquations: PricingEquation[] },
   field: EstimateField | null,
   value: number,
-): { price: number; equationIndex: number | null; field: EstimateField | null } {
+): { price: number; equationIndex: number | null; minimumApplied: boolean; field: EstimateField | null } {
   if (field && !isPriceableFieldType(field.fieldType)) {
     throw Object.assign(
       new Error(`"${field.label}" is a ${field.fieldType} field and has no number to price against.`),
@@ -140,9 +191,15 @@ export function priceService(
   return { ...calculatePrice(service.pricingEquations, value), field };
 }
 
-/** A band that carries money. Anything else is an empty row left by "Add tier". */
+/**
+ * A band that carries money. Anything else is an empty row left by "Add tier".
+ *
+ * A floor on its own counts: "never less than $49" with no base and no step is
+ * a $49 band, and a band that would have refused to price a job before the
+ * floor existed must not keep refusing now that the floor is the whole price.
+ */
 export function isPricedBand(equation: PricingEquation): boolean {
-  return equation.basePrice > 0 || equation.incrementPrice > 0;
+  return equation.basePrice > 0 || equation.incrementPrice > 0 || (equation.minPrice ?? 0) > 0;
 }
 
 /**
@@ -184,6 +241,11 @@ export function scalePrice(amount: number, scale: PriceScale): number {
  *   (his costs are 75-85% of the rate, so a 1.5x service costs 1.5x to
  *   deliver), and is left alone on add. Hours are never touched: the job takes
  *   as long as it takes whatever it is billed at.
+ * - The floor travels with the price in every mode, including add. A minimum
+ *   is a price, not a step, so adding $5 to it cannot compound the way adding
+ *   $5 to a per-step increment would — and a one-time mow at 1.5x whose floor
+ *   stayed at the mowing floor would quietly take small jobs at the mowing
+ *   price.
  */
 export function scaleEquations(
   equations: PricingEquation[],
@@ -198,6 +260,7 @@ export function scaleEquations(
       basePrice: scalePrice(equation.basePrice, scale),
       incrementPrice:
         proportional && equation.incrementPrice ? scalePrice(equation.incrementPrice, scale) : equation.incrementPrice,
+      ...(equation.minPrice != null ? { minPrice: scalePrice(equation.minPrice, scale) } : {}),
     };
     if (options.scaleCost && proportional && equation.budgetedCost != null) {
       // Cents only: cost is an internal figure, not a quoted price.
@@ -226,6 +289,13 @@ export type MatrixRule = {
   firstTier: MatrixRuleTier;
   secondTier?: MatrixRuleTier | null;
   costPercent?: number | null;
+  /**
+   * "Never charge less than this for the service", written onto every band the
+   * rule makes. His start price is usually also his minimum, but not always —
+   * a per-unit rule that starts at $0 and charges $5 a thousand still has a
+   * $49 floor under it, and that is the sentence he could not write before.
+   */
+  minPrice?: number | null;
 };
 
 /** Enough for 500 sqft steps up to 200,000 sqft; more than that is a typo. */
@@ -243,6 +313,7 @@ export function bandsFromRule(rule: MatrixRule): PricingEquation[] {
     incrementSqft: 0,
     budgetedHours: null,
     budgetedCost: costOf(basePrice),
+    ...(rule.minPrice != null && rule.minPrice > 0 ? { minPrice: roundMoney(rule.minPrice) } : {}),
     ...extra,
   });
 
@@ -330,10 +401,23 @@ export async function recalcClientBalance(clientId: number, tx: Executor = db) {
     .from(clientsTable)
     .where(eq(clientsTable.id, clientId))
     .for("no key update");
+  // A written-off or collections bill counts at what was actually PAID on it,
+  // not at its total and not at zero. Dropping it entirely would leave its own
+  // payments counted on their own and invent credit the customer never has
+  // (the same trap voiding falls into, which is why voiding detaches its
+  // payments); counting it in full would leave the balance he just wrote off
+  // sitting on the account. Counting it at amountPaid cancels its payments
+  // exactly and takes off precisely the part nobody is going to pay.
   const [inv] = await tx
-    .select({ total: sum(invoicesTable.total) })
+    .select({
+      total: sql<string>`coalesce(sum(case
+        when ${invoicesTable.status} = 'void' then 0
+        when ${invoicesTable.status} in ('written_off', 'collections') then ${invoicesTable.amountPaid}
+        else ${invoicesTable.total}
+      end), 0)`,
+    })
     .from(invoicesTable)
-    .where(and(eq(invoicesTable.clientId, clientId), ne(invoicesTable.status, "void")));
+    .where(eq(invoicesTable.clientId, clientId));
   const [pay] = await tx
     .select({ total: sum(paymentsTable.amount) })
     .from(paymentsTable)
@@ -364,6 +448,17 @@ export async function recalcInvoice(invoiceId: number, tx: Executor = db) {
     .where(eq(paymentsTable.invoiceId, invoiceId));
   const paid = roundMoney(Number(pay?.total ?? 0));
   const total = roundMoney(inv.total);
+  if (inv.status === "written_off" || inv.status === "collections") {
+    // A bill he has given up on keeps its payments — somebody paid part of it
+    // and that money is real — so the paid figure still has to track them. The
+    // status does not move: working it back out from the money would quietly
+    // put the written-off balance back on the account the next time anything
+    // touched the invoice.
+    if (paid !== inv.amountPaid) {
+      await tx.update(invoicesTable).set({ amountPaid: paid }).where(eq(invoicesTable.id, invoiceId));
+    }
+    return;
+  }
   // Money in hand wins: a bill paid in full is paid, whether or not the office
   // has checked it yet. Checking is tracked by verifiedAt, not by the status,
   // so a paid-at-the-door bill still sits in Needs verification until he

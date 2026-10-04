@@ -13,6 +13,10 @@ export interface EmailBatchRecipient {
   clientId?: number | null;
   clientName: string;
   /** @nullable */
+  clientAddress?: string | null;
+  /** @nullable */
+  clientPhone?: string | null;
+  /** @nullable */
   toEmail?: string | null;
   /** @nullable */
   subject?: string | null;
@@ -23,6 +27,8 @@ export interface EmailBatchRecipient {
   error?: string | null;
   /** @nullable */
   openedAt?: string | null;
+  /** 'false' when this email went out without a tracking pixel, so nothing can ever come back about it and the screen must not say 'not opened yet' */
+  trackable: boolean;
   openCount: number;
   /** @nullable */
   sentAt?: string | null;

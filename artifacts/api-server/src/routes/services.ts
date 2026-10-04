@@ -10,8 +10,10 @@ import {
   BulkAdjustServicePricesBody,
   CopyServiceMatrixBody,
   BuildMatrixFromRuleBody,
+  ImportServiceMatrixBody,
 } from "@workspace/api-zod";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
+import { isMonthDay, monthDayOf, seasonDateError } from "../lib/jobGeneration";
 import {
   priceService,
   isPriceableFieldType,
@@ -23,6 +25,13 @@ import {
   bandsFromRule,
   type PriceScale,
 } from "../lib/helpers";
+import {
+  addProductCost,
+  productCostLabel,
+  matrixToCsv,
+  parseMatrixCsv,
+  type MatrixProductCost,
+} from "../lib/matrixIO";
 
 const router: IRouter = Router();
 
@@ -168,6 +177,11 @@ router.post("/services/:id/price", async (req, res) => {
     price: result.price,
     sqft: body.sqft,
     equationIndex: result.equationIndex,
+    // "Never less than $49" doing the work is the thing he most wants to see
+    // confirmed, since not being able to say it is what he was blocked on. The
+    // tester says so instead of leaving him to work out why a 2,000 sqft lawn
+    // and a 4,000 sqft lawn quoted the same number.
+    minimumApplied: result.minimumApplied,
     pricingFieldId: field?.id ?? null,
     pricingFieldLabel: field?.label ?? null,
   });
@@ -188,6 +202,13 @@ function scaleLabel(scale: PriceScale) {
  * gets first, and a target that already has priced bands is only replaced
  * when `overwrite` says so — a hand-typed matrix is not something to lose to
  * one click.
+ *
+ * 2026-09-28 adds the product on top: "Aeration + seed = AE overseed", and top
+ * dressing where the product is bought by the square foot and then delivered
+ * on a trailer. The multiplier runs first and the product goes on after it,
+ * because the product is a pass-through he pays cash for — marking it up by
+ * the same 1.5 that covers his labour would charge the customer for margin on
+ * a bag of seed.
  */
 router.post("/services/:id/copy-matrix", async (req, res) => {
   const body = CopyServiceMatrixBody.parse(req.body);
@@ -221,7 +242,28 @@ router.post("/services/:id/copy-matrix", async (req, res) => {
     return res.status(404).json({ error: `Service ${missing.join(", ")} not found` });
   }
 
-  const equations = scaleEquations(source.pricingEquations, scale, { scaleCost: true });
+  const scaled = scaleEquations(source.pricingEquations, scale, { scaleCost: true });
+  const product: MatrixProductCost | null = body.productCost
+    ? {
+        amountPerUnit: body.productCost.amountPerUnit,
+        perUnits: body.productCost.perUnits,
+        flatAmount: body.productCost.flatAmount,
+        label: body.productCost.label ?? null,
+      }
+    : null;
+  let equations = scaled;
+  let productAdded: (number | null)[] = [];
+  if (product) {
+    try {
+      const withProduct = addProductCost(scaled, product);
+      equations = withProduct.equations;
+      productAdded = withProduct.added;
+    } catch (error) {
+      const message = serviceBadRequestMessage(error);
+      if (message) return res.status(400).json({ error: message });
+      throw error;
+    }
+  }
   const copyField = body.copyPricingField ?? true;
   const targets = targetIds.map((id) => {
     const service = byId.get(id)!;
@@ -253,7 +295,7 @@ router.post("/services/:id/copy-matrix", async (req, res) => {
     });
     await logAudit({
       action: "service_matrix_copied",
-      description: `Copied the "${source.name}" matrix (${equations.length} bands, ${scaleLabel(scale)}) to ${targets.map((t) => `"${t.service.name}"`).join(", ")}`,
+      description: `Copied the "${source.name}" matrix (${equations.length} bands, ${scaleLabel(scale)}${product ? `, plus ${productCostLabel(product)}` : ""}) to ${targets.map((t) => `"${t.service.name}"`).join(", ")}`,
       actorName: req.appUser?.name,
     });
   }
@@ -262,13 +304,123 @@ router.post("/services/:id/copy-matrix", async (req, res) => {
     applied: apply,
     sourceServiceId: source.id,
     sourceServiceName: source.name,
+    productCostLabel: product ? productCostLabel(product) : null,
     targets: targets.map((t) => ({
       serviceId: t.service.id,
       serviceName: t.service.name,
       existingBands: t.existingBands,
       equations,
       pricingFieldChanged: t.pricingFieldChanged,
+      productAdded,
     })),
+  });
+});
+
+/**
+ * "Ability to extract matrix from crm to excel" (X4). A CSV, deliberately: it
+ * opens on a double click in Excel and in Google Sheets, it needs no library
+ * on either end, and the same text is what the importer reads back — a real
+ * .xlsx would be a second, different definition of the same columns waiting to
+ * drift from this one. The UI says CSV in as many words so he knows what he is
+ * getting before he clicks.
+ *
+ * A plain link in the browser, like the client export and the reports: the
+ * session cookie rides along, so there is no blob code to go wrong and the URL
+ * still works pasted into a new tab.
+ */
+router.get("/services/:id/matrix-export", async (req, res) => {
+  const [svc] = await db.select().from(servicesTable).where(eq(servicesTable.id, Number(req.params.id)));
+  if (!svc) return res.status(404).json({ error: "Service not found" });
+  const [field] = svc.pricingFieldId != null
+    ? await db.select().from(estimateFieldsTable).where(eq(estimateFieldsTable.id, svc.pricingFieldId))
+    : [];
+  // The bands are measured in whichever field prices this service, so the
+  // header has to say which — a top dressing matrix in square feet and a
+  // blow-out matrix in zones look identical otherwise.
+  const csv = matrixToCsv(svc.pricingEquations, { unit: field?.label ?? "Turf Sqft" });
+  // His own file name, not an id: he is about to have several of these in a
+  // downloads folder.
+  const safeName = svc.name.replace(/[^A-Za-z0-9 _-]+/g, "").trim().replace(/\s+/g, "-") || `service-${svc.id}`;
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${safeName}-matrix.csv"`);
+  return res.send(csv);
+});
+
+/**
+ * Feedback #42: the matrix back in from the spreadsheet he edited ("Example in
+ * google drive (top dressing)").
+ *
+ * Preview then apply, the same shape as copy-matrix, and for a harder reason:
+ * an import that quietly got a column wrong would reprice every estimate,
+ * every job and every invoice raised from this service, and he would find out
+ * from a customer. So the first call only reads — every band it found, every
+ * column it ignored, every number it could not make sense of — and `apply`
+ * writes only once he has looked at that and said yes. A file with any error
+ * cannot be applied at all, however hard the caller asks.
+ */
+router.post("/services/:id/import-matrix", async (req, res) => {
+  const body = ImportServiceMatrixBody.parse(req.body);
+  const [svc] = await db.select().from(servicesTable).where(eq(servicesTable.id, Number(req.params.id)));
+  if (!svc) return res.status(404).json({ error: "Service not found" });
+
+  let read: ReturnType<typeof parseMatrixCsv>;
+  try {
+    read = parseMatrixCsv(body.csv);
+  } catch (error) {
+    const message = serviceBadRequestMessage(error);
+    if (message) return res.status(400).json({ error: message });
+    throw error;
+  }
+
+  // A matrix measured in square feet dropped onto a service priced by sprinkler
+  // zones is a perfectly valid file that would reprice every one of those jobs,
+  // and nothing in the numbers would look wrong. The export writes the unit into
+  // the header, so when the file names one and it is not this service's, say so.
+  // A warning, not a refusal: it is also how he would legitimately move a matrix
+  // onto a service he is about to change the Price By on.
+  const [importField] = svc.pricingFieldId != null
+    ? await db.select().from(estimateFieldsTable).where(eq(estimateFieldsTable.id, svc.pricingFieldId))
+    : [];
+  const serviceUnit = importField?.label ?? "Turf Sqft";
+  const fileUnit = read.unitInFile;
+  if (fileUnit && fileUnit.trim().toLowerCase() !== serviceUnit.trim().toLowerCase()) {
+    read.warnings.push(
+      `That file says its sizes are ${fileUnit}, but "${svc.name}" is priced by ${serviceUnit}. Check you picked the right file — the bands would be read as ${serviceUnit}.`,
+    );
+  }
+
+  const canApply = read.errors.length === 0;
+  const apply = body.apply === true;
+  if (apply && !canApply) {
+    return res.status(400).json({
+      error: `That file has ${read.errors.length} problem${read.errors.length === 1 ? "" : "s"} and was not saved. ${read.errors[0]}`,
+    });
+  }
+
+  const existingBands = svc.pricingEquations.filter(isPricedBand).length;
+  if (apply) {
+    await db.update(servicesTable).set({ pricingEquations: read.bands }).where(eq(servicesTable.id, svc.id));
+    // This moves money on every estimate and invoice the service touches from
+    // here on, so it goes in the history with the file that did it.
+    await logAudit({
+      action: "service_matrix_imported",
+      description: `Replaced the "${svc.name}" rate matrix with ${read.bands.length} band${read.bands.length === 1 ? "" : "s"} from ${body.fileName?.trim() || "a spreadsheet"} (was ${existingBands} priced band${existingBands === 1 ? "" : "s"})`,
+      actorName: req.appUser?.name,
+    });
+  }
+
+  return res.json({
+    applied: apply,
+    serviceId: svc.id,
+    serviceName: svc.name,
+    existingBands,
+    bands: read.bands,
+    columns: read.columns,
+    rowsRead: read.rowsRead,
+    rowsSkipped: read.rowsSkipped,
+    warnings: read.warnings,
+    errors: read.errors,
+    canApply,
   });
 });
 
@@ -365,6 +517,13 @@ function entriesFrom(
   // will actually inherit at assign time.
   packageWindow: { startDate?: string | null; endDate?: string | null } = {},
 ): PackageItem[] | undefined {
+  // "When Creating packages does not need year as they will be renewed every
+  // year and have the same date window of service." So a date here may be a
+  // bare month and day, and two dates are only compared on the part they both
+  // carry — otherwise "10-01" would read as earlier than "2026-11-30" and a
+  // perfectly good window would be refused.
+  const sameShape = (a: string, b: string) =>
+    isMonthDay(a) || isMonthDay(b) ? [monthDayOf(a)!, monthDayOf(b)!] : [a, b];
   const items: PackageItem[] | undefined =
     body.items ?? body.serviceIds?.map((serviceId): PackageItem => ({ serviceId }));
   if (!items) return undefined;
@@ -378,11 +537,17 @@ function entriesFrom(
       ["Window start", item.windowStart],
       ["Window end", item.windowEnd],
     ] as const) {
-      const problem = dateFieldError(label, value);
+      const problem = seasonDateError(label, value);
       if (problem) throw bad(`${which}: ${problem}`);
     }
-    if (item.windowStart && item.windowEnd && item.windowEnd < item.windowStart) {
-      throw bad(`${which}: an entry's window cannot end before it starts`);
+    if (item.windowStart && item.windowEnd) {
+      const [from, to] = sameShape(item.windowStart, item.windowEnd);
+      // A window that runs over New Year (blow-outs from November into
+      // February) is written end-before-start on purpose when there is no
+      // year; assigning it resolves the two into one season.
+      if (to < from && !isMonthDay(item.windowStart) && !isMonthDay(item.windowEnd)) {
+        throw bad(`${which}: an entry's window cannot end before it starts`);
+      }
     }
     // Assigning the package fills in whichever side the entry leaves blank
     // from the package's own dates (see routes/client-services.ts), so a
@@ -391,7 +556,8 @@ function entriesFrom(
     // lot. Refuse it while he is still looking at the entry that caused it.
     const start = item.windowStart || packageWindow.startDate || null;
     const end = item.windowEnd || packageWindow.endDate || null;
-    if (start && end && end < start) {
+    const bothYearFree = isMonthDay(start ?? undefined) && isMonthDay(end ?? undefined);
+    if (start && end && !bothYearFree && sameShape(start, end)[1] < sameShape(start, end)[0]) {
       throw bad(
         `${which}: that window would run ${start} to ${end}, which is outside the package's ${packageWindow.startDate ?? "?"} to ${packageWindow.endDate ?? "?"}. Give the entry both dates, or widen the package.`,
       );
@@ -403,6 +569,29 @@ function entriesFrom(
     windowStart: item.windowStart || null,
     windowEnd: item.windowEnd || null,
   }));
+}
+
+/**
+ * The package's own four dates. Year-free is allowed and is in fact what he
+ * means most of the time — "the same date window of service" every year — so
+ * the only thing refused here is a date that is not a date.
+ */
+function packageDateError(body: {
+  startDate?: string | null;
+  endDate?: string | null;
+  seasonEndDate?: string | null;
+  renewDate?: string | null;
+}): string | null {
+  for (const [label, value] of [
+    ["Start date", body.startDate],
+    ["End date", body.endDate],
+    ["Season end date", body.seasonEndDate],
+    ["Renew date", body.renewDate],
+  ] as const) {
+    const problem = seasonDateError(label, value);
+    if (problem) return problem;
+  }
+  return null;
 }
 
 async function withServices(pkg: typeof packagesTable.$inferSelect) {
@@ -437,6 +626,8 @@ router.get("/packages", async (_req, res) => {
 
 router.post("/packages", async (req, res) => {
   const body = CreatePackageBody.parse(req.body);
+  const dateProblem = packageDateError(body);
+  if (dateProblem) return res.status(400).json({ error: dateProblem });
   let items: PackageItem[];
   try {
     items = entriesFrom(body, { startDate: body.startDate, endDate: body.endDate }) ?? [];
@@ -474,6 +665,8 @@ router.patch("/packages/:id", async (req, res) => {
     .from(packagesTable)
     .where(eq(packagesTable.id, Number(req.params.id)));
   if (!existing) return res.status(404).json({ error: "Package not found" });
+  const dateProblem = packageDateError(body);
+  if (dateProblem) return res.status(400).json({ error: dateProblem });
   let items: PackageItem[] | undefined;
   try {
     items = entriesFrom(body, {

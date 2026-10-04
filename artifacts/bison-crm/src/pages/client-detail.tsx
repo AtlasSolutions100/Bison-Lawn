@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRoute, useSearch } from 'wouter';
 import {
   useGetClient,
@@ -50,9 +50,12 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import AssignedServicesPanel from '@/components/client/assigned-services';
 import ClientAccountingPanel from '@/components/client/accounting-panel';
+import { AccountRunningTotalLine } from '@/components/billing/account-summary';
 import ClientJobsPanel from '@/components/client/jobs-panel';
 import ClientActivityPanel from '@/components/client/activity-panel';
 import TextClientButton from '@/components/client/text-client-button';
+import TagPicker from '@/components/client/tag-picker';
+import { AiPolish } from '@/components/ai-polish';
 
 /**
  * The customer's account, laid out the way his old system laid it out because
@@ -91,6 +94,27 @@ export default function ClientDetail() {
   const requested = new URLSearchParams(search).get('tab');
   const tab: TabKey = TABS.some(t => t.key === requested) ? (requested as TabKey) : 'overview';
   const showTab = (next: string) => setLocation(`/clients/${id}?tab=${next}`, { replace: true });
+
+  /*
+    "Billing, Property details all in button on editing client."
+
+    Edit is a button on the account now, and everything it is possible to edit
+    about a customer is inside it — billing and the property details together,
+    in the order he reads them. It lives in the address bar so the pencil on the
+    client list can open it straight from the list, and so the browser's Back
+    closes it instead of leaving the page.
+  */
+  const editParam = new URLSearchParams(search).get('edit');
+  const editing = editParam != null && editParam !== '' && editParam !== '0';
+  const editAt = EDIT_SECTIONS.some(s => s.key === editParam) ? (editParam as EditSectionKey) : 'billing';
+  // Opening it ADDS a history entry so Back has something to go back TO: the
+  // account with the panel shut. Replacing the entry instead left the account
+  // itself as the thing behind the panel, so Back walked him off the customer
+  // and out to the list. The jump chips replace, because jumping from Billing
+  // to Property details inside the open panel is not a place he came from.
+  const openEdit = (section: EditSectionKey) =>
+    setLocation(`/clients/${id}?tab=${tab}&edit=${section}`, { replace: editing });
+  const closeEdit = () => setLocation(`/clients/${id}?tab=${tab}`, { replace: true });
 
   if (isLoading) return <div className="p-8">Loading client...</div>;
   if (!client) return <div className="p-8">Client not found.</div>;
@@ -168,6 +192,9 @@ export default function ClientDetail() {
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-2 pt-4">
+                <Button size="sm" variant="outline" onClick={() => openEdit('billing')} data-testid="open-edit-client">
+                  <Pencil className="w-4 h-4 mr-1" /> Edit
+                </Button>
                 <Button size="sm" onClick={() => setLocation(`/estimates?clientId=${id}&new=1`)}>
                   <FileText className="w-4 h-4 mr-1" /> Create Estimate
                 </Button>
@@ -199,6 +226,10 @@ export default function ClientDetail() {
                 {/* A property manager asks "what do I owe you in all", not "what
                     does the HOA office itself owe". Both numbers stay visible so
                     neither one is mistaken for the other. */}
+                {/* "Admin see running total for customer": the balance on its
+                    own never said what was past due, what we are holding for
+                    them, or what is finished and not billed. */}
+                <AccountRunningTotalLine clientId={id} />
                 {isMaster && (
                   <p className="text-xs font-medium text-muted-foreground mt-1 whitespace-nowrap" data-testid="related-total">
                     With {client.relatedPropertyCount} {client.relatedPropertyCount === 1 ? 'property' : 'properties'}:{' '}
@@ -296,7 +327,99 @@ export default function ClientDetail() {
           </Tabs>
         </div>
       </div>
+
+      <ClientEditDialog client={client} open={editing} startAt={editAt} onJump={openEdit} onClose={closeEdit} />
     </div>
+  );
+}
+
+/**
+ * Everything about a customer that can be edited, in one button.
+ *
+ * "Billing, Property details all in button on editing client." He was hunting:
+ * billing was behind one tab, the custom fields behind another, the zone behind
+ * a third, and he opens an account to change a bill-to address and a gate code
+ * in the same minute. Edit now opens all of it stacked in one panel — billing
+ * first, because that is what he said first — with jump links across the top so
+ * a long account is still one press from the part he wants.
+ *
+ * The cards inside are the same cards the tabs show, not copies: one set of
+ * boxes, one Save per card, one audit line. A second copy of the billing form
+ * would be a second place for the two to drift apart.
+ */
+const EDIT_SECTIONS = [
+  { key: 'billing', label: 'Billing' },
+  { key: 'property', label: 'Property details' },
+  { key: 'contact', label: 'Name & address' },
+  { key: 'route', label: 'Zone & map pin' },
+  { key: 'master', label: 'Master account' },
+] as const;
+type EditSectionKey = (typeof EDIT_SECTIONS)[number]['key'];
+
+function ClientEditDialog({ client, open, startAt, onJump, onClose }: {
+  client: Client;
+  open: boolean;
+  startAt: EditSectionKey;
+  onJump: (section: EditSectionKey) => void;
+  onClose: () => void;
+}) {
+  const sections = useRef<Partial<Record<EditSectionKey, HTMLDivElement | null>>>({});
+
+  // Scrolls to whichever section the address bar names — on opening, and again
+  // when he presses a jump link. `block: 'start'` inside the dialog's own
+  // scroller, so the page behind it never moves.
+  useEffect(() => {
+    if (!open) return;
+    const target = sections.current[startAt];
+    if (!target) return;
+    const timer = setTimeout(() => target.scrollIntoView({ block: 'start', behavior: 'smooth' }), 60);
+    return () => clearTimeout(timer);
+  }, [open, startAt]);
+
+  return (
+    <Dialog open={open} onOpenChange={next => { if (!next) onClose(); }}>
+      <DialogContent className="sm:max-w-[920px]" data-testid="client-edit-dialog">
+        <DialogHeader>
+          <DialogTitle>Edit {client.name}</DialogTitle>
+        </DialogHeader>
+        <div className="sticky top-0 z-10 -mx-6 flex flex-wrap gap-1 border-b bg-background px-6 pb-2">
+          {EDIT_SECTIONS.map(s => (
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => onJump(s.key)}
+              className={`rounded-md px-2.5 py-1 text-xs font-semibold ${
+                startAt === s.key ? 'bg-primary text-primary-foreground' : 'bg-muted/60 text-muted-foreground hover:bg-muted'
+              }`}
+              data-testid={`edit-jump-${s.key}`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+        <div className="space-y-6">
+          <div ref={el => { sections.current.billing = el; }}>
+            <ClientBilling client={client} />
+          </div>
+          <div ref={el => { sections.current.property = el; }}>
+            <ClientProperties client={client} />
+          </div>
+          <div ref={el => { sections.current.contact = el; }}>
+            <ClientPersonalInfo client={client} />
+          </div>
+          <div ref={el => { sections.current.route = el; }} className="space-y-6">
+            <ClientRouting client={client} />
+            <ClientMapPin client={client} />
+          </div>
+          <div ref={el => { sections.current.master = el; }}>
+            <ClientMasterAccount client={client} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button type="button" onClick={onClose} data-testid="client-edit-done">Done</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -349,6 +472,46 @@ function useSaveClient(client: Client, savedMessage: string) {
 // Blank clears the field rather than storing "", so an empty box never reads
 // as a real answer in a filter or on an invoice.
 const clean = (v: string) => (v.trim() ? v.trim() : null);
+
+/**
+ * A card's boxes, kept in step with the customer behind them.
+ *
+ * A card used to fill its boxes once, when it opened, and never look at the
+ * customer again. The Edit panel shows the SAME cards the tabs show, so two
+ * copies of a card can now be open at the same moment — the one in the panel
+ * and the one on the tab behind it. Save in one and the other was still holding
+ * what it read when it opened, so its Save button lit up and pressing it put the
+ * old name, phone and address straight back, with nothing on screen saying so.
+ *
+ * So: every time a fresh copy of the customer arrives, a box he has not touched
+ * takes the new value, and a box he is part way through typing is left alone.
+ * `base` is what the server last told us, which is also what "changed" is
+ * measured against — so a save by the other copy leaves this one clean, not
+ * dirty with stale words in it.
+ */
+function useClientFields<T extends Record<string, string>>(fresh: T) {
+  const [state, setState] = useState<{ base: T; form: T }>({ base: fresh, form: fresh });
+  const freshKey = JSON.stringify(fresh);
+
+  useEffect(() => {
+    setState(current => {
+      const form = { ...current.form };
+      for (const key of Object.keys(fresh) as (keyof T)[]) {
+        if (current.form[key] === current.base[key]) form[key] = fresh[key];
+      }
+      return { base: fresh, form };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [freshKey]);
+
+  const set = (key: keyof T, value: string) =>
+    setState(current => ({ ...current, form: { ...current.form, [key]: value } }));
+  const setMany = (patch: Partial<T>) =>
+    setState(current => ({ ...current, form: { ...current.form, ...patch } }));
+  const dirty = (Object.keys(state.base) as (keyof T)[]).some(k => state.base[k] !== state.form[k]);
+
+  return { form: state.form, set, setMany, dirty };
+}
 
 /**
  * The office email, with the recipient editable and Cc / Bcc.
@@ -571,6 +734,11 @@ function EmailClientDialog({ client }: { client: Client }) {
               <div>
                 <label className="text-sm font-medium mb-1 block">Message</label>
                 <textarea className="flex min-h-40 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={body} onChange={e => setBody(e.target.value)} maxLength={10000} required />
+                {/* "having an option to use AI for clarity and professionalism,
+                    currently use chatgpt. Like in GMail." Only what he typed in
+                    this box is sent, and he has to press Use this before it
+                    replaces anything. */}
+                <AiPolish value={body} onAccept={setBody} what="email" testId="email-ai-polish" />
               </div>
             </>
           )}
@@ -708,10 +876,8 @@ function ClientPersonalInfo({ client }: { client: Client }) {
     postalCode: client.postalCode ?? '',
   };
   type Form = typeof initial;
-  const [form, setForm] = useState<Form>(initial);
+  const { form, set, dirty } = useClientFields<Form>(initial);
   const { save, saving } = useSaveClient(client, 'Personal info saved');
-  const set = (key: keyof Form, value: string) => setForm(current => ({ ...current, [key]: value }));
-  const dirty = (Object.keys(initial) as (keyof Form)[]).some(k => initial[k] !== form[k]);
 
   const branches = ['ID', 'WA'];
   const otherState = form.state && !branches.includes(form.state) ? form.state : null;
@@ -1189,7 +1355,12 @@ function ClientMasterAccount({ client }: { client: Client }) {
                     c.id === client.id ? 'this account'
                       : c.parentClientId != null ? 'already under a master'
                         : (c.relatedPropertyCount ?? 0) > 0 ? 'is a master itself'
-                          : null}
+                          // "Former clients — restrict ability to add to as sub
+                          // account." Greyed out with the reason on it, so he
+                          // can see it is the right name and why it is refused,
+                          // rather than wondering whether he mistyped.
+                          : c.status === 'former_client' ? 'former client — set them back to active first'
+                            : null}
                   onPick={(c) => link(c.id, client.id, `${c.name} added as a property`)}
                 />
                 <Button size="sm" variant="ghost" onClick={() => setPicking(null)}>Cancel</Button>
@@ -1202,20 +1373,43 @@ function ClientMasterAccount({ client }: { client: Client }) {
                   exclude={(c) =>
                     c.id === client.id ? 'this account'
                       : c.parentClientId != null ? 'is a property itself'
-                        : null}
+                        : c.status === 'former_client' ? 'former client — nothing can be filed under it'
+                          : null}
                   onPick={(c) => link(client.id, c.id, `Now under ${c.name}`)}
                 />
                 <Button size="sm" variant="ghost" onClick={() => setPicking(null)}>Cancel</Button>
               </div>
             ) : (
-              <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" onClick={() => setPicking('property')} data-testid="related-add">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={client.status === 'former_client'}
+                  onClick={() => setPicking('property')}
+                  data-testid="related-add"
+                >
                   <Plus className="w-4 h-4 mr-1" /> Add a property
                 </Button>
                 {!isMaster && (
-                  <Button size="sm" variant="ghost" onClick={() => setPicking('master')} data-testid="master-set">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={client.status === 'former_client'}
+                    onClick={() => setPicking('master')}
+                    data-testid="master-set"
+                  >
                     Put this account under a master
                   </Button>
+                )}
+                {/* Said here rather than left as a dead button: a former client
+                    is finished with, and filing live properties under it — or
+                    filing it under somebody — is how a closed account ends up
+                    quietly carrying work. */}
+                {client.status === 'former_client' && (
+                  <span className="text-xs text-muted-foreground" data-testid="former-no-sub-accounts">
+                    This is a former client, so nothing can be filed under it and it cannot go under a master.
+                    Set the status back to Active at the top of the page first.
+                  </span>
                 )}
               </div>
             )}
@@ -1227,14 +1421,16 @@ function ClientMasterAccount({ client }: { client: Client }) {
 }
 
 function ClientRouting({ client }: { client: Client }) {
-  const [mapCode, setMapCode] = useState(client.mapCode ?? '');
-  const [waterDistrict, setWaterDistrict] = useState(client.waterDistrict ?? '');
-  const [mapNote, setMapNote] = useState(client.mapNote ?? '');
+  // Same hook as the other cards: Edit shows this card over the copy the
+  // Details tab is still holding, and the copy that did not save has to take
+  // the new zone rather than offer to put the old one back.
+  const { form, set, dirty } = useClientFields({
+    mapCode: client.mapCode ?? '',
+    waterDistrict: client.waterDistrict ?? '',
+    mapNote: client.mapNote ?? '',
+  });
+  const { mapCode, waterDistrict, mapNote } = form;
   const { save, saving } = useSaveClient(client, 'Routing details saved');
-
-  const dirty = (client.mapCode ?? '') !== mapCode
-    || (client.waterDistrict ?? '') !== waterDistrict
-    || (client.mapNote ?? '') !== mapNote;
 
   return (
     <Card className="shadow-sm border-border">
@@ -1252,7 +1448,7 @@ function ClientRouting({ client }: { client: Client }) {
             placeholder="e.g. PF"
             maxLength={16}
             value={mapCode}
-            onChange={(e) => setMapCode(e.target.value)}
+            onChange={(e) => set('mapCode', e.target.value)}
             data-testid="routing-mapCode"
           />
           <p className="text-xs text-muted-foreground mt-1">Route zone shorthand. Groups and colour-codes this client on the client list.</p>
@@ -1267,7 +1463,7 @@ function ClientRouting({ client }: { client: Client }) {
           <Input
             placeholder="e.g. Whitworth Water District No. 2"
             value={waterDistrict}
-            onChange={(e) => setWaterDistrict(e.target.value)}
+            onChange={(e) => set('waterDistrict', e.target.value)}
           />
           <p className="text-xs text-muted-foreground mt-1">
             Sets which district's rules govern this property's backflow test and blow-out. Check the address on the lookup, then type the answer here.
@@ -1279,7 +1475,7 @@ function ClientRouting({ client }: { client: Client }) {
             rows={2}
             placeholder="Gate on the left side. Dog in the back yard."
             value={mapNote}
-            onChange={(e) => setMapNote(e.target.value)}
+            onChange={(e) => set('mapNote', e.target.value)}
             data-testid="routing-mapNote"
           />
           <p className="text-xs text-muted-foreground mt-1">The crew sees this on every job card for this address.</p>
@@ -1335,8 +1531,14 @@ function parseCoordinates(text: string): { lat: number; lng: number } | null {
  * Maps link is the second; the numbers themselves are last.
  */
 function ClientMapPin({ client }: { client: Client }) {
-  const [lat, setLat] = useState(client.lat != null ? String(client.lat) : '');
-  const [lng, setLng] = useState(client.lng != null ? String(client.lng) : '');
+  // Same hook as the other cards: Edit can have this card open over the copy on
+  // the Details tab, and a card holding boxes it filled in before the other one
+  // saved is a card whose Save puts the old pin back.
+  const { form, set, setMany, dirty } = useClientFields({
+    lat: client.lat != null ? String(client.lat) : '',
+    lng: client.lng != null ? String(client.lng) : '',
+  });
+  const { lat, lng } = form;
   const [paste, setPaste] = useState('');
   const [locating, setLocating] = useState(false);
   const { save, saving } = useSaveClient(client, 'Map pin saved');
@@ -1347,7 +1549,6 @@ function ClientMapPin({ client }: { client: Client }) {
   const halfDone = (latNum == null) !== (lngNum == null);
   const invalid = (latNum != null && (Number.isNaN(latNum) || Math.abs(latNum) > 90))
     || (lngNum != null && (Number.isNaN(lngNum) || Math.abs(lngNum) > 180));
-  const dirty = (client.lat != null ? String(client.lat) : '') !== lat || (client.lng != null ? String(client.lng) : '') !== lng;
 
   const useMyLocation = () => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
@@ -1366,8 +1567,7 @@ function ClientMapPin({ client }: { client: Client }) {
         toast({ title: 'Could not get your location', description: why ?? 'Allow location for this site and try again.', variant: 'destructive' });
         return;
       }
-      setLat(pos.lat.toFixed(6));
-      setLng(pos.lng.toFixed(6));
+      setMany({ lat: pos.lat.toFixed(6), lng: pos.lng.toFixed(6) });
     };
     navigator.geolocation.getCurrentPosition(
       p => finish({ lat: p.coords.latitude, lng: p.coords.longitude }),
@@ -1381,8 +1581,7 @@ function ClientMapPin({ client }: { client: Client }) {
     setPaste(value);
     const parsed = parseCoordinates(value);
     if (parsed) {
-      setLat(String(parsed.lat));
-      setLng(String(parsed.lng));
+      setMany({ lat: String(parsed.lat), lng: String(parsed.lng) });
       setPaste('');
     }
   };
@@ -1433,11 +1632,11 @@ function ClientMapPin({ client }: { client: Client }) {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Latitude</label>
-            <Input type="number" step="any" min={-90} max={90} value={lat} onChange={e => setLat(e.target.value)} data-testid="pin-lat" />
+            <Input type="number" step="any" min={-90} max={90} value={lat} onChange={e => set('lat', e.target.value)} data-testid="pin-lat" />
           </div>
           <div>
             <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Longitude</label>
-            <Input type="number" step="any" min={-180} max={180} value={lng} onChange={e => setLng(e.target.value)} data-testid="pin-lng" />
+            <Input type="number" step="any" min={-180} max={180} value={lng} onChange={e => set('lng', e.target.value)} data-testid="pin-lng" />
           </div>
         </div>
         {halfDone && <p className="text-xs text-destructive">Latitude and longitude go together — give both, or clear both.</p>}
@@ -1452,7 +1651,7 @@ function ClientMapPin({ client }: { client: Client }) {
             {saving ? 'Saving...' : 'Save pin'}
           </Button>
           {(lat || lng) && (
-            <Button size="sm" variant="outline" onClick={() => { setLat(''); setLng(''); }} data-testid="pin-clear">
+            <Button size="sm" variant="outline" onClick={() => setMany({ lat: '', lng: '' })} data-testid="pin-clear">
               Clear
             </Button>
           )}
@@ -1553,28 +1752,18 @@ function ClientSales({ client }: { client: Client }) {
  *
  * Tags are stored lowercase so "Backflow" and "backflow" are one tag rather
  * than two that look identical in a search, and they are searchable from the
- * same box on the client list he already types names into.
+ * same box on the client list he already types names into. Since 2026-09-28
+ * they are picked off a managed list rather than typed, so a typo stops
+ * becoming a second tag — see components/client/tag-picker.
  */
 function ClientOfficeNote({ client }: { client: Client }) {
   const [note, setNote] = useState(client.officeNote ?? '');
-  const [tagDraft, setTagDraft] = useState('');
   const [expanded, setExpanded] = useState(false);
   const tags = client.tags ?? [];
   const { save, saving } = useSaveClient(client, 'Saved');
 
   const persist = (data: { officeNote?: string | null; tags?: string[] }, message: string) =>
     save(data, { message });
-
-  const addTag = () => {
-    const next = tagDraft.trim().toLowerCase();
-    if (!next) return;
-    setTagDraft('');
-    if (tags.includes(next)) return;
-    persist({ tags: [...tags, next] }, `Tagged "${next}"`);
-  };
-
-  const removeTag = (tag: string) =>
-    persist({ tags: tags.filter(t => t !== tag) }, `Removed "${tag}"`);
 
   const noteDirty = (client.officeNote ?? '') !== note;
 
@@ -1643,39 +1832,25 @@ function ClientOfficeNote({ client }: { client: Client }) {
 
         <div>
           <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Tags</label>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {tags.map(tag => (
-              <span
-                key={tag}
-                className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-xs"
-                data-testid={`tag-${tag}`}
-              >
-                {tag}
-                <button
-                  type="button"
-                  onClick={() => removeTag(tag)}
-                  className="text-muted-foreground hover:text-destructive"
-                  aria-label={`Remove tag ${tag}`}
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            ))}
-            <Input
-              className="h-7 w-44 text-xs"
-              placeholder="Add a tag + Enter"
-              value={tagDraft}
-              onChange={e => setTagDraft(e.target.value)}
-              onKeyDown={e => {
-                // Enter adds the tag rather than submitting anything — there is
-                // no form here, but the habit is worth honouring.
-                if (e.key === 'Enter') { e.preventDefault(); addTag(); }
-              }}
-              data-testid="tag-input"
-            />
-          </div>
+          <TagPicker
+            tags={tags}
+            saving={saving}
+            onChange={next => {
+              // One save per change, named in the toast, the way it read when
+              // the tag was typed here.
+              const added = next.filter(t => !tags.includes(t));
+              const dropped = tags.filter(t => !next.includes(t));
+              persist(
+                { tags: next },
+                added.length === 1 ? `Tagged "${added[0]}"`
+                  : dropped.length === 1 ? `Removed "${dropped[0]}"`
+                    : 'Tags saved',
+              );
+            }}
+          />
           <p className="mt-1 text-xs text-muted-foreground">
-            Searchable from the client list — try "above ground backflow".
+            Picked off the tag list, as many as you like. Searchable from the client list — try
+            "above ground backflow".
           </p>
         </div>
 
@@ -1759,7 +1934,6 @@ const PAY_METHODS: { value: NonNullable<Client['preferredPaymentMethod']>; label
  */
 function ClientBilling({ client }: { client: Client }) {
   const initial = {
-    email: client.email ?? '',
     nameOnInvoice: client.nameOnInvoice ?? '',
     billingAddressLine1: client.billingAddressLine1 ?? '',
     billingAddressLine2: client.billingAddressLine2 ?? '',
@@ -1775,27 +1949,27 @@ function ClientBilling({ client }: { client: Client }) {
     preferredPaymentMethod: client.preferredPaymentMethod ?? '',
   };
   type BillingForm = typeof initial;
-  const [form, setForm] = useState<BillingForm>(initial);
+  const { form, set, setMany, dirty } = useClientFields<BillingForm>(initial);
   const { save, saving } = useSaveClient(client, 'Billing details saved');
 
-  const set = (key: keyof BillingForm, value: string) =>
-    setForm(current => ({ ...current, [key]: value }));
+  // The notification email belongs to Name & address, which is the card that
+  // edits it. This card only needs to SHOW it, because it is what an invoice
+  // falls back to when the billing email is blank — and both cards are open at
+  // once inside Edit, so if this one owned the field too, whichever Save was
+  // pressed second would put back the address the other had just corrected.
+  const notificationEmail = client.email ?? '';
+  const hasAnyEmail = Boolean(form.billingEmail.trim() || notificationEmail.trim());
 
-  const dirty = (Object.keys(initial) as (keyof BillingForm)[]).some(k => initial[k] !== form[k]);
-  const hasAnyEmail = Boolean(form.billingEmail.trim() || form.email.trim());
-
-  const copyServiceAddress = () => setForm(current => ({
-    ...current,
+  const copyServiceAddress = () => setMany({
     billingAddressLine1: client.serviceAddress ?? '',
     billingAddressLine2: client.addressLine2 ?? '',
     billingCity: client.city ?? '',
     billingState: client.state ?? '',
     billingPostalCode: client.postalCode ?? '',
-  }));
+  });
 
   const submit = () => {
     save({
-      email: clean(form.email),
       nameOnInvoice: clean(form.nameOnInvoice),
       billingAddressLine1: clean(form.billingAddressLine1),
       billingAddressLine2: clean(form.billingAddressLine2),
@@ -1839,12 +2013,23 @@ function ClientBilling({ client }: { client: Client }) {
       <CardContent className="pt-4 space-y-6">
         <div className="rounded-md border p-3 space-y-3">
           <div className="grid gap-3 md:grid-cols-2">
-            {billingField({ label: 'Notification email', name: 'email', type: 'email', placeholder: 'Where notices go' })}
-            {billingField({ label: 'Billing email', name: 'billingEmail', type: 'email', placeholder: form.email || 'Falls back to the notification email' })}
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase mb-1 block">Notification email</label>
+              <Input
+                type="email"
+                value={notificationEmail}
+                readOnly
+                placeholder="None on file"
+                className="bg-muted/50"
+                data-testid="billing-email"
+              />
+            </div>
+            {billingField({ label: 'Billing email', name: 'billingEmail', type: 'email', placeholder: notificationEmail || 'Falls back to the notification email' })}
           </div>
           <p className="text-xs text-muted-foreground">
             Notices and bulk emails go to the notification email; invoices go to the billing email — the CPA,
-            the property manager — and to the notification email when that is blank.
+            the property manager — and to the notification email when that is blank. The notification email is
+            shown here because invoices fall back to it; change it under Name &amp; address.
           </p>
         </div>
 

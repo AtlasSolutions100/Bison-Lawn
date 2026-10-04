@@ -28,4 +28,9 @@ export interface PricingEquation {
      * @nullable
      */
   budgetedCost?: number | null;
+  /**
+     * "Never less than": the floor under whatever this band works out to, applied after the base price and every increment. His words on 2026-09-28 were "my starting field on matrix has a min and then from there the Price equation need to take over but I cant set a base" — basePrice used to be both the floor and the number the per-unit equation built from, so a band could not charge per square foot from the first square foot and still refuse to go under the minimum. Null means no floor, which is how every band saved before this existed behaves.
+     * @nullable
+     */
+  minPrice?: number | null;
 }

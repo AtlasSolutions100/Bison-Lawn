@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'wouter';
 import type L from 'leaflet';
 import { DispatchMap } from '@/components/dispatch-map';
 import { BulkActionsBar } from '@/components/dispatch/bulk-actions-bar';
 import {
-  JobFiltersPopover, EMPTY_JOB_FILTERS, jobFilterParams, countActiveFilters, selectClass, type JobFilters,
+  JobFiltersPopover, EMPTY_JOB_FILTERS, jobFilterParams, countActiveFilters, selectClass, useCustomFields,
+  type JobFilters,
 } from '@/components/dispatch/job-filters';
 import { useContractors, type ContractorOption } from '@/components/dispatch/contractors';
 import { EmailDocumentDialog } from '@/components/dispatch/email-document-dialog';
@@ -15,7 +16,7 @@ import {
   useListJobs, useUpdateJob, useCompleteJob, useDeleteJob, useCreateJob,
   useAddJobProduct, useDeleteJobProduct, useBulkJobAction, Job,
   useListClients, useListServices, useBulkAssignJobs, useListTickets,
-  useUncompleteJob, useListProductPresets,
+  useUncompleteJob, useListProductPresets, useMoveRouteStop, useSetJobCrew,
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
@@ -28,10 +29,22 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import {
   AlertTriangle, CalendarCheck, CalendarX, CheckCircle2, Columns3, FileText, ListOrdered, MailX, MapPin,
-  MoreVertical, Plus, RotateCcw, SkipForward, Trash2, PackageOpen, XCircle,
+  MoreVertical, Plus, RotateCcw, SkipForward, Trash2, PackageOpen, Users, XCircle,
 } from 'lucide-react';
 
 const today = () => format(new Date(), 'yyyy-MM-dd');
+
+/**
+ * A custom field's column key. Prefixed so a field he happens to call "Notes"
+ * can never switch the board's own Notes column off, and so the remembered
+ * column list can tell the two apart years from now.
+ */
+const customColumnKey = (label: string) => `cf:${label}`;
+
+/** The name on the tile and the dropdown, for the "showing only X" notice. */
+function contractorName(contractors: ContractorOption[], id: string): string {
+  return contractors.find(c => String(c.id) === id)?.name ?? `Contractor #${id}`;
+}
 
 /** First and last day of the month a `<input type="month">` gives (yyyy-mm). */
 function monthRange(ym: string): { from: string; to: string } | null {
@@ -51,11 +64,81 @@ function monthRange(ym: string): { from: string; to: string } | null {
  */
 export type RenumberState = { scope: number[]; order: number[] };
 
+/*
+  Where he left the board.
+
+  "Going to the dispatch board. After leaving to another screen. When coming
+  back would be nice to come back to same screen that I left." He runs the
+  office alone: he is on the board, a customer rings, he opens their account to
+  answer, and coming back used to drop him on today with every filter cleared
+  and the list scrolled to the top — so he had to rebuild the view he was
+  working in before he could carry on.
+
+  The dates, the contractor, the filters and how far down the list he had
+  scrolled, kept in this browser. localStorage rather than the server: it is
+  where *he* was, not a company setting, and a locked-down browser can refuse
+  it outright — so every read and write is wrapped and the board falls back to
+  today rather than failing to render over a remembered scroll position.
+*/
+const BOARD_SESSION_KEY = 'bison.dispatch.session';
+
+type BoardSession = {
+  from: string;
+  to: string;
+  filters: JobFilters;
+  scrollTop: number;
+  /** The day he was last on the board, for the roll-forward below. */
+  savedOn: string;
+};
+
+function readBoardSession(): BoardSession | null {
+  try {
+    const raw = localStorage.getItem(BOARD_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<BoardSession>;
+    if (typeof parsed?.from !== 'string' || typeof parsed?.to !== 'string') return null;
+    // Merged onto the empty set, never used as-is: a filter added to the app
+    // after this was saved would otherwise come back undefined and put an
+    // uncontrolled select on the screen.
+    const filters = { ...EMPTY_JOB_FILTERS, ...(parsed.filters ?? {}) } as JobFilters;
+    // He left it on the day he was working, and now it is tomorrow. Nobody
+    // means "take me back to yesterday" by that, so a single-day view of the
+    // day it was saved rolls forward; anything he deliberately picked — a
+    // month, next week, a span — comes back exactly as he left it.
+    const stale = parsed.savedOn && parsed.savedOn !== today();
+    const wasJustToday = parsed.from === parsed.to && parsed.from === parsed.savedOn;
+    if (stale && wasJustToday) return { from: today(), to: today(), filters, scrollTop: 0, savedOn: today() };
+    return {
+      from: parsed.from,
+      to: parsed.to,
+      filters,
+      scrollTop: typeof parsed.scrollTop === 'number' && parsed.scrollTop > 0 ? parsed.scrollTop : 0,
+      savedOn: typeof parsed.savedOn === 'string' ? parsed.savedOn : today(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeBoardSession(session: Omit<BoardSession, 'savedOn'>) {
+  try {
+    localStorage.setItem(BOARD_SESSION_KEY, JSON.stringify({ ...session, savedOn: today() }));
+  } catch {
+    /* coming back to the same screen is not worth failing the board over */
+  }
+}
+
 export default function Dispatch() {
+  // Read once, on the way in. Read on every render and the board would fight
+  // whatever he changed.
+  const [leftOff] = useState(readBoardSession);
+
   // A span of days, not one day: "pick a month or a span of time". Both ends
-  // default to today so the board opens the way it always has.
-  const [range, setRange] = useState({ from: today(), to: today() });
-  const [filters, setFilters] = useState<JobFilters>(EMPTY_JOB_FILTERS);
+  // default to today, unless he was already looking at something else.
+  const [range, setRange] = useState(() =>
+    leftOff ? { from: leftOff.from, to: leftOff.to } : { from: today(), to: today() },
+  );
+  const [filters, setFilters] = useState<JobFilters>(() => leftOff?.filters ?? EMPTY_JOB_FILTERS);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [renumber, setRenumber] = useState<RenumberState | null>(null);
   const [emailOpen, setEmailOpen] = useState(false);
@@ -84,6 +167,55 @@ export default function Dispatch() {
   );
   const hasFilters = countActiveFilters(filters) > 0;
   const bulkAssign = useBulkAssignJobs();
+
+  // His own customer fields, offered as board columns and as a filter.
+  // "Dispatch board — columns search using custom fields."
+  const customFields = useCustomFields();
+  // Client, the twelve pickable columns, the row buttons, and one per custom
+  // field — what an empty board has to span to stay centred.
+  const colCount = 14 + customFields.length;
+
+  /*
+    The list's own scroll, kept with the rest of the view.
+
+    It is saved as he scrolls rather than on the way out: he does not leave this
+    screen by closing it, he leaves by clicking a customer's name, and a React
+    unmount is not somewhere to be relying on a write landing. The timer stops
+    700 writes while he drags the scrollbar from the top of a blow-out day to
+    the bottom.
+  */
+  const listScroll = useRef<HTMLDivElement | null>(null);
+  const scrollTop = useRef(leftOff?.scrollTop ?? 0);
+  const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restoredScroll = useRef(false);
+
+  useEffect(() => {
+    writeBoardSession({ from: range.from, to: range.to, filters, scrollTop: scrollTop.current });
+  }, [range, filters]);
+
+  useEffect(() => () => { if (scrollTimer.current) clearTimeout(scrollTimer.current); }, []);
+
+  const onListScroll = () => {
+    scrollTop.current = listScroll.current?.scrollTop ?? 0;
+    if (scrollTimer.current) clearTimeout(scrollTimer.current);
+    scrollTimer.current = setTimeout(
+      () => writeBoardSession({ from: range.from, to: range.to, filters, scrollTop: scrollTop.current }),
+      400,
+    );
+  };
+
+  // Put back once, after the rows he was looking at actually exist. Setting it
+  // while the table still says "Loading board..." scrolls a 40 pixel box and
+  // the number is thrown away.
+  useEffect(() => {
+    if (restoredScroll.current || isLoading || !jobs?.length) return;
+    restoredScroll.current = true;
+    const want = leftOff?.scrollTop ?? 0;
+    if (want <= 0) return;
+    requestAnimationFrame(() => {
+      if (listScroll.current) listScroll.current.scrollTop = want;
+    });
+  }, [isLoading, jobs, leftOff]);
 
   // A selection only means the rows on screen. When the day or a filter
   // changes, anything no longer listed drops out rather than being acted on
@@ -207,6 +339,27 @@ export default function Dispatch() {
                   {col.label}
                 </label>
               ))}
+              {/* His own customer fields as columns — Turf Sqft on the board is
+                  how he decides what a day is worth before anyone drives it.
+                  Off by default: there can be a dozen of them and the board he
+                  asked to stop scrolling sideways is the one being added to. */}
+              {customFields.length > 0 && (
+                <>
+                  <p className="mt-2 border-t px-2 pb-1 pt-2 text-xs text-muted-foreground">Your custom fields</p>
+                  {customFields.map(field => (
+                    <label key={field.label} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-primary"
+                        checked={visibleEffective.includes(customColumnKey(field.label))}
+                        onChange={() => toggle(customColumnKey(field.label))}
+                        data-testid={`column-field-${field.label}`}
+                      />
+                      {field.label}
+                    </label>
+                  ))}
+                </>
+              )}
             </PopoverContent>
           </Popover>
           <Button variant={showMap ? 'default' : 'outline'} onClick={() => setShowMap(v => !v)} data-testid="toggle-map">
@@ -233,6 +386,35 @@ export default function Dispatch() {
       <CrewStrip date={from} />
 
       <TicketStrip date={from} spansDays={spansDays} />
+
+      {/*
+        "Show all contractors jobs on the dispatch board automatically when
+        opening the dispatch board, then if I want to select individual ones I
+        have the option." It already opens on everybody — but once he has
+        clicked a sub's tile, or come back to a board that remembered he had,
+        the only sign was a dropdown two rows up reading one name. This says it
+        in words, and gives everybody back in one click.
+      */}
+      {(filters.contractorId || hasFilters) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm" data-testid="board-filter-notice">
+          <Users className="h-4 w-4 shrink-0 text-blue-700" />
+          <span>
+            {filters.contractorId
+              ? <>Showing only <strong>{contractorName(contractors, filters.contractorId)}</strong>. Everyone else&apos;s jobs are hidden.</>
+              : <>This board is filtered, so some of the day is hidden.</>}
+          </span>
+          {filters.contractorId && (
+            <Button size="sm" variant="outline" className="h-7" onClick={() => setFilters(f => ({ ...f, contractorId: '' }))} data-testid="show-all-contractors">
+              Show all contractors
+            </Button>
+          )}
+          {hasFilters && (
+            <Button size="sm" variant="ghost" className="h-7" onClick={() => setFilters(EMPTY_JOB_FILTERS)} data-testid="clear-all-board-filters">
+              Clear every filter
+            </Button>
+          )}
+        </div>
+      )}
 
       <SubLoadSummary
         from={from}
@@ -274,7 +456,7 @@ export default function Dispatch() {
       <EmailDocumentDialog open={emailOpen} onOpenChange={setEmailOpen} jobs={selectedJobs} source="dispatch" />
 
       <div className="bg-card border rounded-lg shadow-sm flex-1 overflow-hidden flex flex-col">
-        <div className="overflow-auto flex-1">
+        <div className="overflow-auto flex-1" ref={listScroll} onScroll={onListScroll} data-testid="board-list">
           <Table className="min-w-full">
             <TableHeader className="bg-muted/50 sticky top-0 z-10 backdrop-blur-sm">
               <TableRow>
@@ -301,15 +483,20 @@ export default function Dispatch() {
                 <TableHead hidden={!visibleEffective.includes('service')}>Service</TableHead>
                 <TableHead hidden={!visibleEffective.includes('assigned')} className="w-44">Assigned</TableHead>
                 <TableHead hidden={!visibleEffective.includes('money')} className="text-right w-32">Money</TableHead>
+                {customFields.map(field => (
+                  <TableHead key={field.label} hidden={!visibleEffective.includes(customColumnKey(field.label))} className="w-32">
+                    {field.label}
+                  </TableHead>
+                ))}
                 <TableHead className="w-24"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={14} className="text-center py-10 animate-pulse">Loading board...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={colCount} className="text-center py-10 animate-pulse">Loading board...</TableCell></TableRow>
               ) : !jobs?.length ? (
                 <TableRow>
-                  <TableCell colSpan={14} className="py-12">
+                  <TableCell colSpan={colCount} className="py-12">
                     <div className="mx-auto flex max-w-sm flex-col items-center gap-3 text-center">
                       <p className="font-medium text-foreground">
                         {hasFilters
@@ -342,6 +529,7 @@ export default function Dispatch() {
                     onToggle={() => toggleOne(job.id)}
                     renumber={renumber}
                     onRenumberPick={() => pickForRenumber(job.id)}
+                    customFields={customFields}
                   />
                 ))
               )}
@@ -593,8 +781,45 @@ function SubLoadSummary({
 
   const heaviest = Math.max(...buckets.filter(b => b.id != null).map(b => b.amount), 0);
 
+  const everyone = {
+    stops: buckets.reduce((n, b) => n + b.stops, 0),
+    amount: buckets.reduce((n, b) => n + b.amount, 0),
+    hours: buckets.reduce((n, b) => n + b.hours, 0),
+  };
+
   return (
     <div className="flex gap-2 overflow-x-auto pb-1">
+      {/*
+        Everybody, first in the row and lit up when no sub is picked.
+
+        "Show all contractors jobs on the dispatch board automatically when
+        opening the dispatch board, then if I want to select individual ones I
+        have the option." The tiles were the one-way door into a single sub:
+        clicking one filtered the board and the only way back was the same tile
+        or a dropdown on another row. The way out is now where the way in was.
+      */}
+      <div className="flex min-w-40 shrink-0 flex-col">
+        <button
+          type="button"
+          onClick={() => onPick('')}
+          title="Show every contractor's jobs"
+          className={`w-full rounded-lg border bg-card p-2 text-left shadow-sm transition ${
+            activeContractorId === '' ? 'border-primary ring-2 ring-primary/30' : 'hover:border-primary/50 hover:shadow'
+          }`}
+          data-testid="sub-tile-all"
+        >
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="truncate text-sm font-semibold">Everyone</span>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {everyone.stops} {everyone.stops === 1 ? 'stop' : 'stops'}
+            </span>
+          </div>
+          <div className="text-base font-bold leading-tight tabular-nums">{money(everyone.amount)}</div>
+          <div className="text-[11px] leading-tight text-muted-foreground">
+            {activeContractorId === '' ? 'The whole day' : 'Click to show the whole day'}
+          </div>
+        </button>
+      </div>
       {buckets.map(bucket => {
         const key = bucket.id == null ? 'unassigned' : String(bucket.id);
         const active = activeContractorId === key;
@@ -724,6 +949,7 @@ function DispatchRow({
   onToggle,
   renumber,
   onRenumberPick,
+  customFields,
 }: {
   job: Job;
   contractors: ContractorOption[];
@@ -732,8 +958,10 @@ function DispatchRow({
   onToggle: () => void;
   renumber: RenumberState | null;
   onRenumberPick: () => void;
+  customFields: { label: string; numeric: boolean }[];
 }) {
   const show = (key: string) => visible.includes(key);
+  const moveStop = useMoveRouteStop();
   const updateJob = useUpdateJob();
   const completeJob = useCompleteJob();
   const deleteJob = useDeleteJob();
@@ -744,6 +972,13 @@ function DispatchRow({
 
   const [dateDraft, setDateDraft] = useState(job.scheduledDate ?? '');
   useEffect(() => { setDateDraft(job.scheduledDate ?? ''); }, [job.scheduledDate]);
+
+  // Counts the answers the server has given this stop's order box. The box only
+  // forgets what he typed when it is rebuilt, and the run's answer is sometimes
+  // the number the stop already had — type 99 on the last of five stops and it
+  // stays stop 5. Without this the box sat there reading 99 while the row, the
+  // badge and the message all said 5.
+  const [orderAnswers, setOrderAnswers] = useState(0);
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['/api/jobs'] });
@@ -829,6 +1064,43 @@ function DispatchRow({
         ? { scheduledDate: value, status: 'scheduled' }
         : { scheduledDate: value },
     );
+  };
+
+  /**
+   * Type a number on one stop and the rest of the run shuffles around it.
+   *
+   * "Ability to adjust route and save manually without having to redo all the
+   * numbers." Writing the number straight onto this job is what used to happen,
+   * and it left the day with two stop 3s — so he went back and renumbered the
+   * whole run by hand, which is exactly the job he is asking to stop doing.
+   * Emptying the box still just takes this stop out of the run.
+   */
+  const commitOrder = (raw: string) => {
+    const text = raw.trim();
+    if (!text) {
+      if (job.routeOrder != null) handleUpdate({ routeOrder: null });
+      return;
+    }
+    const wanted = parseInt(text, 10);
+    if (!Number.isFinite(wanted) || wanted < 1) {
+      toast({ title: 'Stop numbers start at 1', variant: 'destructive' });
+      return;
+    }
+    if (wanted === job.routeOrder) return;
+    moveStop.mutate({ id: job.id, data: { position: wanted } }, {
+      onSuccess: (result) => {
+        refresh();
+        setOrderAnswers(n => n + 1);
+        const who = job.clientName ?? 'That stop';
+        toast({
+          title: `${who} is now stop ${result.position}`,
+          description: result.position !== wanted
+            ? `There are only ${result.runSize} stops in that run, so it went last. The rest kept their order.`
+            : `${result.updated - 1 > 0 ? `${result.updated - 1} other stop${result.updated - 1 === 1 ? '' : 's'} moved` : 'Nothing else moved'} — you did not have to renumber the run.`,
+        });
+      },
+      onError: (error) => toast({ title: 'Could not move that stop', description: error instanceof Error ? error.message : undefined, variant: 'destructive' }),
+    });
   };
 
   const changeStatus = (next: string) => {
@@ -943,9 +1215,24 @@ function DispatchRow({
         ) : (
           <Input
             type="number"
+            min="1"
+            // Keyed on the number it is showing AND on every answer the run has
+            // given back, so the box is rebuilt whether or not the shuffle moved
+            // this stop. Without it React keeps the uncontrolled value he typed:
+            // a stop clamped from 9 to 6 sat there reading 9, and so did 99
+            // typed on the last stop of five, which the run answers with the 5
+            // it already was.
+            key={`${job.routeOrder ?? 'none'}-${orderAnswers}`}
             defaultValue={job.routeOrder || ''}
-            onBlur={e => { const v = parseInt(e.target.value) || null; if (v !== (job.routeOrder ?? null)) handleUpdate({ routeOrder: v }); }}
-            disabled={renumber != null}
+            onBlur={e => commitOrder(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
+            // A cancelled stop is nobody's stop, so it has no number to type —
+            // dropping one into the run used to push every real stop down and
+            // leave the day with two of the same number.
+            disabled={renumber != null || moveStop.isPending || job.status === 'cancelled'}
+            title={job.status === 'cancelled'
+              ? 'This stop is cancelled, so it is not on the route.'
+              : 'Type the stop number you want this one to be. The rest of the run moves around it.'}
             className="w-14 h-8 mx-auto text-center p-1"
             data-testid={`order-${job.id}`}
           />
@@ -1066,6 +1353,10 @@ function DispatchRow({
             )}
           </select>
         </div>
+        {/* "Document crew member on clean ups, add crew members to day." The
+            select above is the lead — the one the day's dollars and the route
+            belong to — and this is everybody else on the truck. */}
+        <CrewPicker job={job} contractors={contractors} disabled={closed || renumber != null} />
       </TableCell>
       {/*
         All three money figures in one cell rather than three columns.
@@ -1091,6 +1382,21 @@ function DispatchRow({
           </div>
         )}
       </TableCell>
+      {/* His own fields off the customer's account — Turf Sqft, gate code,
+          sprinkler zones. Read straight off the job the board already loaded,
+          so turning a column on costs nothing extra. */}
+      {customFields.map(field => {
+        const value = job.clientPropertyData?.[field.label] ?? lookupField(job.clientPropertyData, field.label);
+        return (
+          <TableCell
+            key={field.label}
+            hidden={!show(customColumnKey(field.label))}
+            className={`p-1.5 text-sm ${field.numeric ? 'text-right tabular-nums' : ''}`}
+          >
+            {value || <span className="text-muted-foreground">—</span>}
+          </TableCell>
+        );
+      })}
       <TableCell className="p-1.5 text-right space-x-1 whitespace-nowrap" onClick={e => e.stopPropagation()}>
         <ProductsPopover job={job} />
 
@@ -1158,6 +1464,128 @@ function DispatchRow({
         </Popover>
       </TableCell>
     </TableRow>
+  );
+}
+
+/**
+ * A custom field's value off the job, ignoring how the label was capitalised.
+ *
+ * The label he types in Settings and the key saved on a customer imported from
+ * the old system are not always capitalised the same ("Turf Sqft" against "Turf
+ * SqFt"), and the server filter already matches without case — a column that
+ * read blank for rows the filter had just matched would look broken.
+ */
+function lookupField(data: Record<string, string> | undefined, label: string): string {
+  if (!data) return '';
+  const want = label.trim().toLowerCase();
+  for (const [key, value] of Object.entries(data)) {
+    if (key.trim().toLowerCase() === want) return value ?? '';
+  }
+  return '';
+}
+
+/**
+ * Who else is on this job.
+ *
+ * "Document crew member on clean ups, add crew members to day." A fall clean-up
+ * is two or three men in one truck, and the one name on the row above could
+ * only ever be the lead. Each tick saves on its own — he is standing at the
+ * board deciding who goes, not filling in a form — and the lead is not in the
+ * list because he is already named above.
+ */
+function CrewPicker({
+  job,
+  contractors,
+  disabled,
+}: {
+  job: Job;
+  contractors: ContractorOption[];
+  disabled: boolean;
+}) {
+  const setCrew = useSetJobCrew();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+
+  const crew = job.crew ?? [];
+  const onCrew = new Set(crew.map(c => c.id));
+  const pickable = contractors.filter(c => c.id !== job.assignedToId);
+
+  const toggle = (id: number) => {
+    const next = onCrew.has(id) ? crew.filter(c => c.id !== id).map(c => c.id) : [...crew.map(c => c.id), id];
+    setCrew.mutate({ id: job.id, data: { userIds: next } }, {
+      onSuccess: (result) => {
+        queryClient.invalidateQueries({ queryKey: ['/api/jobs'] });
+        toast({
+          title: result.crew.length
+            ? `Crew: ${result.crew.map(c => c.name).join(', ')}`
+            : 'Nobody else on this job now',
+          description: result.crew.length
+            ? 'They see this stop on their own job list and can clock their own hours.'
+            : undefined,
+        });
+      },
+      onError: (error) => toast({ title: 'Could not change the crew', description: error instanceof Error ? error.message : undefined, variant: 'destructive' }),
+    });
+  };
+
+  if (pickable.length === 0 && crew.length === 0) return null;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={disabled}
+          onClick={e => e.stopPropagation()}
+          className={`mt-1 h-6 w-full justify-start px-1 text-[11px] ${crew.length ? 'text-foreground' : 'text-muted-foreground'}`}
+          title={crew.length ? `Also on this job: ${crew.map(c => c.name).join(', ')}` : 'Put more people on this job'}
+          data-testid={`crew-${job.id}`}
+        >
+          <Users className="mr-1 h-3 w-3 shrink-0" />
+          <span className="truncate">{crew.length ? `+ ${crew.map(c => c.name).join(', ')}` : 'Add crew'}</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-60 p-2" align="start" onClick={e => e.stopPropagation()}>
+        <p className="px-1 pb-1 text-xs text-muted-foreground">
+          {job.assignedToName ? <>Lead is <strong>{job.assignedToName}</strong>. Who else is on it?</> : 'Nobody leads this job yet. Who is on it?'}
+        </p>
+        {pickable.length === 0 ? (
+          <p className="px-1 py-2 text-xs text-muted-foreground">Everyone in the team is already the lead on this one.</p>
+        ) : (
+          pickable.map(c => (
+            <label key={c.id} className="flex cursor-pointer items-center gap-2 rounded px-1 py-1.5 text-sm hover:bg-muted">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-primary"
+                checked={onCrew.has(c.id)}
+                disabled={setCrew.isPending}
+                onChange={() => toggle(c.id)}
+                data-testid={`crew-${job.id}-${c.id}`}
+              />
+              {c.name}
+            </label>
+          ))
+        )}
+        {/* Names that are on the crew but not in the contractor list any more —
+            somebody switched off or made office staff. Shown so he can take
+            them off; without this they would be invisible and permanent. */}
+        {crew.filter(c => !pickable.some(p => p.id === c.id)).map(c => (
+          <label key={c.id} className="flex cursor-pointer items-center gap-2 rounded px-1 py-1.5 text-sm hover:bg-muted">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-primary"
+              checked
+              disabled={setCrew.isPending}
+              onChange={() => toggle(c.id)}
+              data-testid={`crew-${job.id}-${c.id}`}
+            />
+            {c.name} <span className="text-[10px] text-muted-foreground">(not in the team list)</span>
+          </label>
+        ))}
+      </PopoverContent>
+    </Popover>
   );
 }
 

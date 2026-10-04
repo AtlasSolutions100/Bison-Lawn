@@ -100,7 +100,11 @@ function publicOrigin(): string | null {
   const raw = process.env.APP_PUBLIC_URL?.trim().replace(/\/+$/, "");
   if (!raw) return null;
   try {
-    return new URL(raw).origin;
+    const origin = new URL(raw).origin;
+    // A value with no http:// in front of it ("localhost:5173") parses, but its
+    // origin is the string "null" — and "null/api/public/email-open/..." in a
+    // customer's email is a broken picture that can never report an open.
+    return origin === "null" ? null : origin;
   } catch {
     return null;
   }

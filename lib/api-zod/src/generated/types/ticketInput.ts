@@ -16,4 +16,6 @@ export interface TicketInput {
   assignedToId?: number | null;
   /** @nullable */
   dueDate?: string | null;
+  /** @nullable */
+  category?: string | null;
 }

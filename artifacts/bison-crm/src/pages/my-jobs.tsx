@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
-import { useListMyJobs, useUpdateJob, useCompleteJob, useCreateFieldNote, useListOfferableServices, useAddExtraWork, useRecordOnSitePayment, useGetBillingSettings, useGetCurrentUser, useClockInToJob, useClockOutOfJob, useListJobTimeEntries, useListJobPhotos, useUploadJobPhoto, useDeletePhoto, useAcknowledgeJobNote, useListMyProducts, useAddMyJobProduct, useDeleteJobProduct, getListJobTimeEntriesQueryKey, getListJobPhotosQueryKey, PhotoUploadInputContentType, Job, JobPhoto, JobPhotoKind } from '@workspace/api-client-react';
+import { useListMyJobs, useUpdateJob, useCompleteJob, useCreateFieldNote, useListOfferableServices, useAddExtraWork, useGetCurrentUser, useClockInToJob, useClockOutOfJob, useListJobTimeEntries, useListJobPhotos, useUploadJobPhoto, useDeletePhoto, useAcknowledgeJobNote, useListMyProducts, useAddMyJobProduct, useDeleteJobProduct, getListJobTimeEntriesQueryKey, getListJobPhotosQueryKey, PhotoUploadInputContentType, Job, JobPhoto, JobPhotoKind } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { format, addDays, subDays, parseISO } from 'date-fns';
 import { Button } from '@/components/ui/button';
-import { MapPin, Navigation, Clock, CheckCircle2, ChevronLeft, ChevronRight, DollarSign, PackageOpen, Mic, MicOff, NotebookPen, Plus, CreditCard, Ban, Camera, Timer, Trash2, LogOut, BookOpen, Wrench, Lock } from 'lucide-react';
+import { MapPin, Navigation, Clock, CheckCircle2, ChevronLeft, ChevronRight, DollarSign, PackageOpen, Mic, MicOff, NotebookPen, Plus, Ban, Camera, Timer, Trash2, LogOut, BookOpen, Wrench, Lock } from 'lucide-react';
 import TextClientButton from '@/components/client/text-client-button';
+import FieldPaymentDialog from '@/components/billing/field-payment-dialog';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -186,6 +187,19 @@ function JobCard({ job, index }: { job: Job, index: number }) {
             </div>
           )}
 
+          {/* Who else is on this one. "Document crew member on clean ups, add
+              crew members to day" — a clean-up is two or three men in one
+              truck, and the man who is not the lead needs to know who he is
+              meeting there. */}
+          {((job.crew?.length ?? 0) > 0 || job.assignedToName) && (
+            <div className="mt-3 border-t pt-3">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">On this job</span>
+              <p className="mt-1 text-sm font-medium text-foreground">
+                {[job.assignedToName, ...(job.crew ?? []).map(c => c.name)].filter(Boolean).join(', ')}
+              </p>
+            </div>
+          )}
+
           <PropertyDetails data={job.clientPropertyData} />
 
           {job.products && job.products.length > 0 && <JobParts job={job} editable={!isCompleted} />}
@@ -215,7 +229,7 @@ function JobCard({ job, index }: { job: Job, index: number }) {
           </div>
         )}
         <div className="p-3 bg-card grid grid-cols-1 gap-2">
-          <CollectPaymentDialog job={job} wide />
+          <FieldPaymentDialog jobId={job.id} clientName={job.clientName} wide />
         </div>
 
         {!isCompleted && !isSkipped && (
@@ -753,123 +767,6 @@ function FieldNoteButton({ job }: { job: Job }) {
               </DialogFooter>
             </>
           )}
-        </DialogContent>
-      </Dialog>
-    </>
-  );
-}
-
-function CollectPaymentDialog({ job, wide }: { job: Job; wide?: boolean }) {
-  const [open, setOpen] = useState(false);
-  const [amount, setAmount] = useState('');
-  const [method, setMethod] = useState<'cash' | 'check' | 'credit_card'>('cash');
-  const [reference, setReference] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [receipt, setReceipt] = useState<{ total: number; cardFee: number } | null>(null);
-  const { data: settings } = useGetBillingSettings({ query: { enabled: open, queryKey: ['/api/billing-settings'] } });
-  const recordPayment = useRecordOnSitePayment();
-  const queryClient = useQueryClient();
-
-  const amt = Number(amount) || 0;
-  const feeApplies = method === 'credit_card' && settings?.cardFeeEnabled && (settings?.cardFeePercent ?? 0) > 0;
-  const fee = feeApplies ? Math.round(amt * settings!.cardFeePercent) / 100 : 0;
-  const total = Math.round((amt + fee) * 100) / 100;
-
-  const submit = () => {
-    if (amt <= 0) return;
-    setError(null);
-    recordPayment.mutate({ id: job.id, data: { amount: amt, method, reference: reference || undefined } }, {
-      onSuccess: (p) => {
-        queryClient.invalidateQueries();
-        setReceipt({ total: p.amount, cardFee: p.cardFee });
-      },
-      onError: (e: any) => setError(e?.message || 'Could not record payment'),
-    });
-  };
-
-  const close = () => {
-    setOpen(false);
-    setReceipt(null);
-    setAmount('');
-    setReference('');
-    setMethod('cash');
-    setError(null);
-  };
-
-  return (
-    <>
-      <Button onClick={() => setOpen(true)} className={`h-11 font-semibold ${wide ? 'col-span-2' : ''}`}>
-        <CreditCard className="w-4 h-4 mr-1" /> Collect Payment
-      </Button>
-      <Dialog open={open} onOpenChange={(o) => { if (!o) close(); }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{receipt ? 'Payment Recorded' : 'Collect Payment'}</DialogTitle>
-          </DialogHeader>
-          {receipt ? (
-            <div className="space-y-3 text-center py-2">
-              <CheckCircle2 className="w-10 h-10 text-primary mx-auto" />
-              <p className="text-2xl font-bold">${receipt.total.toFixed(2)}</p>
-              {receipt.cardFee > 0 && (
-                <p className="text-sm text-muted-foreground">Includes ${receipt.cardFee.toFixed(2)} card processing fee</p>
-              )}
-              <p className="text-sm text-muted-foreground">Recorded for {job.clientName}</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {job.clientBalance != null && (
-                <div className="text-sm flex justify-between bg-muted/50 rounded-md p-2">
-                  <span className="text-muted-foreground">Customer balance</span>
-                  <span className="font-semibold">${job.clientBalance.toFixed(2)}</span>
-                </div>
-              )}
-              <div className="space-y-2">
-                <Label>Amount</Label>
-                <Input type="number" min="0.01" step="0.01" inputMode="decimal" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label>Method</Label>
-                <Select value={method} onValueChange={(v) => setMethod(v as typeof method)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="cash">Cash</SelectItem>
-                    <SelectItem value="check">Check</SelectItem>
-                    <SelectItem value="credit_card">Credit Card</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {method !== 'cash' && (
-                <div className="space-y-2">
-                  <Label>Reference (check # / last 4)</Label>
-                  <Input value={reference} onChange={e => setReference(e.target.value)} />
-                </div>
-              )}
-              {method === 'credit_card' && (
-                feeApplies ? (
-                  <div className="text-sm bg-accent/10 border border-accent/20 rounded-md p-3 space-y-1">
-                    <div className="flex justify-between"><span>Payment</span><span>${amt.toFixed(2)}</span></div>
-                    <div className="flex justify-between"><span>Card processing fee ({settings!.cardFeePercent}%)</span><span>${fee.toFixed(2)}</span></div>
-                    <div className="flex justify-between font-bold border-t pt-1"><span>Customer pays</span><span>${total.toFixed(2)}</span></div>
-                  </div>
-                ) : (
-                  <p className="text-xs text-muted-foreground">No card processing fee is configured.</p>
-                )
-              )}
-              {error && <p className="text-sm text-destructive">{error}</p>}
-            </div>
-          )}
-          <DialogFooter>
-            {receipt ? (
-              <Button onClick={close} className="w-full">Done</Button>
-            ) : (
-              <>
-                <Button variant="outline" onClick={close}>Cancel</Button>
-                <Button onClick={submit} disabled={amt <= 0 || recordPayment.isPending}>
-                  {recordPayment.isPending ? 'Recording...' : `Record $${total > 0 ? total.toFixed(2) : '0.00'}`}
-                </Button>
-              </>
-            )}
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

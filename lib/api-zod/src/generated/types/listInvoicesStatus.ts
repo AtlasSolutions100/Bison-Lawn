@@ -15,4 +15,6 @@ export const ListInvoicesStatus = {
   paid: 'paid',
   partial: 'partial',
   void: 'void',
+  written_off: 'written_off',
+  collections: 'collections',
 } as const;

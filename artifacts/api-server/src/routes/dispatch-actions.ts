@@ -1,17 +1,23 @@
 import { Router, type IRouter } from "express";
-import { db, jobsTable } from "@workspace/db";
-import { eq, inArray } from "drizzle-orm";
-import { BulkJobActionBody } from "@workspace/api-zod";
+import { db, jobCrewTable, jobsTable, usersTable } from "@workspace/db";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { BulkJobActionBody, SetJobCrewBody, MoveRouteStopBody } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/requireAuth";
 import { requireArea } from "../lib/access";
 import { logAudit } from "../lib/helpers";
 import { assessSkip } from "../lib/skipPolicy";
+import { crewByJob } from "../lib/jobCrew";
 
 const router: IRouter = Router();
 
 // Tick rows, pick an action, done. Moving, cancelling and deleting other
-// people's work is an office job.
-router.use(["/jobs/bulk-action"], requireAuth, requireArea("dispatch"));
+// people's work is an office job — and so is deciding who is on a crew and
+// what order a run is driven in.
+router.use(
+  ["/jobs/bulk-action", "/jobs/:id/crew", "/jobs/:id/route-position"],
+  requireAuth,
+  requireArea("dispatch"),
+);
 
 // A half-typed year in a date box reads as a real date ("0002-09-16"), and a
 // job parked in year 2 is off every board and every list for good. Nothing we
@@ -244,6 +250,182 @@ router.post("/jobs/bulk-action", async (req, res) => {
     jobIds: ids,
     skippedIds,
     skipNotices,
+  });
+});
+
+/**
+ * Who else is on this job.
+ *
+ * "Document crew member on clean ups, add crew members to day." The whole list
+ * arrives each time and replaces what was there, rather than add-one /
+ * remove-one calls: the office is looking at a crew of three and deciding it
+ * should be two, and a replace is the only version of that which cannot end up
+ * half applied.
+ *
+ * The lead stays on the job's own assignedToId and is never stored here. If he
+ * ticks the lead in the crew box it is dropped quietly — that is not a mistake
+ * worth an error message, it is the same person said twice.
+ */
+router.put("/jobs/:id/crew", async (req, res) => {
+  const body = SetJobCrewBody.parse(req.body);
+  const jobId = Number(req.params.id);
+  if (!Number.isInteger(jobId)) return res.status(400).json({ error: "Which job?" });
+
+  const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, jobId));
+  if (!job) return res.status(404).json({ error: "Job not found" });
+
+  const wanted = [...new Set(body.userIds.filter((id) => Number.isInteger(id) && id !== job.assignedToId))];
+
+  // Every name has to be a real account. A crew with a stale id on it would
+  // show the board a blank chip and silently hide the stop from nobody.
+  if (wanted.length > 0) {
+    const found = await db.select({ id: usersTable.id }).from(usersTable).where(inArray(usersTable.id, wanted));
+    if (found.length !== wanted.length) {
+      return res.status(400).json({ error: "One of those people is not in the team list any more" });
+    }
+  }
+
+  const before = (await crewByJob([jobId])).get(jobId) ?? [];
+
+  await db.transaction(async (tx) => {
+    await tx.delete(jobCrewTable).where(eq(jobCrewTable.jobId, jobId));
+    if (wanted.length > 0) {
+      await tx.insert(jobCrewTable).values(wanted.map((userId) => ({ jobId, userId })));
+    }
+  });
+
+  const crew = (await crewByJob([jobId])).get(jobId) ?? [];
+  const names = (list: { name: string }[]) => (list.length ? list.map((c) => c.name).join(", ") : "nobody");
+  // The schedule is who is expected where, so a change to it is logged on the
+  // customer's own history: "who was meant to be at this clean-up" is exactly
+  // what gets asked afterwards.
+  if (names(before) !== names(crew)) {
+    await logAudit({
+      clientId: job.clientId,
+      actorName: req.appUser?.name ?? null,
+      action: "job_crew_set",
+      description: `Crew on job #${jobId}${job.scheduledDate ? ` (${job.scheduledDate})` : ""}: ${names(crew)}${
+        job.assignedToId ? " alongside the lead" : ""
+      } — was ${names(before)}`,
+    });
+  }
+
+  return res.json({ jobId, leadId: job.assignedToId ?? null, crew });
+});
+
+/**
+ * Move one stop to a number and let the rest shuffle around it.
+ *
+ * "Ability to adjust route and save manually without having to redo all the
+ * numbers." Typing 3 into a stop used to write a 3 and nothing else, so the day
+ * then had two 3s and he had to walk the whole run again to clean it up. Now the
+ * stop lands on 3 and everything from 3 down moves one place, the way a list
+ * does when you drag a row into it.
+ *
+ * The run is one person's day: same date, same lead. Route numbers only ever
+ * meant anything inside that, and renumbering across two subs would hand Disa
+ * stop 7 because Spencer has six.
+ *
+ * Only stops that already have a number take part, plus the one being moved.
+ * A day where he has numbered four of twelve stops stays that way — the other
+ * eight are not in the run yet, and numbering them because he nudged one would
+ * be the "redo all the numbers" he is asking to be rid of.
+ */
+router.post("/jobs/:id/route-position", async (req, res) => {
+  const body = MoveRouteStopBody.parse(req.body);
+  const jobId = Number(req.params.id);
+  if (!Number.isInteger(jobId)) return res.status(400).json({ error: "Which job?" });
+  if (!Number.isInteger(body.position) || body.position < 1) {
+    return res.status(400).json({ error: "A stop number starts at 1" });
+  }
+
+  const outcome = await db.transaction(async (tx) => {
+    const [job] = await tx.select().from(jobsTable).where(eq(jobsTable.id, jobId)).for("update");
+    if (!job) return { refused: { status: 404, error: "Job not found" } };
+    if (!job.dispatched || !job.scheduledDate) {
+      return {
+        refused: { status: 400, error: "This job has no day yet, so it has no place in a route" },
+      };
+    }
+    // Nobody drives a cancelled stop, so there is no stop to move. Dropping one
+    // into the run anyway gave it a number and pushed every real stop down, and
+    // the next move left the day with two stop 2s — the double numbering this
+    // whole thing exists to get rid of.
+    if (job.status === "cancelled") {
+      return {
+        refused: { status: 400, error: "This stop is cancelled, so it is not on the route" },
+      };
+    }
+
+    const run = await tx
+      .select()
+      .from(jobsTable)
+      .where(
+        and(
+          eq(jobsTable.dispatched, true),
+          eq(jobsTable.scheduledDate, job.scheduledDate),
+          job.assignedToId == null
+            ? isNull(jobsTable.assignedToId)
+            : eq(jobsTable.assignedToId, job.assignedToId),
+          // Nobody drives a cancelled stop, so it holds no number in the run.
+          sql`${jobsTable.status} <> 'cancelled'`,
+        ),
+      )
+      .orderBy(asc(jobsTable.routeOrder), asc(jobsTable.id))
+      .for("update");
+
+    const inRun = run.filter((r) => r.routeOrder != null || r.id === jobId);
+    const others = inRun.filter((r) => r.id !== jobId);
+    // One stop on its own: it is stop 1 whatever he typed.
+    const target = Math.min(Math.max(body.position, 1), others.length + 1);
+    const ordered = [...others.slice(0, target - 1), job, ...others.slice(target - 1)];
+
+    const writes = ordered
+      .map((r, i) => ({ id: r.id, routeOrder: i + 1, clientId: r.clientId }))
+      .filter((w, i) => ordered[i].routeOrder !== w.routeOrder);
+
+    if (writes.length > 0) {
+      // One statement rather than a write per stop: a blow-out day is forty
+      // stops and forty round trips would hold the row locks the whole time.
+      const cases = writes.map((w) => sql`when ${jobsTable.id} = ${w.id} then ${w.routeOrder}::int`);
+      await tx
+        .update(jobsTable)
+        .set({ routeOrder: sql.join([sql`(case`, ...cases, sql`end)`], sql` `) })
+        .where(
+          inArray(
+            jobsTable.id,
+            writes.map((w) => w.id),
+          ),
+        );
+    }
+
+    return {
+      refused: null,
+      job,
+      position: target,
+      runSize: ordered.length,
+      stops: ordered.map((r, i) => ({ jobId: r.id, routeOrder: i + 1 })),
+      moved: writes.length,
+    };
+  });
+
+  if (outcome.refused) return res.status(outcome.refused.status).json({ error: outcome.refused.error });
+
+  await logAudit({
+    clientId: outcome.job.clientId,
+    actorName: req.appUser?.name ?? null,
+    action: "job_route_position_set",
+    description:
+      `Moved job #${jobId} to stop ${outcome.position} of ${outcome.runSize} on ${outcome.job.scheduledDate}` +
+      ` and shuffled the rest of the run`,
+  });
+
+  return res.json({
+    jobId,
+    position: outcome.position,
+    runSize: outcome.runSize,
+    updated: outcome.moved,
+    stops: outcome.stops,
   });
 });
 

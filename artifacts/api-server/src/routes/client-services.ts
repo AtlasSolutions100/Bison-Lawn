@@ -15,21 +15,28 @@ import {
   UpdateClientServiceBody,
   PauseClientServiceBody,
   PreviewClientServicePriceBody,
+  FinishClientServiceSeasonBody,
 } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/requireAuth";
 import { requireArea } from "../lib/access";
 import { dateFieldError, logAudit, roundMoney } from "../lib/helpers";
 import {
   cadenceLabel,
+  cancelVisitsAfter,
   contractorNoteFor,
   discountAmountFor,
+  effectiveRenewDate,
   generateJobs,
   generatesJobs,
   propagateToFutureJobs,
   regenerateFutureJobs,
   removeFutureJobs,
+  resolveSeasonDate,
+  resolveSeasonWindow,
   resolveServicePrice,
+  seasonStartOf,
   todayLocal,
+  visitsAfterCount,
   weekOfMonthOf,
   weekParityOf,
   weekdayOf,
@@ -221,6 +228,17 @@ async function hydrateClientServices(rows: ClientService[]) {
       nextDate: up?.next ?? null,
       completedCount: Number(hist?.count ?? 0),
       lastCompletedDate: hist?.last ?? null,
+      // "Package listing on account based on window of start times" — the day
+      // this row's season opens, which is what the list is ordered by.
+      seasonStart: seasonStartOf(cs),
+      // "Renew date is not client specific but Product based." The account
+      // shows the date that governs and says where it came from, so he can see
+      // at a glance that all of mowing follows the service.
+      serviceRenewDate: svc?.renewDate ?? null,
+      effectiveRenewDate: effectiveRenewDate(cs, svc?.renewDate),
+      renewDateFromService: !(cs.renewDateOverridden && cs.renewDate) && !!svc?.renewDate,
+      serviceSeasonEndDate: svc?.seasonEndDate ?? null,
+      pastSeasons: cs.pastSeasons ?? [],
       noteActiveToday: contractorNoteFor(cs, today) != null,
       pausedAt: cs.pausedAt ? cs.pausedAt.toISOString() : null,
       lastRenewedAt: cs.lastRenewedAt ? cs.lastRenewedAt.toISOString() : null,
@@ -233,13 +251,43 @@ async function hydrateOne(cs: ClientService) {
   return (await hydrateClientServices([cs]))[0];
 }
 
+/**
+ * "Package listing on account based on window of start times."
+ *
+ * Ordered by the day each thing starts, not by the id it happened to be
+ * created with — the account should read down the year the way the work
+ * actually happens: spring clean-up, aeration, mowing, blow-out. A package
+ * stays together as a block and takes the place of its earliest member, so the
+ * sprinkler package sits where its first visit falls. Rows with no date at all
+ * (a one-time job nobody has dated yet) go last, where they do not push real
+ * work down the page.
+ */
+function bySeasonStart(rows: Awaited<ReturnType<typeof hydrateClientServices>>) {
+  const startOf = (r: (typeof rows)[number]) => r.seasonStart ?? "";
+  const blocks = new Map<string, { key: string; start: string; rows: typeof rows }>();
+  for (const row of rows) {
+    const key = row.packageId != null ? `p${row.packageId}` : `s${row.id}`;
+    const block = blocks.get(key) ?? { key, start: startOf(row), rows: [] as typeof rows };
+    // A package's place in the year is its earliest entry's window.
+    if (startOf(row) && (!block.start || startOf(row) < block.start)) block.start = startOf(row);
+    block.rows.push(row);
+    blocks.set(key, block);
+  }
+  const rank = (start: string) => (start ? start : "9999-99-99");
+  return [...blocks.values()]
+    .sort((a, b) => rank(a.start).localeCompare(rank(b.start)) || a.key.localeCompare(b.key))
+    .flatMap((block) =>
+      block.rows.sort((a, b) => rank(startOf(a)).localeCompare(rank(startOf(b))) || a.id - b.id),
+    );
+}
+
 router.get("/clients/:id/client-services", async (req, res) => {
   const rows = await db
     .select()
     .from(clientServicesTable)
     .where(eq(clientServicesTable.clientId, Number(req.params.id)))
     .orderBy(asc(clientServicesTable.packageId), asc(clientServicesTable.id));
-  return res.json(await hydrateClientServices(rows));
+  return res.json(bySeasonStart(await hydrateClientServices(rows)));
 });
 
 /**
@@ -349,10 +397,43 @@ router.post("/clients/:id/client-services", async (req, res) => {
         error: "scheduleType is required, and this package does not set one of its own",
       });
     }
-    const firstServiceDate = inherited(
-      "firstServiceDate",
-      scheduleType === "recurring" || scheduleType === "contract" ? pkg?.startDate ?? null : null,
+    // A package carries no year ("they will be renewed every year and have the
+    // same date window of service"), so every date it hands down is resolved
+    // into the season it belongs to: this year's window while it is still ahead
+    // of us or open, next year's once it has gone by.
+    const today = todayLocal();
+    const window = resolveSeasonWindow(
+      entry.windowStart || (inherited("startDate", pkg?.startDate ?? null) ?? null),
+      entry.windowEnd || (inherited("endDate", pkg?.endDate ?? null) ?? null),
+      today,
     );
+    const firstServiceDate = resolveSeasonDate(
+      inherited(
+        "firstServiceDate",
+        scheduleType === "recurring" || scheduleType === "contract" ? pkg?.startDate ?? null : null,
+      ),
+      today,
+    );
+    // The season end and the renew date belong to the SERVICE unless this
+    // assignment says otherwise: "Season End date will be the same for all
+    // mowing clients", "renew date is not client specific but Product based".
+    const seasonAnchor = firstServiceDate ?? window.startDate ?? today;
+    const seasonEndDate = resolveSeasonDate(
+      inherited("seasonEndDate", pkg?.seasonEndDate ?? svc.seasonEndDate ?? null) ?? null,
+      seasonAnchor,
+    );
+    const renewDate = resolveSeasonDate(
+      inherited("renewDate", pkg?.renewDate ?? svc.renewDate ?? null) ?? null,
+      seasonAnchor,
+      { rollStale: true },
+    );
+    const serviceRenewDate = resolveSeasonDate(svc.renewDate, seasonAnchor, { rollStale: true });
+    // Only a date different from what the service says is this customer's own.
+    // Everything else follows the service. A package's own Renew Date counts:
+    // it is a date somebody typed on purpose, and asking whether the request
+    // happened to carry the field meant a package renewing in March lost to
+    // the service's September and the package's date was dead data.
+    const renewDateOverridden = renewDate != null && renewDate !== serviceRenewDate;
     const frequencyWeeks = inherited("frequencyWeeks", pkg?.frequencyWeeks ?? null);
     // A plain "every 2 weeks" from an older caller becomes the named cadence
     // so the account reads the way he says it.
@@ -375,12 +456,13 @@ router.post("/clients/:id/client-services", async (req, res) => {
       // one date pair the office types is for the package as a whole, and the
       // four timer adjustments still have to land in June, July, August and
       // September rather than all in the same month.
-      startDate: entry.windowStart || (inherited("startDate", pkg?.startDate ?? null) ?? null),
-      endDate: entry.windowEnd || (inherited("endDate", pkg?.endDate ?? null) ?? null),
+      startDate: window.startDate,
+      endDate: window.endDate,
       frequencyWeeks: frequency === "weekly" ? 1 : frequency === "biweekly" ? 2 : frequency === "monthly" ? null : frequencyWeeks ?? null,
       firstServiceDate: firstServiceDate ?? null,
-      seasonEndDate: inherited("seasonEndDate", pkg?.seasonEndDate ?? null) ?? null,
-      renewDate: inherited("renewDate", pkg?.renewDate ?? null) ?? null,
+      seasonEndDate,
+      renewDate,
+      renewDateOverridden,
       // Most specific estimate first: what the office typed, then the matrix
       // band this property actually falls in, then the service-wide figure.
       budgetedHours: body.budgetedHours ?? priced.budgetedHours ?? svc.billableHours ?? null,
@@ -516,6 +598,24 @@ router.patch("/client-services/:id", async (req, res) => {
   }
 
   const patch: Partial<typeof clientServicesTable.$inferInsert> = { ...body };
+  // "Renew date is not client specific but Product based." A date typed on one
+  // customer is theirs alone only when it is not the date the service already
+  // says; emptying the box puts them back on the service's, so one change on
+  // the service still moves every mowing customer at once.
+  if (body.renewDate !== undefined) {
+    // The box comes up pre-filled with the date already governing and the whole
+    // form saves at once, so the service's date is read against the row as it
+    // stands AND as it is being saved. Without that, moving the first mow a
+    // fortnight pinned the customer to a renew date he never typed: the date in
+    // the box was the service's date for the old start, and the new start made
+    // it look like his own.
+    const today = todayLocal();
+    const was = resolveSeasonDate(svc.renewDate, seasonStartOf(existing) ?? today, { rollStale: true });
+    const now = resolveSeasonDate(svc.renewDate, seasonStartOf({ ...existing, ...patch }) ?? today, {
+      rollStale: true,
+    });
+    patch.renewDateOverridden = body.renewDate != null && body.renewDate !== was && body.renewDate !== now;
+  }
   if (body.discountLabel !== undefined) patch.discountLabel = body.discountLabel?.trim() || null;
   if (body.contractorNote !== undefined) patch.contractorNote = body.contractorNote?.trim() || null;
   if (body.frequency !== undefined) {
@@ -704,6 +804,75 @@ router.post("/client-services/:id/renew", async (req, res) => {
   const renewed = await db.transaction((tx) => renewClientService(id, tx, { actorName: req.appUser?.name }));
   if (!renewed) return res.status(404).json({ error: "Client service not found" });
   return res.json(await hydrateOne(renewed));
+});
+
+/**
+ * One customer finishes before the rest.
+ *
+ * "Season End date will be the same for all mowing clients. If some decide to
+ * end earlier having the ability to cancel upcoming or future jobs." This is
+ * the second half: the service keeps the season end everybody else is on, this
+ * row gets the earlier date, and the visits after it are CANCELLED rather than
+ * deleted so the office can still see they were called off and why. Preview
+ * first (`apply` left off) so he is told how many visits it takes off the board
+ * before he commits to it.
+ */
+router.post("/client-services/:id/finish-season", async (req, res) => {
+  const body = FinishClientServiceSeasonBody.parse(req.body ?? {});
+  const id = Number(req.params.id);
+  const problem = dateFieldError("Last service date", body.lastDate);
+  if (problem) return res.status(400).json({ error: problem });
+  const [existing] = await db.select().from(clientServicesTable).where(eq(clientServicesTable.id, id));
+  if (!existing) return res.status(404).json({ error: "Client service not found" });
+  const [svc] = await db.select().from(servicesTable).where(eq(servicesTable.id, existing.serviceId));
+  const start = seasonStartOf(existing);
+  if (start && body.lastDate < start) {
+    return res.status(400).json({
+      error: `This service starts ${start}, so it cannot finish on ${body.lastDate}. Switch it off instead, or remove it.`,
+    });
+  }
+
+  const wouldCancel = await visitsAfterCount(id, body.lastDate);
+  if (body.apply !== true) {
+    return res.json({
+      applied: false,
+      clientServiceId: id,
+      serviceName: svc?.name ?? null,
+      lastDate: body.lastDate,
+      seasonEndWas: existing.seasonEndDate,
+      visitsCancelled: wouldCancel,
+      service: await hydrateOne(existing),
+    });
+  }
+
+  const reason = body.reason?.trim() || "Customer finished the season early";
+  const outcome = await db.transaction(async (tx) => {
+    const [cs] = await tx
+      .update(clientServicesTable)
+      .set({ seasonEndDate: body.lastDate })
+      .where(eq(clientServicesTable.id, id))
+      .returning();
+    const cancelled = await cancelVisitsAfter(id, body.lastDate, reason, tx);
+    return { cs, cancelled };
+  });
+  await logAudit({
+    clientId: existing.clientId,
+    actorName: req.appUser?.name,
+    action: "service_season_finished_early",
+    description:
+      `"${svc?.name ?? "Service"}" finishes for this customer on ${body.lastDate}` +
+      (existing.seasonEndDate ? ` instead of ${existing.seasonEndDate}` : "") +
+      `; ${outcome.cancelled} upcoming visit(s) cancelled — ${reason}`,
+  });
+  return res.json({
+    applied: true,
+    clientServiceId: id,
+    serviceName: svc?.name ?? null,
+    lastDate: body.lastDate,
+    seasonEndWas: existing.seasonEndDate,
+    visitsCancelled: outcome.cancelled,
+    service: await hydrateOne(outcome.cs),
+  });
 });
 
 /** The nightly check, on demand — for the office and for verifying it works. */

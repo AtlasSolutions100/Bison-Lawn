@@ -29,6 +29,7 @@ import SpringLetters from '@/pages/spring-letters';
 import Reports from '@/pages/reports';
 import WebRequests from '@/pages/web-requests';
 import Automation from '@/pages/automation';
+import EmailActivity from '@/pages/email-activity';
 import Team from '@/pages/team';
 import FeedbackPage from '@/pages/feedback';
 import Settings from '@/pages/settings';
@@ -374,6 +375,11 @@ function ClerkProviderWithRoutes() {
               <Route path="/reports"><SignedIn><AdminRoute component={Reports} area="reports" /></SignedIn></Route>
               <Route path="/web-requests"><SignedIn><AdminRoute component={WebRequests} area="clients" /></SignedIn></Route>
               <Route path="/automation"><SignedIn><AdminRoute component={Automation} area="settings" /></SignedIn></Route>
+              {/* Both paths render the one page: the list, and one batch's
+                  results, which he can bookmark or hand to whoever asks
+                  whether the letter reached them. */}
+              <Route path="/email-activity"><SignedIn><AdminRoute component={EmailActivity} area="documents" /></SignedIn></Route>
+              <Route path="/email-activity/:batchId"><SignedIn><AdminRoute component={EmailActivity} area="documents" /></SignedIn></Route>
               <Route path="/team"><SignedIn><AdminRoute component={Team} area="team" /></SignedIn></Route>
               <Route path="/feedback"><SignedIn><AdminRoute component={FeedbackPage} /></SignedIn></Route>
               <Route path="/settings"><SignedIn><AdminRoute component={Settings} area="settings" /></SignedIn></Route>

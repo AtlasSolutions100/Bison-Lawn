@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import { getCompanyProfile } from "./companyProfile";
 import { firstNameOf, renderTemplate } from "./mergeTokens";
 import { bulletText, stripMarkers, textRuns } from "./richText";
+import { acceptanceRecord } from "./estimateAcceptanceRecord";
 
 /** The company details and contract text one estimate document renders with. */
 export type EstimateBranding = {
@@ -276,9 +277,16 @@ export async function createEstimatePdf(data: EstimateDocumentData): Promise<Buf
   // half-written document.
   const { company, contract, cover } = await resolveEstimateBranding(data);
   const { estimate, client, quotedServices } = data;
+  // "Signed estimates to send to management companies": an accepted estimate
+  // is a different document from the quote it was. Null for everything else.
+  const accepted = acceptanceRecord(estimate, client);
 
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: "LETTER", margin: 54, info: { Title: `Estimate ${estimate.id}` } });
+    const doc = new PDFDocument({
+      size: "LETTER",
+      margin: 54,
+      info: { Title: accepted ? `Accepted estimate ${estimate.id}` : `Estimate ${estimate.id}` },
+    });
     const chunks: Buffer[] = [];
     doc.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
@@ -438,6 +446,56 @@ export async function createEstimatePdf(data: EstimateDocumentData): Promise<Buf
     });
     y += 46;
 
+    // --- customer acceptance ----------------------------------------------
+    // Directly under the total, because the one question the management
+    // company is reading this to answer is "who agreed to this figure, and
+    // when" — they should not have to turn the page to find it.
+    if (accepted) {
+      const rowHeight = 16;
+      doc.font("Helvetica").fontSize(9.5);
+      const attestationHeight = doc.heightOfString(accepted.attestation, { width: 476, lineGap: 1.5 });
+      const declinedHeight = accepted.declined.length
+        ? doc.heightOfString(`Not accepted: ${accepted.declined.join(", ")}`, { width: 476, lineGap: 1.5 }) + 8
+        : 0;
+      const boxHeight = 34 + accepted.rows.length * rowHeight + 10 + attestationHeight + declinedHeight + 14;
+      needSpace(boxHeight + 10);
+
+      doc.rect(54, y, 504, boxHeight).fill(TINT);
+      doc.rect(54, y, 4, boxHeight).fill(GREEN);
+      doc.fillColor(GREEN).font("Helvetica-Bold").fontSize(10).text(accepted.heading, 68, y + 12, {
+        width: 300,
+        characterSpacing: 1,
+      });
+      doc.fillColor(GREEN).font("Helvetica-Bold").fontSize(10).text(accepted.stamp, 330, y + 12, {
+        width: 214,
+        align: "right",
+      });
+      let rowY = y + 34;
+      for (const row of accepted.rows) {
+        doc.fillColor(MUTED).font("Helvetica-Bold").fontSize(8.5).text(row.label.toUpperCase(), 68, rowY + 2, {
+          width: 150,
+          characterSpacing: 0.5,
+        });
+        doc.fillColor(DARK).font("Helvetica-Bold").fontSize(10).text(row.value, 222, rowY, { width: 322 });
+        rowY += rowHeight;
+      }
+      rowY += 10;
+      if (accepted.declined.length) {
+        doc
+          .fillColor(DARK)
+          .font("Helvetica-Bold")
+          .fontSize(9.5)
+          .text(`Not accepted: ${accepted.declined.join(", ")}`, 68, rowY, { width: 476, lineGap: 1.5 });
+        rowY = doc.y + 8;
+      }
+      doc
+        .fillColor(MUTED)
+        .font("Helvetica")
+        .fontSize(9.5)
+        .text(accepted.attestation, 68, rowY, { width: 476, lineGap: 1.5 });
+      y += boxHeight + 24;
+    }
+
     if (estimate.notes) {
       needSpace(70);
       doc.fillColor(DARK).font("Helvetica-Bold").fontSize(11).text("NOTES", 54, y);
@@ -482,6 +540,10 @@ export async function createEstimatePdf(data: EstimateDocumentData): Promise<Buf
                 width,
                 lineGap: 2,
                 continued: index < runs.length - 1,
+                // Underline is drawn, not a font: Helvetica has no underlined
+                // cut, so the one marker that cannot be done by switching
+                // fonts is the one pdfkit has to rule for us.
+                underline: run.underline,
               });
             });
             lineY = doc.y;

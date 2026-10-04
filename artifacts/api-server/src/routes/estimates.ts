@@ -22,7 +22,7 @@ import {
   SendEstimateBody,
 } from "@workspace/api-zod";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth";
-import { logAudit, priceService, roundMoney } from "../lib/helpers";
+import { logAudit, numericFieldValue, priceService, pricingFieldOf, roundMoney } from "../lib/helpers";
 import {
   createEstimateEmailHtml,
   createEstimatePdf,
@@ -716,27 +716,62 @@ function packageFields(line: EstimateLine) {
  * - Custom lines (no fieldId/serviceId): the submitted price is kept, but the
  *   label and the price are validated because nothing else vouches for them
  */
-async function priceEstimateLines(lines: EstimateLine[]): Promise<EstimateLine[]> {
-  const fieldIds = [...new Set(lines.map((l) => l.fieldId).filter((id): id is number => id != null))];
+async function priceEstimateLines(
+  lines: EstimateLine[],
+  clientId: number,
+  /**
+   * Every line on the estimate, when only some of them are being repriced.
+   * The sqft typed on a field line prices the service line next to it, and an
+   * edit that only touches the service line must still see it.
+   */
+  context: EstimateLine[] = lines,
+): Promise<EstimateLine[]> {
   const serviceIds = [...new Set(lines.map((l) => l.serviceId).filter((id): id is number => id != null))];
   const services = serviceIds.length
     ? await db.select().from(servicesTable).where(inArray(servicesTable.id, serviceIds))
     : [];
-  // The fields the services price from are needed too, so a zone-priced
-  // blow-out is checked against a numeric field rather than trusted blindly.
-  const pricingFieldIds = services.map((s) => s.pricingFieldId).filter((id): id is number => id != null);
-  const wantedFieldIds = [...new Set([...fieldIds, ...pricingFieldIds])];
-  const fields = wantedFieldIds.length
-    ? await db.select().from(estimateFieldsTable).where(inArray(estimateFieldsTable.id, wantedFieldIds))
-    : [];
+  // Every field definition, not only the ones on the lines: a service whose
+  // pricingFieldId is null prices off turf square footage, and the turf field
+  // has to be found by its label before the account can be asked for it.
+  const fields = await db.select().from(estimateFieldsTable);
+  const [client] = await db
+    .select({ propertyData: clientsTable.propertyData })
+    .from(clientsTable)
+    .where(eq(clientsTable.id, clientId));
+  const propertyData = (client?.propertyData ?? {}) as Record<string, unknown>;
   const round = (n: number) => Math.round(n * 100) / 100;
+
+  /**
+   * The measurement a service line is priced from, in the order the office
+   * expects it: what was typed on the line, then what was measured on this
+   * estimate's own property fields, then what the customer's account says.
+   *
+   * The last step is the one "the numbers don't match the matrix based on
+   * clients account" was about. The builder used to be the only thing that
+   * read the account, so a line that reached the server with an empty box —
+   * a package dropped in before the sqft loaded, a line carried over from an
+   * older quote — was quietly priced at the flat rate while the Services page
+   * tester and the assigned service both showed the band price for the very
+   * same lawn.
+   */
+  const measurementFor = (svc: { pricingFieldId: number | null }, raw: string): number | null => {
+    const typed = numericFieldValue(raw);
+    if (typed != null) return typed;
+    const field = pricingFieldOf(svc, fields);
+    if (!field) return null;
+    const onThisEstimate = context.find((l) => l.fieldId === field.id);
+    const measured = onThisEstimate ? numericFieldValue(onThisEstimate.value) : null;
+    if (measured != null) return measured;
+    return numericFieldValue(propertyData[field.label]);
+  };
+
   return lines.map((line) => {
     if (line.serviceId != null) {
       const svc = services.find((s) => s.id === line.serviceId);
       if (!svc) throw Object.assign(new Error(`Service ${line.serviceId} not found`), { status: 400 });
       const label = (line.label ?? "").trim() || svc.name;
-      const numeric = Number(line.value);
-      const pricingField = svc.pricingFieldId != null ? fields.find((f) => f.id === svc.pricingFieldId) ?? null : null;
+      const pricingField = pricingFieldOf(svc, fields);
+      const measurement = svc.pricingEquations.length > 0 ? measurementFor(svc, line.value) : null;
       // A clean-up he bills by the hour is quoted at the hours it is budgeted
       // for, times the hourly rate. Quoting the bare $65/hr as the price of the
       // visit under-quotes a three-hour job by two thirds, and the invoice the
@@ -746,8 +781,8 @@ async function priceEstimateLines(lines: EstimateLine[]): Promise<EstimateLine[]
       const unitPrice =
         hours != null
           ? round(svc.rate * hours)
-          : svc.pricingEquations.length > 0 && line.value.trim() !== "" && Number.isFinite(numeric)
-            ? priceService(svc, pricingField, numeric).price
+          : measurement != null
+            ? priceService(svc, pricingField, measurement).price
             : round(svc.rate);
       const quantity = lineCount(label, "quantity", line.quantity) ?? svc.quantity ?? 1;
       const visits = lineCount(label, "visits", line.visits) ?? svc.visitsPerSeason ?? 1;
@@ -755,6 +790,10 @@ async function priceEstimateLines(lines: EstimateLine[]): Promise<EstimateLine[]
         ...line,
         ...packageFields(line),
         label,
+        // The measurement it was actually priced from, written back plainly, so
+        // the quote the customer reads says which number produced the rate —
+        // and so a comma off the old import does not come back next edit.
+        value: measurement != null ? String(measurement) : line.value,
         unitPrice,
         quantity,
         visits,
@@ -766,12 +805,20 @@ async function priceEstimateLines(lines: EstimateLine[]): Promise<EstimateLine[]
       const field = fields.find((f) => f.id === line.fieldId);
       if (!field) throw Object.assign(new Error(`Estimate field ${line.fieldId} not found`), { status: 400 });
       if (field.fieldType === "calculable") {
-        const numeric = Number(line.value);
-        if (!Number.isFinite(numeric)) {
+        // "14,500" is a number to the office and to the import that wrote it,
+        // so it has to be one here too — and it is stored back without the
+        // comma, because this is the value the account keeps afterwards.
+        const numeric = numericFieldValue(line.value);
+        if (numeric == null) {
           throw Object.assign(new Error(`"${field.label}" needs a numeric value`), { status: 400 });
         }
         const unitSize = field.unitSize && field.unitSize > 0 ? field.unitSize : 1;
-        return { ...line, label: field.label, calculatedPrice: round((numeric / unitSize) * (field.pricePerUnit ?? 0)) };
+        return {
+          ...line,
+          label: field.label,
+          value: String(numeric),
+          calculatedPrice: round((numeric / unitSize) * (field.pricePerUnit ?? 0)),
+        };
       }
       return { ...line, label: field.label, calculatedPrice: null };
     }
@@ -820,6 +867,7 @@ async function danglingLineCounts(lines: EstimateLine[]): Promise<Map<string, nu
 async function priceEstimateLinesPreservingHistory(
   submitted: EstimateLine[],
   savedLines: EstimateLine[],
+  clientId: number,
 ): Promise<EstimateLine[]> {
   const remaining = await danglingLineCounts(savedLines);
   const slots: (EstimateLine | null)[] = [];
@@ -835,7 +883,7 @@ async function priceEstimateLinesPreservingHistory(
       repriceable.push(line);
     }
   }
-  const priced = await priceEstimateLines(repriceable);
+  const priced = await priceEstimateLines(repriceable, clientId, submitted);
   let next = 0;
   return slots.map((preserved) => preserved ?? priced[next++]);
 }
@@ -920,7 +968,7 @@ router.post("/estimates", async (req, res) => {
   let coverTemplateId: number | null;
   try {
     body = CreateEstimateBody.parse(req.body);
-    lines = await priceEstimateLines(body.lines);
+    lines = await priceEstimateLines(body.lines, body.clientId);
     total = estimateTotalOrThrow(lines);
     coverTemplateId = (await resolveCoverTemplateId(body.coverTemplateId)) ?? null;
   } catch (error) {
@@ -1029,7 +1077,7 @@ router.patch("/estimates/:id", async (req, res) => {
   let total: number;
   let coverTemplateId: number | null | undefined;
   try {
-    lines = await priceEstimateLinesPreservingHistory(body.lines, existing.lines);
+    lines = await priceEstimateLinesPreservingHistory(body.lines, existing.lines, existing.clientId);
     total = estimateTotalOrThrow(lines);
     coverTemplateId = await resolveCoverTemplateId(body.coverTemplateId);
   } catch (error) {

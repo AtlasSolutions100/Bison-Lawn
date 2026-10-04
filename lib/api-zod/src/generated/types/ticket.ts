@@ -23,5 +23,10 @@ export interface Ticket {
   assignedToName?: string | null;
   /** @nullable */
   dueDate?: string | null;
+  /**
+     * What the ticket is about, by name (Billing, Cancel Request, ...). The name is stored, not an id, so renaming or deleting a category never rewrites a ticket.
+     * @nullable
+     */
+  category?: string | null;
   createdAt: string;
 }

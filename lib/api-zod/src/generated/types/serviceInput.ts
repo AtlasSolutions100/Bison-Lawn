@@ -34,8 +34,16 @@ export interface ServiceInput {
   defaultStartDate?: string | null;
   /** @nullable */
   defaultEndDate?: string | null;
-  /** @nullable */
+  /**
+     * The renew date every customer who has this service follows - yyyy-mm-dd, or mm-dd for the same day every year
+     * @nullable
+     */
   renewDate?: string | null;
+  /**
+     * One season end for every customer who has this service - yyyy-mm-dd, or mm-dd. Push it onto the accounts with the season-end endpoint.
+     * @nullable
+     */
+  seasonEndDate?: string | null;
   pricingEquations?: PricingEquation[];
   contractorOfferable?: boolean;
   /** @nullable */
