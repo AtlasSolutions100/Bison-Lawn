@@ -1,4 +1,11 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+
+/**
+ * On Windows pnpm is `pnpm.cmd`, which bare spawn cannot resolve: it fails with
+ * ENOENT and the suite then times out waiting for a Vite that never booted.
+ * Routing through the shell there is what makes the name resolvable.
+ */
+const SPAWN_THROUGH_SHELL = process.platform === "win32";
 import { createServer } from "node:net";
 import type { Server } from "node:http";
 import path from "node:path";
@@ -61,6 +68,7 @@ async function syncDatabaseSchema(): Promise<void> {
       cwd: repoRoot,
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 120_000,
+      shell: SPAWN_THROUGH_SHELL,
     });
     let out = "";
     push.stdout?.on("data", (c) => (out += String(c)));
@@ -147,8 +155,11 @@ export async function startHarness(): Promise<Harness> {
     ["--filter", "@workspace/bison-crm", "exec", "vite", "--config", "vite.config.ts", "--host", "127.0.0.1"],
     {
       cwd: repoRoot,
-      detached: true,
+      // A process group is a POSIX idea; on Windows the whole tree is killed
+      // through taskkill in close() instead.
+      detached: !SPAWN_THROUGH_SHELL,
       stdio: ["ignore", "pipe", "pipe"],
+      shell: SPAWN_THROUGH_SHELL,
       env: {
         ...process.env,
         NODE_ENV: "development",
@@ -178,10 +189,16 @@ export async function startHarness(): Promise<Harness> {
     for (const ctx of contexts) await ctx.close().catch(() => {});
     await browser?.close().catch(() => {});
     if (vite.pid) {
-      try {
-        process.kill(-vite.pid, "SIGTERM");
-      } catch {
-        vite.kill("SIGTERM");
+      if (SPAWN_THROUGH_SHELL) {
+        // vite is a grandchild of the shell, so killing the shell alone would
+        // leave it running and holding the port for the next run.
+        spawnSync("taskkill", ["/T", "/F", "/PID", String(vite.pid)], { stdio: "ignore" });
+      } else {
+        try {
+          process.kill(-vite.pid, "SIGTERM");
+        } catch {
+          vite.kill("SIGTERM");
+        }
       }
     }
     await new Promise<void>((resolve) => apiServer.close(() => resolve()));

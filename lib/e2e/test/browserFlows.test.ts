@@ -166,7 +166,9 @@ test("admin creates a weather rule, runs a check and approves the reschedule", a
   const page = await adminContext.newPage();
   page.on("dialog", (d) => void d.accept());
   await page.goto(`${harness.webUrl}/automation`, { waitUntil: "domcontentloaded" });
-  await page.getByRole("heading", { name: "Automation Review" }).waitFor({ timeout: 90_000 });
+  // The page was renamed "Automation" in the 2026-09-15 build; its own heading
+  // is the signal the screen has rendered, not the old "Automation Review".
+  await page.getByRole("heading", { name: "Automation", exact: true }).waitFor({ timeout: 90_000 });
 
   // --- create the rule through the UI
   await page.getByRole("button", { name: /New Rule/i }).click();
