@@ -230,13 +230,21 @@ export default function ClientDetail() {
             </TabsList>
 
             <TabsContent value="overview">
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-                <div className="xl:col-span-2 space-y-8">
-                  <ClientPersonalInfo client={client} />
-                  <ClientContacts client={client} />
-                </div>
-                <div className="space-y-8">
-                  <ClientMasterAccount client={client} />
+              {/* Services sit on the Overview, not only behind their own tab:
+                  "when opening a client's account being able to see
+                  services/packages without clicking on another button". What
+                  he opens an account to look at is what they are signed up
+                  for, so it is the first thing on the page. */}
+              <div className="space-y-8">
+                <AssignedServicesPanel clientId={id} />
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                  <div className="xl:col-span-2 space-y-8">
+                    <ClientPersonalInfo client={client} />
+                    <ClientContacts client={client} />
+                  </div>
+                  <div className="space-y-8">
+                    <ClientMasterAccount client={client} />
+                  </div>
                 </div>
               </div>
             </TabsContent>

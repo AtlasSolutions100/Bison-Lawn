@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'wouter';
 import type L from 'leaflet';
 import { DispatchMap } from '@/components/dispatch-map';
 import { BulkActionsBar } from '@/components/dispatch/bulk-actions-bar';
@@ -152,28 +153,31 @@ export default function Dispatch() {
     <div className="p-8 mx-auto space-y-4 flex flex-col h-[calc(100vh-2rem)] min-w-0">
       <div className="flex flex-wrap justify-between items-end gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Dispatch Board</h1>
-          <p className="text-muted-foreground mt-1">
+          {/* Compact on purpose. He measured the cost of this header himself:
+              "be able to see the whole list of jobs on the dispatch board
+              without scrolling. Right now I can only see two at a time." */}
+          <h1 className="text-2xl font-bold tracking-tight">Dispatch Board</h1>
+          <p className="text-sm text-muted-foreground">
             {spansDays ? `${formatDispatchDate(from)} to ${formatDispatchDate(to)}` : formatDispatchDate(from)} · routes, status and who has what.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex flex-wrap items-center gap-2 bg-card p-2 rounded-lg border shadow-sm">
-            <Input type="date" value={range.from} onChange={e => setRange(r => ({ ...r, from: e.target.value || r.from }))} className="w-40" data-testid="board-from" title="From" />
+          <div className="flex flex-wrap items-center gap-1.5 rounded-lg border bg-card p-1.5 shadow-sm">
+            <Input type="date" value={range.from} onChange={e => setRange(r => ({ ...r, from: e.target.value || r.from }))} className="h-8 w-[8.5rem]" data-testid="board-from" title="From" />
             <span className="text-xs text-muted-foreground">to</span>
-            <Input type="date" value={range.to} onChange={e => setRange(r => ({ ...r, to: e.target.value || r.to }))} className="w-40" data-testid="board-to" title="To" />
+            <Input type="date" value={range.to} onChange={e => setRange(r => ({ ...r, to: e.target.value || r.to }))} className="h-8 w-[8.5rem]" data-testid="board-to" title="To" />
             <Button variant="ghost" size="sm" onClick={() => setRange({ from: today(), to: today() })} data-testid="board-today">Today</Button>
             <input
               type="month"
-              className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+              className="h-8 rounded-md border border-input bg-background px-2 text-sm"
               value={spansDays && monthRange(from.slice(0, 7))?.from === from && monthRange(from.slice(0, 7))?.to === to ? from.slice(0, 7) : ''}
               onChange={e => { const r = monthRange(e.target.value); if (r) setRange(r); }}
               title="Show a whole month"
               data-testid="board-month"
             />
 
-            <select className={`${selectClass} w-40`} value={filters.contractorId} onChange={e => setFilters(f => ({ ...f, contractorId: e.target.value }))} data-testid="board-contractor">
+            <select className={`${selectClass} !h-8 !w-36`} value={filters.contractorId} onChange={e => setFilters(f => ({ ...f, contractorId: e.target.value }))} data-testid="board-contractor">
               <option value="">All contractors</option>
               {contractors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
@@ -590,7 +594,7 @@ function SubLoadSummary({
   const heaviest = Math.max(...buckets.filter(b => b.id != null).map(b => b.amount), 0);
 
   return (
-    <div className="flex gap-3 overflow-x-auto pb-1">
+    <div className="flex gap-2 overflow-x-auto pb-1">
       {buckets.map(bucket => {
         const key = bucket.id == null ? 'unassigned' : String(bucket.id);
         const active = activeContractorId === key;
@@ -615,7 +619,7 @@ function SubLoadSummary({
             // The same colour as this sub's pins on the map, so the tile and
             // the map can be read against each other.
             style={{ borderLeftColor: contractorColor(bucket.id), borderLeftWidth: 4 }}
-            className={`w-full rounded-lg border bg-card p-3 text-left shadow-sm transition ${
+            className={`w-full rounded-lg border bg-card p-2 text-left shadow-sm transition ${
               bucket.id == null
                 ? 'border-dashed opacity-90'
                 : active
@@ -630,8 +634,8 @@ function SubLoadSummary({
                 {bucket.stops} {bucket.stops === 1 ? 'stop' : 'stops'}
               </span>
             </div>
-            <div className="mt-1 text-lg font-bold tabular-nums">{money(bucket.amount)}</div>
-            <div className="mt-0.5 text-xs text-muted-foreground">
+            <div className="text-base font-bold leading-tight tabular-nums">{money(bucket.amount)}</div>
+            <div className="text-[11px] leading-tight text-muted-foreground">
               {bucket.hours > 0 ? `${bucket.hours.toLocaleString(undefined, { maximumFractionDigits: 1 })} hrs budgeted` : 'No hours budgeted'}
               {bucket.skipped > 0 && (
                 <span className="ml-1 font-medium text-orange-700">· {bucket.skipped} skipped</span>
@@ -895,7 +899,20 @@ function DispatchRow({
           />
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 font-semibold text-foreground">
-              <span className="truncate">{job.clientName}</span>
+              {/* "Be able to open up a customer's account by clicking on their
+                  name in the dispatch board." */}
+              {job.clientId != null ? (
+                <Link
+                  href={`/clients/${job.clientId}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="truncate hover:underline"
+                  title={`Open ${job.clientName ?? 'this customer'}`}
+                >
+                  {job.clientName}
+                </Link>
+              ) : (
+                <span className="truncate">{job.clientName}</span>
+              )}
               {/* Said on the row before a bulk email, not after: the two he has
                   to ring are the ones with no address here. */}
               {(noEmail || job.clientDoNotEmail) && (
@@ -934,7 +951,7 @@ function DispatchRow({
           />
         )}
       </TableCell>
-      <TableCell hidden={!show('status')} className="p-2">
+      <TableCell hidden={!show('status')} className="p-1.5">
         <select
           className={`w-full h-8 text-xs font-bold px-2 rounded-md outline-none cursor-pointer border ${statusColors[job.status] ?? ''}`}
           value={job.status}
@@ -967,7 +984,7 @@ function DispatchRow({
           </div>
         )}
       </TableCell>
-      <TableCell hidden={!show('date')} className="p-2 whitespace-nowrap text-sm">
+      <TableCell hidden={!show('date')} className="p-1.5 whitespace-nowrap text-sm">
         <div className="flex items-center gap-1.5">
           {/* The calendar he asked for: ticked when the job has been dispatched
               (which everything on the board has), crossed on the waiting list. */}
@@ -987,7 +1004,7 @@ function DispatchRow({
           />
         </div>
       </TableCell>
-      <TableCell hidden={!show('map')} className="p-2">
+      <TableCell hidden={!show('map')} className="p-1.5">
         <div className="flex items-center gap-1.5">
           {hasLocation ? (
             <Button variant="outline" size="sm" className="h-8 px-2" asChild>
@@ -1008,27 +1025,27 @@ function DispatchRow({
           </div>
         )}
       </TableCell>
-      <TableCell hidden={!show('city')} className="p-2 text-sm">
+      <TableCell hidden={!show('city')} className="p-1.5 text-sm">
         {job.city || <span className="text-muted-foreground">—</span>}
       </TableCell>
-      <TableCell hidden={!show('lastService')} className="p-2 whitespace-nowrap text-sm">
+      <TableCell hidden={!show('lastService')} className="p-1.5 whitespace-nowrap text-sm">
         {job.lastServiceDate
           ? formatDispatchDate(job.lastServiceDate)
           : <span className="text-muted-foreground">Never serviced</span>}
       </TableCell>
-      <TableCell hidden={!show('budgetedHours')} className="p-2 whitespace-nowrap text-sm">
+      <TableCell hidden={!show('budgetedHours')} className="p-1.5 whitespace-nowrap text-sm">
         {job.budgetedHours != null
           ? `${job.budgetedHours} ${job.budgetedHours === 1 ? 'hour' : 'hours'}`
           : <span className="text-muted-foreground">Not set</span>}
       </TableCell>
-      <TableCell hidden={!show('notes')} className="p-2">
+      <TableCell hidden={!show('notes')} className="p-1.5">
         <JobNotes job={job} />
       </TableCell>
-      <TableCell hidden={!show('service')} className="p-2 text-sm font-medium">
+      <TableCell hidden={!show('service')} className="whitespace-nowrap p-1.5 text-sm font-medium">
         {job.serviceCode && <span className="mr-1 rounded bg-muted px-1 font-mono text-[10px] text-muted-foreground">{job.serviceCode}</span>}
         {job.serviceName}
       </TableCell>
-      <TableCell hidden={!show('assigned')} className="p-2">
+      <TableCell hidden={!show('assigned')} className="p-1.5">
         <div className="flex items-center gap-1.5">
           <span
             className="inline-block h-3 w-3 shrink-0 rounded-full border border-white shadow"
@@ -1061,7 +1078,7 @@ function DispatchRow({
         that worse, so the three sit together and the board is one column
         narrower than before.
       */}
-      <TableCell hidden={!show('money')} className="p-2 text-right text-sm whitespace-nowrap">
+      <TableCell hidden={!show('money')} className="p-1.5 text-right text-sm whitespace-nowrap">
         <div className="font-bold text-foreground">
           ${job.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
         </div>
@@ -1074,7 +1091,7 @@ function DispatchRow({
           </div>
         )}
       </TableCell>
-      <TableCell className="p-2 text-right space-x-1 whitespace-nowrap" onClick={e => e.stopPropagation()}>
+      <TableCell className="p-1.5 text-right space-x-1 whitespace-nowrap" onClick={e => e.stopPropagation()}>
         <ProductsPopover job={job} />
 
         <Popover>
