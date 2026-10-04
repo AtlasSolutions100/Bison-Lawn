@@ -131,7 +131,7 @@ answering them is the cheapest progress available.
    what was built, in his words, and names anything you decided differently.
    That note is his progress report — it is the only part he reads.
 
-## After the 2026-09-16 pass: **104 Done, 5 Read, 4 New**
+## After the 2026-09-16 pass: **104 Done, 5 Read, 4 New** (3 New after 2026-10-03)
 
 The 2026-09-15 walkthrough (`docs/walkthrough-2026-09-15`) was built and
 deployed as `24ad022`. Every item that pass touched is closed in the app with a
@@ -144,7 +144,7 @@ note in his words; that note is still the only part he reads.
 | 42 | Import a matrix from Excel | Nobody has started it. Needs a column-mapping step, since his sheets are not all shaped alike. |
 | 45 | Custom parameters for the parallel cells | Needs a conversation about what the parameters are before it can be built. |
 | 74 | Offline access for contractors | A web app cannot do this properly; it is the one item that argues for a native app. |
-| 90 | Bold and emphasis in descriptions and documents | The template body and the service description are both plain text today. |
+| ~~90~~ | ~~Bold and emphasis in descriptions and documents~~ | **Done 2026-10-03.** `**bold**`, `*italic*` and `- bullets` render in the estimate PDF, document emails, the preview and the crew note. |
 
 ### The five marked "where this stands"
 
