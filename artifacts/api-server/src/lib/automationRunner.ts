@@ -211,7 +211,13 @@ export async function findCandidates(rule: AutomationRule, today: string, scope?
 
   switch (rule.trigger as RuleTrigger) {
     case "invoice_past_due": {
-      const invoices = await db.select().from(invoicesTable).where(inArray(invoicesTable.status, [...UNPAID]));
+      // Only bills that actually went out. Without `sentAt` this chased
+      // customers for invoices sitting unsent in the verification queue —
+      // a "you are past due" letter for a bill they have never seen.
+      const invoices = await db
+        .select()
+        .from(invoicesTable)
+        .where(and(isNotNull(invoicesTable.sentAt), inArray(invoicesTable.status, [...UNPAID])));
       const clients = await clientsById(invoices.map((i) => i.clientId));
       for (const invoice of invoices) {
         const client = clients.get(invoice.clientId);

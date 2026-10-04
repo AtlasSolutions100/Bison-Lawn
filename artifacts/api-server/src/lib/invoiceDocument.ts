@@ -63,10 +63,21 @@ export const effectiveDueDate = (invoice: Pick<Invoice, "dueDate" | "invoiceDate
  * no timezone can push a bill a day late overnight.
  */
 export function daysPastDueOf(
-  invoice: Pick<Invoice, "dueDate" | "invoiceDate" | "total" | "amountPaid"> & { status?: string | null },
+  invoice: Pick<Invoice, "dueDate" | "invoiceDate" | "total" | "amountPaid"> & {
+    status?: string | null;
+    sentAt?: Date | null;
+  },
   today: string,
 ): number {
   if (balanceOf(invoice) <= 0) return 0;
+  // A customer cannot be late paying a bill they never received. A bill still
+  // waiting to be checked, or checked and not yet emailed, is our delay and
+  // not theirs — counting days against it would put a red "8 days past due" on
+  // a bill nobody has seen, and would let the past-due letter chase them for
+  // it. `sentAt` is undefined for callers that do not carry it (the renderer
+  // works on a line-item view), and those are only ever asked about bills that
+  // already went out.
+  if (invoice.sentAt === null) return 0;
   const due = effectiveDueDate(invoice);
   const parse = (v: string | null) => {
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec((v ?? "").trim());

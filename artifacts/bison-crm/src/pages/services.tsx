@@ -1033,7 +1033,7 @@ function ServiceDialog({ serviceToEdit, open: controlledOpen, onOpenChange }: {
                         {...field}
                       />
                     </FormControl>
-                    <p className="text-xs text-muted-foreground">What the customer reads on the estimate. Enter starts a new line.</p>
+                    <p className="text-xs text-muted-foreground">What the customer reads on the estimate. Enter starts a new line. Wrap a phrase in **two stars** to make it bold, *one star* for italics, and start a line with - for a bullet.</p>
                     <FormMessage/>
                   </FormItem>
                 )} />

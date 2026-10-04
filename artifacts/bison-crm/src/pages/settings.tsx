@@ -593,6 +593,7 @@ function DocumentTemplates() {
                         value={draft.body}
                         onChange={(event) => setDraft((current) => ({ ...current, body: event.target.value }))}
                       />
+                      <p className="mt-1 text-xs text-muted-foreground">Wrap a phrase in **two stars** to make it bold, *one star* for italics, and start a line with - for a bullet.</p>
                     </div>
                     <div className="rounded-lg border bg-muted/40 p-4">
                       <h3 className="font-semibold">Merge tokens</h3>

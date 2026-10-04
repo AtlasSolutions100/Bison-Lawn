@@ -11,7 +11,7 @@ import {
   billingSettingsTable,
   auditEventsTable,
 } from "@workspace/db";
-import { and, asc, desc, eq, gte, ilike, inArray, isNull, lt, ne, or, sql, sum, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, isNotNull, isNull, lt, ne, or, sql, sum, type SQL } from "drizzle-orm";
 import {
   ApplyPaymentBody,
   AttachJobToInvoiceBody,
@@ -317,7 +317,14 @@ function queueCondition(queue: string, today: string): SQL | null {
     case "open":
       return inArray(invoicesTable.status, [...OWED]);
     case "past_due":
-      return and(inArray(invoicesTable.status, [...OWED]), sql`${effectiveDue} is not null`, lt(effectiveDue, today))!;
+      // Only bills the customer has actually received: an unsent one is our
+      // delay, not theirs, and it belongs in Needs verification or To email.
+      return and(
+        inArray(invoicesTable.status, [...OWED]),
+        isNotNull(invoicesTable.sentAt),
+        sql`${effectiveDue} is not null`,
+        lt(effectiveDue, today),
+      )!;
     case "paid":
       return eq(invoicesTable.status, "paid");
     case "void":

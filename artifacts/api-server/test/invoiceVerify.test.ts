@@ -180,7 +180,11 @@ test("completing a job makes a pending invoice that shows only in the verificati
     0,
     "an unchecked bill is not on the balance the customer gets quoted",
   );
+  // Was passing only because the seeded due date had not arrived yet; once it
+  // had, an unchecked bill started reporting days late. A customer cannot be
+  // late paying a bill that was never sent to them.
   assert.equal(res.body.daysPastDue, 0, "a pending bill is never past due");
+  assert.ok(!(await queueIds("past_due")).includes(inv1.id), "and it is not in the Past due queue");
   assert.equal(res.body.clientEmail, "koby@radiantaisoftware.com");
 });
 
@@ -500,7 +504,16 @@ test("open invoices show days past due, and the past-due queue uses the invoice 
   });
   assert.equal(old.status, 201, JSON.stringify(old.body));
   assert.equal(old.body.dueDate, "2026-08-01", "due on receipt is due the day it is issued");
-  assert.ok(old.body.daysPastDue >= 40, `days past due should count from Aug 1, got ${old.body.daysPastDue}`);
+
+  // Nothing is late until the customer has it, so the bill has to have gone
+  // out before the days start counting. Without this the figure stayed 0 —
+  // which is the point of the rule, not a problem with the test.
+  assert.equal(old.body.daysPastDue, 0, "a bill still sitting here is not the customer's delay");
+  assert.ok(!(await queueIds("past_due")).includes(old.body.id), "and it is not in Past due yet");
+  await db.update(invoicesTable).set({ sentAt: new Date() }).where(eq(invoicesTable.id, old.body.id));
+
+  const sent = await api(`/invoices/${old.body.id}`);
+  assert.ok(sent.body.daysPastDue >= 40, `days past due should count from Aug 1, got ${sent.body.daysPastDue}`);
   assert.ok((await queueIds("past_due")).includes(old.body.id));
   assert.ok((await queueIds("open")).includes(old.body.id));
   assert.ok(!(await queueIds("past_due")).includes(invEmail.id), "a fresh Net 15 bill is not past due yet");

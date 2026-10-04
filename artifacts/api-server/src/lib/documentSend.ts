@@ -16,6 +16,7 @@ import { brandAssetUrl, companyAddressLines, companyContactLine } from "./estima
 import { defaultGmailProxy, type GmailProxy } from "./gmail";
 import { logAudit } from "./helpers";
 import { renderTemplate, type MergeContext } from "./mergeTokens";
+import { richTextHtml, stripMarkers } from "./richText";
 
 /**
  * One way to email a document template to customers, whoever asks for it.
@@ -131,11 +132,9 @@ export function documentEmailHtml(params: { bodyText: string; company: CompanyPr
   const addressLines = companyAddressLines(company);
   const contactLine = companyContactLine(company);
 
-  const paragraphs = bodyText
-    .trim()
-    .split(/\n\s*\n/)
-    .map((block) => `<p style="margin:0 0 16px;line-height:1.65">${escapeHtml(block).replace(/\r?\n/g, "<br />")}</p>`)
-    .join("");
+  // **bold**, *italic* and "- " bullets are honoured, because the bodies he
+  // pastes in already carry them. Escaping happens first, inside richTextHtml.
+  const paragraphs = richTextHtml(bodyText);
 
   return `<!doctype html><html><body style="margin:0;background:#f7f5f1;font-family:Arial,sans-serif;color:#2b2118">
     <div style="max-width:620px;margin:24px auto;background:#fff;border:1px solid #e7e2dc;border-radius:12px;overflow:hidden">
@@ -236,7 +235,12 @@ export async function deliverDocument(params: {
         const bodyText = renderTemplate(template.body, context);
         openToken = randomBytes(16).toString("base64url");
         const html = documentEmailHtml({ bodyText, company, pixelUrl: openPixelUrl(openToken) });
-        const sent = await sendClientEmailViaGmail({ toEmail, subject, body: bodyText, html }, documentGmailProxy);
+        // The text half of the email loses the markers: a reader whose mail
+        // client shows that half should not be looking at asterisks.
+        const sent = await sendClientEmailViaGmail(
+          { toEmail, subject, body: stripMarkers(bodyText), html },
+          documentGmailProxy,
+        );
         gmailMessageId = sent.id ?? null;
         outcome.status = "sent";
         outcome.delivered = true;

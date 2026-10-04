@@ -7,6 +7,7 @@ import type { Estimate, EstimateLine, Client, CompanyProfile } from "@workspace/
 import { eq } from "drizzle-orm";
 import { getCompanyProfile } from "./companyProfile";
 import { firstNameOf, renderTemplate } from "./mergeTokens";
+import { bulletText, stripMarkers, textRuns } from "./richText";
 
 /** The company details and contract text one estimate document renders with. */
 export type EstimateBranding = {
@@ -459,14 +460,34 @@ export async function createEstimatePdf(data: EstimateDocumentData): Promise<Buf
         y = doc.y + 12;
         for (const service of descriptions) {
           doc.font("Helvetica").fontSize(10);
-          needSpace(doc.heightOfString(service.description, { width: 504, lineGap: 2 }) + 38);
+          // Measured on the text without its markers: the asterisks are not
+          // printed, so counting them would reserve a line that never fills.
+          needSpace(doc.heightOfString(stripMarkers(service.description), { width: 504, lineGap: 2 }) + 38);
           doc.fillColor(DARK).font("Helvetica-Bold").fontSize(10).text(service.name, 54, y, { width: 504 });
-          doc
-            .fillColor(MUTED)
-            .font("Helvetica")
-            .fontSize(10)
-            .text(service.description, 54, doc.y + 4, { width: 504, lineGap: 2 });
-          y = doc.y + 14;
+          doc.fillColor(MUTED).fontSize(10);
+          let lineY = doc.y + 4;
+          for (const rawLine of service.description.split(/\r?\n/)) {
+            const bullet = bulletText(rawLine);
+            const runs = textRuns(bullet ?? rawLine);
+            if (!runs.some((run) => run.text.trim())) {
+              lineY += 6; // a blank line he typed is a gap he wanted
+              continue;
+            }
+            const left = bullet != null ? 66 : 54;
+            const width = bullet != null ? 492 : 504;
+            if (bullet != null) doc.font("Helvetica").text("•", 54, lineY, { width: 10 });
+            runs.forEach((run, index) => {
+              doc.font(run.bold ? "Helvetica-Bold" : run.italic ? "Helvetica-Oblique" : "Helvetica");
+              doc.text(run.text, index === 0 ? left : undefined, index === 0 ? lineY : undefined, {
+                width,
+                lineGap: 2,
+                continued: index < runs.length - 1,
+              });
+            });
+            lineY = doc.y;
+          }
+          doc.font("Helvetica");
+          y = lineY + 14;
         }
       }
     }

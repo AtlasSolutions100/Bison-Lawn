@@ -183,16 +183,18 @@ before(async () => {
   const invoices = await db
     .insert(invoicesTable)
     .values([
+      // Every one of these went to the customer — `sentAt` is what makes a bill
+      // chaseable at all, since nobody can be late paying one they never got.
       // Due 5 days ago, half paid: the balance, not the total, is chased.
-      { clientId: paysLate.id, status: "partial", total: 200, amountPaid: 50, number: nextNumber++, invoiceDate: addDays(TODAY, -20), dueDate: addDays(TODAY, -5), terms: "Net 15" },
+      { clientId: paysLate.id, status: "partial", total: 200, amountPaid: 50, number: nextNumber++, invoiceDate: addDays(TODAY, -20), dueDate: addDays(TODAY, -5), terms: "Net 15", sentAt: new Date() },
       // No due date on file, "Due on receipt" 3 days ago: due the day it was issued.
-      { clientId: alsoLate.id, status: "open", total: 120, amountPaid: 0, number: nextNumber++, invoiceDate: addDays(TODAY, -3), dueDate: null, terms: "Due on receipt" },
+      { clientId: alsoLate.id, status: "open", total: 120, amountPaid: 0, number: nextNumber++, invoiceDate: addDays(TODAY, -3), dueDate: null, terms: "Due on receipt", sentAt: new Date() },
       // Paid: never chased even though it is old.
-      { clientId: alsoLate.id, status: "paid", total: 80, amountPaid: 80, number: nextNumber++, invoiceDate: addDays(TODAY, -30), dueDate: addDays(TODAY, -15), terms: "Net 15" },
+      { clientId: alsoLate.id, status: "paid", total: 80, amountPaid: 80, number: nextNumber++, invoiceDate: addDays(TODAY, -30), dueDate: addDays(TODAY, -15), terms: "Net 15", sentAt: new Date() },
       // Due yesterday: not 2 days past due yet.
-      { clientId: alsoLate.id, status: "open", total: 60, amountPaid: 0, number: nextNumber++, invoiceDate: addDays(TODAY, -16), dueDate: addDays(TODAY, -1), terms: "Net 15" },
+      { clientId: alsoLate.id, status: "open", total: 60, amountPaid: 0, number: nextNumber++, invoiceDate: addDays(TODAY, -16), dueDate: addDays(TODAY, -1), terms: "Net 15", sentAt: new Date() },
       // Overdue but the customer is marked do not email.
-      { clientId: optedOut.id, status: "open", total: 45, amountPaid: 0, number: nextNumber++, invoiceDate: addDays(TODAY, -20), dueDate: addDays(TODAY, -5), terms: "Net 15" },
+      { clientId: optedOut.id, status: "open", total: 45, amountPaid: 0, number: nextNumber++, invoiceDate: addDays(TODAY, -20), dueDate: addDays(TODAY, -5), terms: "Net 15", sentAt: new Date() },
     ])
     .returning();
   [overdueInvoice, receiptInvoice, paidInvoice, notYetInvoice, optedOutInvoice] = invoices as any;
@@ -558,9 +560,11 @@ test("an invoice with no number on file is chased by its id, never as 'invoice #
       total: 45,
       amountPaid: 0,
       number: null,
+      sentAt: new Date(),
       invoiceDate: addDays(TODAY, -20),
       dueDate: addDays(TODAY, -5),
       terms: "Net 15",
+      sentAt: new Date(),
     })
     .returning();
 
@@ -595,6 +599,7 @@ test("a notice that blew up before it was sent hands its claim back for tomorrow
       invoiceDate: addDays(TODAY, -20),
       dueDate: addDays(TODAY, -5),
       terms: "Net 15",
+      sentAt: new Date(),
     })
     .returning();
   const subjectKey = `invoice:${invoice!.id}`;
@@ -640,6 +645,7 @@ test("a letter Gmail took but we could not write down is not sent a second time"
       invoiceDate: addDays(TODAY, -20),
       dueDate: addDays(TODAY, -5),
       terms: "Net 15",
+      sentAt: new Date(),
     })
     .returning();
 

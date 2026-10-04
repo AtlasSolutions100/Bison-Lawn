@@ -36,7 +36,8 @@
     "test:invoice-verify": "tsx --test test/invoiceVerify.test.ts",
     "test:client-services": "tsx --test test/clientServices.test.ts",
     "test:access": "tsx --test test/access.test.ts",
-    "test": "pnpm run test:owner-access && pnpm run test:estimate-delivery && pnpm run test:customer-message-delivery && pnpm run test:invoice-document && pnpm run test:pricing && pnpm run test:services && pnpm run test:invitation-email && pnpm run test:client-email && pnpm run test:integration && pnpm run test:automation && pnpm run test:extra-work && pnpm run test:user-accounts && pnpm run test:credit-and-schedule && pnpm run test:clients-bulk && pnpm run test:client-account && pnpm run test:dispatch-actions && pnpm run test:document-send && pnpm run test:automation-rules && pnpm run test:client-activity && pnpm run test:locations && pnpm run test:sms && pnpm run test:reports && pnpm run test:access && pnpm run test:client-services && pnpm run test:invoice-verify && pnpm run test:estimates"
+    "test": "pnpm run test:owner-access && pnpm run test:estimate-delivery && pnpm run test:customer-message-delivery && pnpm run test:invoice-document && pnpm run test:pricing && pnpm run test:rich-text && pnpm run test:services && pnpm run test:invitation-email && pnpm run test:client-email && pnpm run test:integration && pnpm run test:automation && pnpm run test:extra-work && pnpm run test:user-accounts && pnpm run test:credit-and-schedule && pnpm run test:clients-bulk && pnpm run test:client-account && pnpm run test:dispatch-actions && pnpm run test:document-send && pnpm run test:automation-rules && pnpm run test:client-activity && pnpm run test:locations && pnpm run test:sms && pnpm run test:reports && pnpm run test:access && pnpm run test:client-services && pnpm run test:invoice-verify && pnpm run test:estimates",
+    "test:rich-text": "tsx --test test/richText.test.ts"
   },
   "dependencies": {
     "@clerk/express": "^2.1.57",
